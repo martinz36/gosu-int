@@ -1,0 +1,28 @@
+# Node dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Environments / Secrets
+.env
+.env.local
+.env.development
+.env.production
+.env.*.local
+
+# IDEs and OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Service caches
+.vercel/
+.railway/
