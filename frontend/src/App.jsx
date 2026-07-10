@@ -1,122 +1,819 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useState, useEffect, useCallback } from 'react';
+import './App.css';
+import LoginPage from './components/LoginPage';
+import { auth, products as productsApi, orders as ordersApi, production as productionApi } from './services/api';
+
+// Reglas de descuento (se obtendrán del backend en futuras versiones)
+const VOLUME_DISCOUNTS = [
+  { min_cases: 5,  discount_percentage: 5  },
+  { min_cases: 10, discount_percentage: 10 },
+  { min_cases: 20, discount_percentage: 15 },
+];
 
 function App() {
-  const [count, setCount] = useState(0)
+  // -------------------------------------------------------
+  // Estado de Autenticación
+  // -------------------------------------------------------
+  const [currentUser, setCurrentUser] = useState(() => auth.getUser());
 
+  // -------------------------------------------------------
+  // Datos del servidor
+  // -------------------------------------------------------
+  const [productList, setProductList] = useState([]);
+  const [clientOrders, setClientOrders] = useState([]);
+  const [productionOrders, setProductionOrders] = useState([]);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [dataError, setDataError] = useState('');
+
+  // -------------------------------------------------------
+  // UI State
+  // -------------------------------------------------------
+  const [activeTab, setActiveTab] = useState('catalog');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [cart, setCart] = useState({});
+  const [showCart, setShowCart] = useState(false);
+  const [receiptUploaded, setReceiptUploaded] = useState(false);
+  const [selectedOrderForDoc, setSelectedOrderForDoc] = useState(null);
+  const [docType, setDocType] = useState('invoice');
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+
+  // MOA del usuario actual
+  const MOA_LIMIT = parseFloat(currentUser?.custom_moa_usd) || 1000.00;
+  const isAdmin = currentUser?.role === 'admin';
+
+  // -------------------------------------------------------
+  // Carga de datos
+  // -------------------------------------------------------
+  const loadProducts = useCallback(async () => {
+    try {
+      const params = {};
+      if (selectedCategory !== 'all') params.category = selectedCategory;
+      if (searchQuery) params.search = searchQuery;
+      const data = await productsApi.getAll(params);
+      setProductList(data);
+    } catch (err) {
+      console.error('Error cargando productos:', err);
+    }
+  }, [selectedCategory, searchQuery]);
+
+  const loadOrders = useCallback(async () => {
+    try {
+      const data = await ordersApi.getAll();
+      setClientOrders(data);
+    } catch (err) {
+      console.error('Error cargando pedidos:', err);
+    }
+  }, []);
+
+  const loadProduction = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const data = await productionApi.getAll();
+      setProductionOrders(data);
+    } catch (err) {
+      console.error('Error cargando producción:', err);
+    }
+  }, [isAdmin]);
+
+  // Carga inicial cuando el usuario se autentifica
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    const loadAll = async () => {
+      setDataLoading(true);
+      setDataError('');
+      try {
+        await Promise.all([loadProducts(), loadOrders(), loadProduction()]);
+      } catch (err) {
+        setDataError('Error al cargar datos del servidor.');
+      } finally {
+        setDataLoading(false);
+      }
+    };
+    loadAll();
+  }, [currentUser]);
+
+  // Recargar productos cuando cambian los filtros
+  useEffect(() => {
+    if (!currentUser) return;
+    const timeout = setTimeout(loadProducts, 300); // debounce
+    return () => clearTimeout(timeout);
+  }, [selectedCategory, searchQuery, currentUser]);
+
+  // Recargar según la tab activa
+  useEffect(() => {
+    if (!currentUser) return;
+    if (activeTab === 'orders') loadOrders();
+    if (activeTab === 'admin') loadProduction();
+  }, [activeTab, currentUser]);
+
+  // -------------------------------------------------------
+  // Login / Logout
+  // -------------------------------------------------------
+  const handleLogin = (user) => {
+    setCurrentUser(user);
+  };
+
+  const handleLogout = () => {
+    auth.logout();
+    setCurrentUser(null);
+    setCart({});
+    setProductList([]);
+    setClientOrders([]);
+    setProductionOrders([]);
+  };
+
+  // -------------------------------------------------------
+  // Lógica del Carrito
+  // -------------------------------------------------------
+  const handleAddToCart = (productId) => {
+    setCart(prev => ({ ...prev, [productId]: (prev[productId] || 0) + 1 }));
+  };
+
+  const handleRemoveFromCart = (productId) => {
+    setCart(prev => {
+      const updated = { ...prev };
+      if (updated[productId] > 1) {
+        updated[productId] -= 1;
+      } else {
+        delete updated[productId];
+      }
+      return updated;
+    });
+  };
+
+  const getCartTotals = () => {
+    let totalItemsCases = 0;
+    let subtotal = 0;
+    const itemsDetail = [];
+
+    Object.entries(cart).forEach(([id, qty]) => {
+      const product = productList.find(p => p.id === id);
+      if (product) {
+        totalItemsCases += qty;
+        subtotal += parseFloat(product.price_per_case_usd) * qty;
+        itemsDetail.push({ ...product, qty });
+      }
+    });
+
+    // Descuento por categoría
+    let categoryDiscountPercent = currentUser?.client_category === 'wholesale_distributor' ? 5 : 0;
+
+    // Descuento por volumen
+    let volumeDiscountPercent = 0;
+    VOLUME_DISCOUNTS.forEach(d => {
+      if (totalItemsCases >= d.min_cases) volumeDiscountPercent = d.discount_percentage;
+    });
+
+    const totalDiscountPercent = categoryDiscountPercent + volumeDiscountPercent;
+    const discountAmount = subtotal * (totalDiscountPercent / 100);
+    const finalTotal = subtotal - discountAmount;
+
+    return { subtotal, discountPercent: totalDiscountPercent, discountAmount, finalTotal, totalCases: totalItemsCases, items: itemsDetail };
+  };
+
+  const cartTotals = getCartTotals();
+
+  // -------------------------------------------------------
+  // Checkout
+  // -------------------------------------------------------
+  const handleCheckoutSubmit = async (e) => {
+    e.preventDefault();
+    if (cartTotals.finalTotal < MOA_LIMIT) return;
+    
+    setCheckoutLoading(true);
+    try {
+      const items = cartTotals.items.map(i => ({
+        product_id: i.id,
+        qty_cases: i.qty,
+      }));
+
+      await ordersApi.create(items);
+      setCart({});
+      setReceiptUploaded(false);
+      setShowCart(false);
+      await loadOrders();
+      setActiveTab('orders');
+      alert('🎉 Pedido enviado con éxito. Esperando validación de pago.');
+    } catch (err) {
+      alert(`❌ Error: ${err.message}`);
+    } finally {
+      setCheckoutLoading(false);
+    }
+  };
+
+  // -------------------------------------------------------
+  // Si no está autenticado, mostrar Login
+  // -------------------------------------------------------
+  if (!currentUser) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
+  // -------------------------------------------------------
+  // Render Principal
+  // -------------------------------------------------------
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div className="app-container overflow-x-hidden">
+      {/* Header */}
+      <header className="nav-header">
+        <div className="logo-container">
+          <div className="logo-text">Gosu Accessories</div>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
+        <nav className="nav-links">
+          <span className={`nav-link ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>
+            Catálogo B2B
+          </span>
+          <span className={`nav-link ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
+            Mis Pedidos & Bóveda
+          </span>
+          {isAdmin && (
+            <span className={`nav-link ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
+              Fábrica & Producción
+            </span>
+          )}
+        </nav>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <div style={{ fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'right' }}>
+            <div style={{ color: '#fff', fontWeight: '700' }}>{currentUser.name}</div>
+            <div style={{ fontSize: '11px' }}>
+              <span className={`badge ${isAdmin ? 'badge-pink' : 'badge-cyan'}`} style={{ fontSize: '9px', padding: '2px 6px' }}>
+                {isAdmin ? 'ADMIN' : currentUser.client_category?.replace('_', ' ')}
+              </span>
+            </div>
+          </div>
+          <button className="btn-neon" onClick={() => setShowCart(true)}>
+            🛒 {cartTotals.totalCases} {cartTotals.totalCases === 1 ? 'Caja' : 'Cajas'}
+          </button>
+          <button onClick={handleLogout} style={{ background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px' }}>
+            Salir
+          </button>
         </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+      </header>
 
-      <div className="ticks"></div>
+      {/* Mobile Nav */}
+      <div className="mobile-bottom-nav">
+        <span className={`mobile-nav-item ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>📂 Catálogo</span>
+        <span className={`mobile-nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>📜 Bóveda B2B</span>
+        {isAdmin && (
+          <span className={`mobile-nav-item ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>🏭 Fábrica</span>
+        )}
+      </div>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+      <main className="main-content">
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+        {/* Loading global */}
+        {dataLoading && (
+          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--cyan-neon)' }}>
+            ⏳ Cargando datos desde Neon...
+          </div>
+        )}
+
+        {dataError && (
+          <div className="glass-panel" style={{ padding: '16px', borderLeft: '4px solid var(--orange-neon)', marginBottom: '24px', color: 'var(--orange-neon)' }}>
+            ⚠️ {dataError}
+          </div>
+        )}
+
+        {/* ===================================================== */}
+        {/* TAB 1: CATÁLOGO B2B                                   */}
+        {/* ===================================================== */}
+        {activeTab === 'catalog' && !dataLoading && (
+          <div>
+            <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '16px', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Catálogo Mayorista</h1>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                  Precios especiales para distribuidores despachados directamente de fábrica.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  id="product-search"
+                  placeholder="Buscar producto..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 16px', borderRadius: '8px', width: '200px' }}
+                />
+              </div>
+            </div>
+
+            {/* Filtros de Categoría */}
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '24px', flexWrap: 'wrap' }}>
+              {['all', 'sleeves', 'binders', 'deck_boxes'].map(cat => (
+                <button
+                  key={cat}
+                  id={`filter-${cat}`}
+                  onClick={() => setSelectedCategory(cat)}
+                  style={{
+                    background: selectedCategory === cat ? 'var(--cyan-neon)' : 'rgba(255,255,255,0.05)',
+                    color: selectedCategory === cat ? '#000' : '#fff',
+                    border: 'none',
+                    padding: '8px 16px',
+                    borderRadius: '20px',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    textTransform: 'uppercase',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {cat === 'all' ? 'Ver Todos' : cat.replace('_', ' ')}
+                </button>
+              ))}
+            </div>
+
+            {/* Banner de Descuentos */}
+            <div className="glass-panel" style={{ padding: '16px', marginBottom: '24px', borderLeft: '3px solid var(--pink-neon)' }}>
+              <span className="badge badge-pink" style={{ marginBottom: '8px' }}>Descuentos Automáticos por Volumen</span>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                Comprar <strong>5+ cajas</strong> da 5% | <strong>10+ cajas</strong> da 10% | <strong>20+ cajas</strong> da 15% de descuento.
+                {currentUser?.client_category === 'wholesale_distributor' && <> + <strong>5% extra</strong> como Distribuidor Mayorista.</>}
+              </p>
+            </div>
+
+            {/* Grilla del Catálogo */}
+            {productList.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
+                {searchQuery ? `Sin resultados para "${searchQuery}"` : 'No hay productos disponibles.'}
+              </div>
+            ) : (
+              <div className="catalog-grid">
+                {productList.map(product => {
+                  const inCartQty = cart[product.id] || 0;
+                  const priceNum = parseFloat(product.price_per_case_usd);
+                  return (
+                    <div key={product.id} className="glass-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '380px' }}>
+                      <div>
+                        {/* Ilustración SVG */}
+                        <div style={{ width: '100%', height: '140px', background: 'rgba(0,232,255,0.02)', border: '1px solid rgba(255,255,255,0.03)', borderRadius: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '16px' }}>
+                          <svg width="80" height="80" viewBox="0 0 24 24" fill="none"
+                            stroke={product.category === 'sleeves' ? 'var(--cyan-neon)' : product.category === 'binders' ? 'var(--pink-neon)' : 'var(--orange-neon)'}
+                            strokeWidth="1">
+                            {product.category === 'sleeves' && <rect x="4" y="2" width="16" height="20" rx="2" />}
+                            {product.category === 'binders' && <path d="M4 2h14a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H4V2z M8 2v20" />}
+                            {product.category === 'deck_boxes' && <rect x="3" y="5" width="18" height="14" rx="2" />}
+                          </svg>
+                        </div>
+                        <span className="badge badge-cyan" style={{ fontSize: '10px' }}>{product.category}</span>
+                        <h3 style={{ fontSize: '18px', margin: '8px 0 4px', fontWeight: '700', lineHeight: '1.2' }}>{product.name}</h3>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>SKU: {product.sku}</p>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
+                          Stock: <strong style={{ color: product.stock_cases > 10 ? 'var(--green-neon)' : 'var(--orange-neon)' }}>{product.stock_cases} cajas</strong>
+                        </p>
+                      </div>
+
+                      <div style={{ marginTop: '20px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                          <div>
+                            <span style={{ fontSize: '20px', fontWeight: '900', color: 'var(--cyan-neon)' }}>${priceNum.toFixed(2)}</span>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}> / caja</span>
+                          </div>
+                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>({product.units_per_case} packs/caja)</span>
+                        </div>
+
+                        {inCartQty > 0 ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'center' }}>
+                            <button onClick={() => handleRemoveFromCart(product.id)} style={{ padding: '6px 12px', background: '#222', border: '1px solid #444', color: '#fff', borderRadius: '6px', cursor: 'pointer' }}>-</button>
+                            <span style={{ fontWeight: '700', fontSize: '16px' }}>{inCartQty} {inCartQty === 1 ? 'Caja' : 'Cajas'}</span>
+                            <button onClick={() => handleAddToCart(product.id)} style={{ padding: '6px 12px', background: '#222', border: '1px solid #444', color: '#fff', borderRadius: '6px', cursor: 'pointer' }}>+</button>
+                          </div>
+                        ) : (
+                          <button
+                            id={`add-to-cart-${product.id}`}
+                            className="btn-neon"
+                            style={{ width: '100%' }}
+                            onClick={() => handleAddToCart(product.id)}
+                            disabled={product.stock_cases === 0}
+                          >
+                            {product.stock_cases === 0 ? 'Sin Stock' : 'Añadir al Carrito B2B'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ===================================================== */}
+        {/* TAB 2: MIS PEDIDOS Y BÓVEDA DE DOCUMENTOS             */}
+        {/* ===================================================== */}
+        {activeTab === 'orders' && !dataLoading && (
+          <div>
+            <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Bóveda de Documentos B2B</h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                Monitorea el tracking de tus pedidos y descarga tus Invoices y Packing Lists.
+              </p>
+            </div>
+
+            {clientOrders.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
+                <p style={{ fontSize: '18px', marginBottom: '8px' }}>No tienes pedidos aún.</p>
+                <button className="btn-neon" onClick={() => setActiveTab('catalog')}>Ir al Catálogo</button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {clientOrders.map(order => (
+                  <div key={order.id} className="glass-panel" style={{ padding: '24px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
+                      <div>
+                        <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Pedido</span>
+                        <h3 style={{ fontSize: '20px', fontWeight: '800', color: '#fff', fontFamily: 'monospace' }}>#{order.id.split('-')[0].toUpperCase()}</h3>
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{new Date(order.created_at).toLocaleDateString('es-ES')}</span>
+                        {isAdmin && <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Cliente: <strong>{order.client_name}</strong></div>}
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ fontSize: '14px', color: 'var(--text-secondary)', display: 'block' }}>Total Pedido</span>
+                        <strong style={{ fontSize: '20px', color: 'var(--cyan-neon)' }}>${parseFloat(order.total_amount_usd).toFixed(2)} USD</strong>
+                        {parseFloat(order.discount_percent) > 0 && (
+                          <div style={{ fontSize: '11px', color: 'var(--pink-neon)' }}>-{order.discount_percent}% descuento aplicado</div>
+                        )}
+                      </div>
+                      <span className={`badge ${
+                        order.status === 'in_production' ? 'badge-orange' :
+                        order.status === 'ready' || order.status === 'payment_confirmed' ? 'badge-cyan' :
+                        order.status === 'delivered' ? 'badge-green' : 'badge-pink'
+                      }`}>
+                        {{
+                          'pending_payment':   '⏳ Pendiente de Pago',
+                          'payment_confirmed': '✅ Pago Confirmado',
+                          'in_production':     '⚙️ En Fabricación',
+                          'ready':             '📦 Listo para Despacho',
+                          'in_dispatch':       '🚢 En Tránsito',
+                          'delivered':         '✓ Entregado',
+                        }[order.status] || order.status}
+                      </span>
+
+                      {/* Admin: cambiar estado */}
+                      {isAdmin && (
+                        <select
+                          value={order.status}
+                          onChange={async (e) => {
+                            try {
+                              await ordersApi.updateStatus(order.id, e.target.value);
+                              await loadOrders();
+                            } catch(err) {
+                              alert(`Error: ${err.message}`);
+                            }
+                          }}
+                          style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 12px', borderRadius: '6px', fontSize: '12px' }}
+                        >
+                          <option value="pending_payment">Pendiente de Pago</option>
+                          <option value="payment_confirmed">Pago Confirmado</option>
+                          <option value="in_production">En Fabricación</option>
+                          <option value="ready">Listo</option>
+                          <option value="in_dispatch">En Tránsito</option>
+                          <option value="delivered">Entregado</option>
+                        </select>
+                      )}
+                    </div>
+
+                    {/* Items del pedido */}
+                    <div style={{ marginBottom: '20px' }}>
+                      <h4 style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Detalle de cajas:</h4>
+                      <ul style={{ listStyle: 'none', paddingLeft: '0' }}>
+                        {order.items?.map((item, idx) => (
+                          <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px dotted rgba(255,255,255,0.05)', fontSize: '14px' }}>
+                            <span>{item.name}</span>
+                            <strong>{item.qty_cases} {item.qty_cases === 1 ? 'Caja master' : 'Cajas master'}</strong>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {/* Botones de Documentos */}
+                    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                      <button className="btn-neon" onClick={() => { setSelectedOrderForDoc(order); setDocType('invoice'); }}>
+                        📄 Commercial Invoice
+                      </button>
+                      <button className="btn-pink" onClick={() => { setSelectedOrderForDoc(order); setDocType('packing_list'); }}>
+                        📦 Packing List
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ===================================================== */}
+        {/* TAB 3: FÁBRICA & PRODUCCIÓN (Solo Admin)              */}
+        {/* ===================================================== */}
+        {activeTab === 'admin' && isAdmin && !dataLoading && (
+          <div>
+            <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Control Interno de Fabricación</h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                Monitoreo de costos de insumos, pagos adelantados y saldos pendientes con la fábrica.
+              </p>
+            </div>
+
+            {/* KPIs financieros */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+              {(() => {
+                const totalCost = productionOrders.reduce((a, o) => a + parseFloat(o.total_cost_usd || 0), 0);
+                const totalAdvance = productionOrders.reduce((a, o) => a + parseFloat(o.advance_payment_usd || 0), 0);
+                const totalPending = productionOrders.reduce((a, o) => a + parseFloat(o.pending_balance_usd || 0), 0);
+                return (
+                  <>
+                    <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--cyan-neon)' }}>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Costo Total de Fabricación</span>
+                      <h2 style={{ fontSize: '28px', fontWeight: '900', color: '#fff', marginTop: '8px' }}>${totalCost.toFixed(2)}</h2>
+                    </div>
+                    <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--green-neon)' }}>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Pagos Realizados</span>
+                      <h2 style={{ fontSize: '28px', fontWeight: '900', color: 'var(--green-neon)', marginTop: '8px' }}>${totalAdvance.toFixed(2)}</h2>
+                    </div>
+                    <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--orange-neon)' }}>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Saldo Pendiente con Planta</span>
+                      <h2 style={{ fontSize: '28px', fontWeight: '900', color: 'var(--orange-neon)', marginTop: '8px' }}>${totalPending.toFixed(2)}</h2>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+
+            <h2 style={{ fontSize: '20px', marginBottom: '16px', fontWeight: '700' }}>Órdenes de Producción</h2>
+            {productionOrders.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
+                No hay órdenes de producción activas.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {productionOrders.map(pOrder => (
+                  <div key={pOrder.id} className="glass-panel" style={{ padding: '24px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '16px' }}>
+                      <div>
+                        <h3 style={{ fontSize: '18px', fontWeight: '800' }}>Orden #{pOrder.id.split('-')[0].toUpperCase()}</h3>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{new Date(pOrder.created_at).toLocaleDateString('es-ES')}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span className={`badge ${pOrder.status === 'sent' ? 'badge-cyan' : pOrder.status === 'production_started' ? 'badge-orange' : 'badge-green'}`}>
+                          {{ 'sent': 'Enviada', 'production_started': 'En Fabricación', 'production_completed': 'Completada' }[pOrder.status]}
+                        </span>
+                        <select
+                          value={pOrder.status}
+                          onChange={async (e) => {
+                            try {
+                              await productionApi.updateStatus(pOrder.id, e.target.value);
+                              await loadProduction();
+                            } catch(err) {
+                              alert(`Error: ${err.message}`);
+                            }
+                          }}
+                          style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 12px', borderRadius: '6px', fontSize: '12px' }}
+                        >
+                          <option value="sent">Enviada</option>
+                          <option value="production_started">En Fabricación</option>
+                          <option value="production_completed">Completada</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Financial summary */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px', fontSize: '13px' }}>
+                      <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '8px' }}>
+                        <div style={{ color: 'var(--text-secondary)' }}>Costo Total</div>
+                        <strong style={{ color: '#fff', fontSize: '15px' }}>${parseFloat(pOrder.total_cost_usd).toFixed(2)}</strong>
+                      </div>
+                      <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '8px' }}>
+                        <div style={{ color: 'var(--text-secondary)' }}>Adelanto</div>
+                        <strong style={{ color: 'var(--green-neon)', fontSize: '15px' }}>${parseFloat(pOrder.advance_payment_usd).toFixed(2)}</strong>
+                      </div>
+                      <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '8px' }}>
+                        <div style={{ color: 'var(--text-secondary)' }}>Pendiente</div>
+                        <strong style={{ color: 'var(--orange-neon)', fontSize: '15px' }}>${parseFloat(pOrder.pending_balance_usd).toFixed(2)}</strong>
+                      </div>
+                    </div>
+
+                    {/* Items */}
+                    <h4 style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Productos del Lote:</h4>
+                    <ul style={{ listStyle: 'none', paddingLeft: '0' }}>
+                      {pOrder.items?.map((item, idx) => (
+                        <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.02)', fontSize: '13px' }}>
+                          <span>{item.name}</span>
+                          <strong>{item.qty_cases} Cajas master</strong>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+
+      <footer style={{ padding: '32px', textAlign: 'center', borderTop: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '12px' }}>
+        © {new Date().getFullYear()} Gosu Accessories Ltd. Todos los derechos reservados.
+        {isAdmin && <span style={{ marginLeft: '8px', color: 'var(--pink-neon)' }}>• Admin Panel</span>}
+      </footer>
+
+      {/* ===================================================== */}
+      {/* PANEL LATERAL: CARRITO B2B                            */}
+      {/* ===================================================== */}
+      {showCart && (
+        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.7)', zIndex: '100', display: 'flex', justifyContent: 'flex-end' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '450px', height: '100%', borderRadius: '0', borderLeft: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '24px', position: 'relative' }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                <h2 style={{ fontSize: '22px', fontWeight: '800' }}>Carrito B2B</h2>
+                <button onClick={() => setShowCart(false)} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}>×</button>
+              </div>
+
+              {cartTotals.items.length === 0 ? (
+                <p style={{ color: 'var(--text-secondary)', textAlign: 'center', marginTop: '40px' }}>Tu carrito está vacío.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', maxHeight: 'calc(100vh - 400px)' }}>
+                  {cartTotals.items.map(item => (
+                    <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '16px', borderBottom: '1px solid var(--border-color)' }}>
+                      <div>
+                        <h4 style={{ fontSize: '14px', fontWeight: '700' }}>{item.name}</h4>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>${parseFloat(item.price_per_case_usd).toFixed(2)} x {item.qty} {item.qty === 1 ? 'caja' : 'cajas'}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button onClick={() => handleRemoveFromCart(item.id)} style={{ width: '24px', height: '24px', borderRadius: '4px', background: '#333', border: 'none', color: '#fff', cursor: 'pointer' }}>-</button>
+                        <span>{item.qty}</span>
+                        <button onClick={() => handleAddToCart(item.id)} style={{ width: '24px', height: '24px', borderRadius: '4px', background: '#333', border: 'none', color: '#fff', cursor: 'pointer' }}>+</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {cartTotals.items.length > 0 && (
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginBottom: '8px' }}>
+                  <span>Subtotal</span>
+                  <span>${cartTotals.subtotal.toFixed(2)} USD</span>
+                </div>
+                {cartTotals.discountPercent > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginBottom: '8px', color: 'var(--pink-neon)' }}>
+                    <span>Descuento ({cartTotals.discountPercent}%)</span>
+                    <span>-${cartTotals.discountAmount.toFixed(2)} USD</span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '18px', fontWeight: '800', marginBottom: '16px', borderTop: '1px dotted #333', paddingTop: '12px' }}>
+                  <span>Total de la Orden</span>
+                  <span style={{ color: 'var(--cyan-neon)' }}>${cartTotals.finalTotal.toFixed(2)} USD</span>
+                </div>
+
+                {cartTotals.finalTotal < MOA_LIMIT ? (
+                  <div className="glass-panel" style={{ padding: '12px', borderLeft: '4px solid var(--orange-neon)', marginBottom: '16px', background: 'rgba(255, 92, 0, 0.05)' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--orange-neon)', fontWeight: '700' }}>MOA no alcanzado</span>
+                    <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      Mínimo: <strong>${MOA_LIMIT.toFixed(2)} USD</strong>. Faltan ${(MOA_LIMIT - cartTotals.finalTotal).toFixed(2)} USD.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="glass-panel" style={{ padding: '12px', borderLeft: '4px solid var(--green-neon)', marginBottom: '16px', background: 'rgba(34, 239, 0, 0.05)' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--green-neon)', fontWeight: '700' }}>✓ Pedido Listo — MOA cumplido</span>
+                  </div>
+                )}
+
+                {cartTotals.finalTotal >= MOA_LIMIT && (
+                  <form onSubmit={handleCheckoutSubmit}>
+                    <div style={{ marginBottom: '16px' }}>
+                      <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Adjuntar comprobante (Opcional):</label>
+                      <input
+                        type="file"
+                        onChange={() => setReceiptUploaded(true)}
+                        style={{ display: 'block', width: '100%', fontSize: '12px', color: 'var(--text-secondary)' }}
+                      />
+                      {receiptUploaded && <p style={{ fontSize: '11px', color: 'var(--green-neon)', marginTop: '4px' }}>✓ Archivo listo</p>}
+                    </div>
+                    <button
+                      id="checkout-submit"
+                      type="submit"
+                      className="btn-neon"
+                      style={{ width: '100%', padding: '12px' }}
+                      disabled={checkoutLoading}
+                    >
+                      {checkoutLoading ? '⏳ Enviando pedido...' : 'Confirmar y Crear Pedido B2B'}
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================== */}
+      {/* MODAL: VISUALIZADOR DE DOCUMENTOS                     */}
+      {/* ===================================================== */}
+      {selectedOrderForDoc && (
+        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.85)', zIndex: '150', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '650px', maxHeight: '90vh', overflowY: 'auto', padding: '32px', position: 'relative', border: '1px solid var(--cyan-neon)' }}>
+            <button onClick={() => setSelectedOrderForDoc(null)} style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}>×</button>
+
+            <div style={{ borderBottom: '2px solid #333', paddingBottom: '16px', marginBottom: '24px' }}>
+              <h2 style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: '20px', color: docType === 'invoice' ? 'var(--cyan-neon)' : 'var(--pink-neon)' }}>
+                {docType === 'invoice' ? 'Commercial Invoice' : 'Commercial Packing List'}
+              </h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Gosu Accessories Ltd. / Shenzhen Export Warehouse, China</p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '13px', marginBottom: '24px' }}>
+              <div>
+                <strong style={{ display: 'block', color: 'var(--text-secondary)' }}>Cliente B2B:</strong>
+                <span>{selectedOrderForDoc.client_name || currentUser?.name}</span><br />
+                <span style={{ color: 'var(--text-muted)' }}>{selectedOrderForDoc.client_email || currentUser?.email}</span>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <strong>Doc. No.:</strong> #{selectedOrderForDoc.id.split('-')[0].toUpperCase()}<br />
+                <strong>Fecha:</strong> {new Date(selectedOrderForDoc.created_at).toLocaleDateString('es-ES')}
+              </div>
+            </div>
+
+            {docType === 'invoice' ? (
+              <div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', marginBottom: '24px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #333', color: 'var(--text-secondary)' }}>
+                      <th style={{ padding: '8px 0' }}>Producto</th>
+                      <th style={{ padding: '8px 0', textAlign: 'center' }}>Cajas</th>
+                      <th style={{ padding: '8px 0', textAlign: 'right' }}>Precio/Caja</th>
+                      <th style={{ padding: '8px 0', textAlign: 'right' }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedOrderForDoc.items?.map((item, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                        <td style={{ padding: '10px 0' }}>{item.name}</td>
+                        <td style={{ padding: '10px 0', textAlign: 'center' }}>{item.qty_cases}</td>
+                        <td style={{ padding: '10px 0', textAlign: 'right' }}>${parseFloat(item.price_per_case_usd).toFixed(2)}</td>
+                        <td style={{ padding: '10px 0', textAlign: 'right' }}>${(item.qty_cases * parseFloat(item.price_per_case_usd)).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={{ textAlign: 'right', fontSize: '15px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Total Facturado: </span>
+                  <strong style={{ color: 'var(--cyan-neon)', fontSize: '18px' }}>${parseFloat(selectedOrderForDoc.total_amount_usd).toFixed(2)} USD</strong>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', marginBottom: '24px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #333', color: 'var(--text-secondary)' }}>
+                      <th style={{ padding: '8px 0' }}>Descripción</th>
+                      <th style={{ padding: '8px 0', textAlign: 'center' }}>Cajas</th>
+                      <th style={{ padding: '8px 0', textAlign: 'right' }}>Peso Neto</th>
+                      <th style={{ padding: '8px 0', textAlign: 'right' }}>Dimensiones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedOrderForDoc.items?.map((item, idx) => {
+                      const prod = productList.find(p => p.name === item.name) || { units_per_case: 10, weight_per_unit_g: 500, length_cm: 30, width_cm: 30, height_cm: 30 };
+                      const totalUnits = item.qty_cases * prod.units_per_case;
+                      const weightKg = (totalUnits * prod.weight_per_unit_g) / 1000;
+                      return (
+                        <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                          <td style={{ padding: '10px 0' }}>{item.name}</td>
+                          <td style={{ padding: '10px 0', textAlign: 'center' }}>{item.qty_cases}</td>
+                          <td style={{ padding: '10px 0', textAlign: 'right' }}>{weightKg.toFixed(2)} kg</td>
+                          <td style={{ padding: '10px 0', textAlign: 'right' }}>{prod.length_cm}x{prod.width_cm}x{prod.height_cm} cm</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <div style={{ background: '#050505', border: '1px solid var(--border-color)', padding: '16px', borderRadius: '8px', fontSize: '13px' }}>
+                  <h4 style={{ color: 'var(--pink-neon)', marginBottom: '8px' }}>Info Logística Consolidada:</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <span>Cajas Master: <strong>{selectedOrderForDoc.items?.reduce((a, c) => a + c.qty_cases, 0)}</strong></span>
+                    <span>Puerto: <strong>Shenzhen Port, China</strong></span>
+                    <span>Peso Bruto: <strong>
+                      {(selectedOrderForDoc.items?.reduce((acc, curr) => {
+                        const prod = productList.find(p => p.name === curr.name) || { units_per_case: 10, weight_per_unit_g: 500 };
+                        return acc + ((curr.qty_cases * prod.units_per_case * prod.weight_per_unit_g) / 1000);
+                      }, 0) * 1.05).toFixed(2)} kg
+                    </strong> (+5% tara)</span>
+                    <span>Incoterm: <strong>FOB Shenzhen</strong></span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginTop: '32px', textAlign: 'center' }}>
+              <button className="btn-neon" style={{ padding: '10px 32px' }} onClick={() => window.print()}>
+                🖨️ Imprimir / Guardar PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
-export default App
+export default App;
