@@ -22,11 +22,36 @@ const PORT = process.env.PORT || 3000;
 // ============================================================
 // Middlewares Globales
 // ============================================================
-app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
+
+// Lista de orígenes permitidos: localhost + dominios de Vercel y Railway
+const ALLOWED_ORIGIN_PATTERNS = [
+  /^http:\/\/localhost(:\d+)?$/,
+  /^https?:\/\/.*\.vercel\.app$/,
+  /^https?:\/\/.*\.railway\.app$/,
+];
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Permitir peticiones sin origin (Postman, curl, Railway health checks)
+    if (!origin) return callback(null, true);
+    // Permitir si hay un FRONTEND_URL explícito que coincide
+    if (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL) {
+      return callback(null, true);
+    }
+    // Permitir si coincide con alguno de los patrones permitidos
+    const allowed = ALLOWED_ORIGIN_PATTERNS.some(pattern => pattern.test(origin));
+    if (allowed) return callback(null, true);
+    // Bloquear el resto
+    callback(new Error(`CORS: origen no permitido — ${origin}`));
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
+// Responder a preflight OPTIONS en todas las rutas
+app.options('*', cors(corsOptions));
 app.use(express.json());
 
 // ============================================================
