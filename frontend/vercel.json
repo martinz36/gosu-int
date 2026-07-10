@@ -1,13 +1,6 @@
 {
-  "version": 2,
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "installCommand": "npm install",
-  "framework": "vite",
-  "env": {
-    "VITE_API_URL": {
-      "description": "URL del backend en Railway (prod: https://tu-app.railway.app)",
-      "target": ["production", "preview"]
-    }
-  }
+  "framework": "vite"
 }
