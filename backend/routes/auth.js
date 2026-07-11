@@ -18,7 +18,7 @@ router.post('/login', async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT u.*, t.slug as tenant_slug, t.name as tenant_name
+      `SELECT u.*, t.slug as tenant_slug, t.name as tenant_name, t.is_active as tenant_is_active
        FROM users u
        JOIN tenants t ON t.id = u.tenant_id
        WHERE u.email = $1`,
@@ -28,6 +28,10 @@ router.post('/login', async (req, res) => {
     const user = result.rows[0];
     if (!user) {
       return res.status(401).json({ error: 'Credenciales inválidas.' });
+    }
+
+    if (user.role !== 'superadmin' && !user.tenant_is_active) {
+      return res.status(403).json({ error: 'Esta cuenta de marca/empresa ha sido suspendida. Por favor, contacte al administrador de la plataforma.' });
     }
 
     const passwordMatch = await bcrypt.compare(password, user.password_hash);
@@ -127,7 +131,7 @@ router.post('/bypass-login', async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT u.*, t.slug as tenant_slug, t.name as tenant_name
+      `SELECT u.*, t.slug as tenant_slug, t.name as tenant_name, t.is_active as tenant_is_active
        FROM users u
        JOIN tenants t ON t.id = u.tenant_id
        WHERE u.email = $1`,
@@ -137,6 +141,10 @@ router.post('/bypass-login', async (req, res) => {
     const user = result.rows[0];
     if (!user) {
       return res.status(404).json({ error: 'Usuario no encontrado.' });
+    }
+
+    if (user.role !== 'superadmin' && !user.tenant_is_active) {
+      return res.status(403).json({ error: 'Esta cuenta de marca/empresa ha sido suspendida. Por favor, contacte al administrador de la plataforma.' });
     }
 
     const token = jwt.sign(

@@ -12,7 +12,7 @@ const router = Router();
 router.get('/', requireAuth, requireSuperAdmin, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT t.id, t.name, t.slug, t.created_at,
+      `SELECT t.id, t.name, t.slug, t.is_active, t.created_at,
        (SELECT COUNT(*) FROM users WHERE tenant_id = t.id) as user_count,
        (SELECT COUNT(*) FROM products WHERE tenant_id = t.id) as product_count
        FROM tenants t
@@ -110,6 +110,42 @@ router.post('/', requireAuth, requireSuperAdmin, async (req, res) => {
     res.status(500).json({ error: 'Error interno del servidor al crear inquilino.' });
   } finally {
     client.release();
+  }
+});
+
+// ============================================================
+// PUT /api/tenants/:id/status (Solo Super Admin)
+// Activa o suspende una marca (tenant) en el sistema.
+// Body: { is_active }
+// ============================================================
+router.put('/:id/status', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { is_active } = req.body;
+
+  if (typeof is_active !== 'boolean') {
+    return res.status(400).json({ error: 'El campo is_active debe ser un booleano.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE tenants
+       SET is_active = $1
+       WHERE id = $2
+       RETURNING id, name, slug, is_active`,
+      [is_active, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Empresa no encontrada.' });
+    }
+
+    res.json({
+      message: `Empresa ${is_active ? 'activada' : 'suspendida'} con éxito.`,
+      tenant: result.rows[0],
+    });
+  } catch (err) {
+    console.error('Error al actualizar estado del tenant:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 

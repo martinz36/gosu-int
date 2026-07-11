@@ -181,6 +181,21 @@ function App() {
     }
   };
 
+  const handleToggleTenantStatus = async (id, currentStatus) => {
+    const action = currentStatus ? 'suspender' : 'activar';
+    if (!confirm(`¿Está seguro que desea ${action} esta empresa/marca?`)) {
+      return;
+    }
+
+    try {
+      await tenantsApi.updateStatus(id, !currentStatus);
+      alert(`Empresa ${!currentStatus ? 'activada' : 'suspendida'} correctamente.`);
+      await loadTenants();
+    } catch (err) {
+      alert(`❌ Error: ${err.message}`);
+    }
+  };
+
   // -------------------------------------------------------
   // Lógica del Carrito
   // -------------------------------------------------------
@@ -456,19 +471,36 @@ function App() {
                 </h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   {tenantsList.map(t => (
-                    <div key={t.id} className="glass-panel" style={{ padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div key={t.id} className="glass-panel" style={{ padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                       <div>
-                        <h3 style={{ fontSize: '18px', fontWeight: '800', margin: '0 0 4px' }}>{t.name}</h3>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                          <h3 style={{ fontSize: '18px', fontWeight: '800', margin: 0 }}>{t.name}</h3>
+                          <span className={`badge ${t.is_active ? 'badge-green' : 'badge-orange'}`} style={{ fontSize: '9px', padding: '2px 6px' }}>
+                            {t.is_active ? '✓ Activa' : '⚠️ Suspendida'}
+                          </span>
+                        </div>
                         <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Slug: <strong>{t.slug}</strong></span><br />
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>ID: {t.id}</span>
                       </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <span className="badge badge-cyan" style={{ fontSize: '10px', display: 'inline-block', marginBottom: '6px' }}>
-                          👤 {t.user_count} Usuarios
-                        </span><br />
-                        <span className="badge badge-pink" style={{ fontSize: '10px' }}>
-                          📦 {t.product_count} Productos
-                        </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                        <div style={{ textAlign: 'right' }}>
+                          <span className="badge badge-cyan" style={{ fontSize: '10px', display: 'inline-block', marginBottom: '6px' }}>
+                            👤 {t.user_count} Usuarios
+                          </span><br />
+                          <span className="badge badge-pink" style={{ fontSize: '10px' }}>
+                            📦 {t.product_count} Productos
+                          </span>
+                        </div>
+                        {/* No permitir suspender al tenant semilla (id 1) para evitar bloqueos del admin principal en demos */}
+                        {t.id !== '00000000-0000-0000-0000-000000000001' && (
+                          <button
+                            onClick={() => handleToggleTenantStatus(t.id, t.is_active)}
+                            className={t.is_active ? 'btn-pink' : 'btn-neon'}
+                            style={{ padding: '8px 12px', fontSize: '11px', fontWeight: '700', minWidth: '90px' }}
+                          >
+                            {t.is_active ? 'Suspender' : 'Activar'}
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -814,7 +846,7 @@ function App() {
       </main>
 
       <footer style={{ padding: '32px', textAlign: 'center', borderTop: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '12px' }}>
-        © {new Date().getFullYear()} Gosu Accessories Ltd. Todos los derechos reservados.
+        © {new Date().getFullYear()} {isSuperAdmin ? 'Gosu B2B SaaS Platform' : 'Gosu Accessories Ltd'}. Todos los derechos reservados.
         {isAdmin && <span style={{ marginLeft: '8px', color: 'var(--pink-neon)' }}>• Admin Panel</span>}
       </footer>
 

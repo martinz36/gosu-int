@@ -128,4 +128,7 @@ export const tenants = {
 
   create: (tenantData) =>
     request('POST', '/api/tenants', tenantData),
+
+  updateStatus: (id, is_active) =>
+    request('PUT', `/api/tenants/${id}/status`, { is_active }),
 };
