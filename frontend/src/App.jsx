@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import './App.css';
 import LoginPage from './components/LoginPage';
-import { auth, products as productsApi, orders as ordersApi, production as productionApi } from './services/api';
+import { auth, products as productsApi, orders as ordersApi, production as productionApi, tenants as tenantsApi } from './services/api';
 
 // Reglas de descuento (se obtendrán del backend en futuras versiones)
 const VOLUME_DISCOUNTS = [
@@ -22,13 +22,17 @@ function App() {
   const [productList, setProductList] = useState([]);
   const [clientOrders, setClientOrders] = useState([]);
   const [productionOrders, setProductionOrders] = useState([]);
+  const [tenantsList, setTenantsList] = useState([]);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState('');
 
   // -------------------------------------------------------
   // UI State
   // -------------------------------------------------------
-  const [activeTab, setActiveTab] = useState('catalog');
+  const [activeTab, setActiveTab] = useState(() => {
+    const user = auth.getUser();
+    return user?.role === 'superadmin' ? 'saas-tenants' : 'catalog';
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [cart, setCart] = useState({});
@@ -38,9 +42,20 @@ function App() {
   const [docType, setDocType] = useState('invoice');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
 
+  // Formulario para nuevo Tenant
+  const [newTenant, setNewTenant] = useState({
+    name: '',
+    slug: '',
+    adminName: '',
+    adminEmail: '',
+    adminPassword: ''
+  });
+  const [creatingTenant, setCreatingTenant] = useState(false);
+
   // MOA del usuario actual
   const MOA_LIMIT = parseFloat(currentUser?.custom_moa_usd) || 1000.00;
   const isAdmin = currentUser?.role === 'admin';
+  const isSuperAdmin = currentUser?.role === 'superadmin';
 
   // -------------------------------------------------------
   // Carga de datos
@@ -76,6 +91,16 @@ function App() {
     }
   }, [isAdmin]);
 
+  const loadTenants = useCallback(async () => {
+    if (!isSuperAdmin) return;
+    try {
+      const data = await tenantsApi.getAll();
+      setTenantsList(data);
+    } catch (err) {
+      console.error('Error cargando tenants:', err);
+    }
+  }, [isSuperAdmin]);
+
   // Carga inicial cuando el usuario se autentifica
   useEffect(() => {
     if (!currentUser) return;
@@ -84,7 +109,11 @@ function App() {
       setDataLoading(true);
       setDataError('');
       try {
-        await Promise.all([loadProducts(), loadOrders(), loadProduction()]);
+        if (isSuperAdmin) {
+          await loadTenants();
+        } else {
+          await Promise.all([loadProducts(), loadOrders(), loadProduction()]);
+        }
       } catch (err) {
         setDataError('Error al cargar datos del servidor.');
       } finally {
@@ -92,21 +121,22 @@ function App() {
       }
     };
     loadAll();
-  }, [currentUser]);
+  }, [currentUser, isSuperAdmin, loadTenants, loadProducts, loadOrders, loadProduction]);
 
   // Recargar productos cuando cambian los filtros
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || isSuperAdmin) return;
     const timeout = setTimeout(loadProducts, 300); // debounce
     return () => clearTimeout(timeout);
-  }, [selectedCategory, searchQuery, currentUser]);
+  }, [selectedCategory, searchQuery, currentUser, isSuperAdmin, loadProducts]);
 
   // Recargar según la tab activa
   useEffect(() => {
     if (!currentUser) return;
     if (activeTab === 'orders') loadOrders();
     if (activeTab === 'admin') loadProduction();
-  }, [activeTab, currentUser]);
+    if (activeTab === 'saas-tenants') loadTenants();
+  }, [activeTab, currentUser, loadOrders, loadProduction, loadTenants]);
 
   // -------------------------------------------------------
   // Login / Logout
@@ -122,6 +152,33 @@ function App() {
     setProductList([]);
     setClientOrders([]);
     setProductionOrders([]);
+    setTenantsList([]);
+  };
+
+  const handleCreateTenant = async (e) => {
+    e.preventDefault();
+    if (!newTenant.name || !newTenant.slug || !newTenant.adminName || !newTenant.adminEmail || !newTenant.adminPassword) {
+      alert('Por favor complete todos los campos.');
+      return;
+    }
+
+    setCreatingTenant(true);
+    try {
+      await tenantsApi.create(newTenant);
+      alert('🎉 Empresa y Administrador creados correctamente.');
+      setNewTenant({
+        name: '',
+        slug: '',
+        adminName: '',
+        adminEmail: '',
+        adminPassword: ''
+      });
+      await loadTenants();
+    } catch (err) {
+      alert(`❌ Error: ${err.message}`);
+    } finally {
+      setCreatingTenant(false);
+    }
   };
 
   // -------------------------------------------------------
@@ -218,33 +275,43 @@ function App() {
       {/* Header */}
       <header className="nav-header">
         <div className="logo-container">
-          <div className="logo-text">Gosu Accessories</div>
+          <div className="logo-text">{isSuperAdmin ? 'Gosu SaaS Portal' : 'Gosu Accessories'}</div>
         </div>
         <nav className="nav-links">
-          <span className={`nav-link ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>
-            Catálogo B2B
-          </span>
-          <span className={`nav-link ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
-            Mis Pedidos & Bóveda
-          </span>
-          {isAdmin && (
-            <span className={`nav-link ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
-              Fábrica & Producción
+          {isSuperAdmin ? (
+            <span className={`nav-link ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => setActiveTab('saas-tenants')}>
+              SaaS Tenants (Marcas)
             </span>
+          ) : (
+            <>
+              <span className={`nav-link ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>
+                Catálogo B2B
+              </span>
+              <span className={`nav-link ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
+                Mis Pedidos & Bóveda
+              </span>
+              {isAdmin && (
+                <span className={`nav-link ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
+                  Fábrica & Producción
+                </span>
+              )}
+            </>
           )}
         </nav>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           <div style={{ fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'right' }}>
             <div style={{ color: '#fff', fontWeight: '700' }}>{currentUser.name}</div>
             <div style={{ fontSize: '11px' }}>
-              <span className={`badge ${isAdmin ? 'badge-pink' : 'badge-cyan'}`} style={{ fontSize: '9px', padding: '2px 6px' }}>
-                {isAdmin ? 'ADMIN' : currentUser.client_category?.replace('_', ' ')}
+              <span className={`badge ${isSuperAdmin ? 'badge-pink' : isAdmin ? 'badge-pink' : 'badge-cyan'}`} style={{ fontSize: '9px', padding: '2px 6px' }}>
+                {isSuperAdmin ? 'SUPER ADMIN' : isAdmin ? 'ADMIN' : currentUser.client_category?.replace('_', ' ')}
               </span>
             </div>
           </div>
-          <button className="btn-neon" onClick={() => setShowCart(true)}>
-            🛒 {cartTotals.totalCases} {cartTotals.totalCases === 1 ? 'Caja' : 'Cajas'}
-          </button>
+          {!isSuperAdmin && (
+            <button className="btn-neon" onClick={() => setShowCart(true)}>
+              🛒 {cartTotals.totalCases} {cartTotals.totalCases === 1 ? 'Caja' : 'Cajas'}
+            </button>
+          )}
           <button onClick={handleLogout} style={{ background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px' }}>
             Salir
           </button>
@@ -253,10 +320,16 @@ function App() {
 
       {/* Mobile Nav */}
       <div className="mobile-bottom-nav">
-        <span className={`mobile-nav-item ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>📂 Catálogo</span>
-        <span className={`mobile-nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>📜 Bóveda B2B</span>
-        {isAdmin && (
-          <span className={`mobile-nav-item ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>🏭 Fábrica</span>
+        {isSuperAdmin ? (
+          <span className={`mobile-nav-item ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => setActiveTab('saas-tenants')}>🛠️ Tenants</span>
+        ) : (
+          <>
+            <span className={`mobile-nav-item ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>📂 Catálogo</span>
+            <span className={`mobile-nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>📜 Bóveda B2B</span>
+            {isAdmin && (
+              <span className={`mobile-nav-item ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>🏭 Fábrica</span>
+            )}
+          </>
         )}
       </div>
 
@@ -272,6 +345,136 @@ function App() {
         {dataError && (
           <div className="glass-panel" style={{ padding: '16px', borderLeft: '4px solid var(--orange-neon)', marginBottom: '24px', color: 'var(--orange-neon)' }}>
             ⚠️ {dataError}
+          </div>
+        )}
+
+        {/* ===================================================== */}
+        {/* TAB SAAS: SAAS TENANTS (Solo Super Admin)             */}
+        {/* ===================================================== */}
+        {activeTab === 'saas-tenants' && isSuperAdmin && !dataLoading && (
+          <div>
+            <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Panel de Control SaaS</h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                Crea y administra múltiples marcas independientes conectadas al mismo sistema B2B.
+              </p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', alignItems: 'start' }}>
+              {/* Formulario de creación de Tenant */}
+              <div className="glass-panel" style={{ padding: '24px' }}>
+                <h2 style={{ fontSize: '20px', fontWeight: '800', marginBottom: '20px', color: 'var(--pink-neon)' }}>
+                  Registrar Nueva Empresa (Tenant)
+                </h2>
+                <form onSubmit={handleCreateTenant} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '700' }}>
+                      Nombre de la Empresa / Marca
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Ultra Card Sleeves"
+                      value={newTenant.name}
+                      onChange={(e) => setNewTenant(prev => ({ ...prev, name: e.target.value }))}
+                      required
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '700' }}>
+                      Slug (Identificador URL)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ej. ultrasleeves"
+                      value={newTenant.slug}
+                      onChange={(e) => setNewTenant(prev => ({ ...prev, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') }))}
+                      required
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                    <small style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'block', marginTop: '2px' }}>
+                      Solo minúsculas, números y guiones.
+                    </small>
+                  </div>
+
+                  <div style={{ margin: '10px 0', borderTop: '1px dotted var(--border-color)', paddingTop: '10px' }}>
+                    <h3 style={{ fontSize: '14px', fontWeight: '800', marginBottom: '8px', color: 'var(--cyan-neon)' }}>
+                      Administrador Inicial
+                    </h3>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '700' }}>
+                      Nombre Completo
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Juan Pérez"
+                      value={newTenant.adminName}
+                      onChange={(e) => setNewTenant(prev => ({ ...prev, adminName: e.target.value }))}
+                      required
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '700' }}>
+                      Email
+                    </label>
+                    <input
+                      type="email"
+                      placeholder="Ej. admin@ultrasleeves.com"
+                      value={newTenant.adminEmail}
+                      onChange={(e) => setNewTenant(prev => ({ ...prev, adminEmail: e.target.value }))}
+                      required
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '700' }}>
+                      Contraseña del Administrador
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="••••••••"
+                      value={newTenant.adminPassword}
+                      onChange={(e) => setNewTenant(prev => ({ ...prev, adminPassword: e.target.value }))}
+                      required
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+
+                  <button type="submit" className="btn-pink" style={{ width: '100%', padding: '12px', marginTop: '10px' }} disabled={creatingTenant}>
+                    {creatingTenant ? '⏳ Creando...' : 'Crear Empresa & Admin'}
+                  </button>
+                </form>
+              </div>
+
+              {/* Lista de Tenants */}
+              <div>
+                <h2 style={{ fontSize: '20px', fontWeight: '800', marginBottom: '20px' }}>
+                  Empresas Registradas ({tenantsList.length})
+                </h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {tenantsList.map(t => (
+                    <div key={t.id} className="glass-panel" style={{ padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <h3 style={{ fontSize: '18px', fontWeight: '800', margin: '0 0 4px' }}>{t.name}</h3>
+                        <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Slug: <strong>{t.slug}</strong></span><br />
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>ID: {t.id}</span>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <span className="badge badge-cyan" style={{ fontSize: '10px', display: 'inline-block', marginBottom: '6px' }}>
+                          👤 {t.user_count} Usuarios
+                        </span><br />
+                        <span className="badge badge-pink" style={{ fontSize: '10px' }}>
+                          📦 {t.product_count} Productos
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

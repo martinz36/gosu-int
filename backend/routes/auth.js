@@ -115,4 +115,63 @@ router.post('/register', async (req, res) => {
   }
 });
 
+// ============================================================
+// POST /api/auth/bypass-login (Bypass para desarrollo/pruebas)
+// Body: { email }
+// ============================================================
+router.post('/bypass-login', async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'El email es requerido.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT u.*, t.slug as tenant_slug, t.name as tenant_name
+       FROM users u
+       JOIN tenants t ON t.id = u.tenant_id
+       WHERE u.email = $1`,
+      [email.toLowerCase()]
+    );
+
+    const user = result.rows[0];
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado.' });
+    }
+
+    const token = jwt.sign(
+      {
+        id:        user.id,
+        tenant_id: user.tenant_id,
+        email:     user.email,
+        role:      user.role,
+        name:      user.name,
+        client_category: user.client_category,
+        tenant_slug: user.tenant_slug,
+        tenant_name: user.tenant_name,
+      },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      token,
+      user: {
+        id:              user.id,
+        name:            user.name,
+        email:           user.email,
+        role:            user.role,
+        client_category: user.client_category,
+        tenant_id:       user.tenant_id,
+        tenant_name:     user.tenant_name,
+        tenant_slug:     user.tenant_slug,
+        custom_moa_usd:  user.custom_moa_usd,
+      }
+    });
+  } catch (err) {
+    console.error('Error en bypass-login:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
 export default router;

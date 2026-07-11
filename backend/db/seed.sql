@@ -19,6 +19,18 @@ VALUES (
 )
 ON CONFLICT (email) DO NOTHING;
 
+-- Insertar usuario superadmin (password: GosuSuper2026!)
+-- Hash: bcrypt de 'GosuSuper2026!'
+INSERT INTO users (tenant_id, name, email, password_hash, role)
+VALUES (
+  '00000000-0000-0000-0000-000000000001',
+  'Super Admin Plataforma',
+  'superadmin@gosu.gg',
+  '$2b$12$CbVwPDJn/l5RHEYKk02cX.a8XZGmPm7YCv0fuTRjhVuwWBFs1b2su',
+  'superadmin'
+)
+ON CONFLICT (email) DO NOTHING;
+
 -- Insertar productos de ejemplo
 INSERT INTO products (tenant_id, name, sku, category, units_per_case, weight_per_unit_g, length_cm, width_cm, height_cm, price_per_case_usd, stock_cases)
 VALUES

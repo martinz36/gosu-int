@@ -23,6 +23,21 @@ export default function LoginPage({ onLogin }) {
     }
   };
 
+  const handleBypassLogin = async (bypassEmail) => {
+    setError('');
+    setLoading(true);
+    try {
+      const data = await auth.bypassLogin(bypassEmail);
+      localStorage.setItem('gosu_token', data.token);
+      localStorage.setItem('gosu_user', JSON.stringify(data.user));
+      onLogin(data.user);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -145,17 +160,38 @@ export default function LoginPage({ onLogin }) {
             </button>
           </form>
 
-          <div style={{ marginTop: '24px', textAlign: 'center', borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              ¿No tienes acceso? Contacta a tu representante de ventas.
-            </p>
+          {/* Quick Access Section (Bypass Auth for Dev/Test) */}
+          <div style={{ marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
+            <h3 style={{ fontSize: '12px', fontWeight: '700', color: 'var(--cyan-neon)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', textAlign: 'center' }}>
+              ⚡ Acceso Rápido (Desarrollo)
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button
+                type="button"
+                className="btn-pink"
+                onClick={() => handleBypassLogin('superadmin@gosu.gg')}
+                style={{ padding: '10px', fontSize: '12px', fontWeight: '600' }}
+                disabled={loading}
+              >
+                🛠️ Entrar como Super Admin (SaaS)
+              </button>
+              <button
+                type="button"
+                className="btn-neon"
+                onClick={() => handleBypassLogin('admin@gosu.gg')}
+                style={{ padding: '10px', fontSize: '12px', fontWeight: '600', color: '#000' }}
+                disabled={loading}
+              >
+                🏢 Entrar como Gosu Admin (Tenant)
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Demo hint */}
         <div style={{ textAlign: 'center', marginTop: '16px' }}>
           <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-            Demo: admin@gosu.gg / GosuAdmin2026!
+            SaaS Demo: superadmin@gosu.gg / GosuSuper2026!
           </p>
         </div>
       </div>

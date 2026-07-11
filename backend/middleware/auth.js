@@ -32,3 +32,15 @@ export function requireAdmin(req, res, next) {
   }
   next();
 }
+
+/**
+ * Middleware que verifica que el usuario sea super administrador de la plataforma.
+ * Debe usarse después de requireAuth.
+ */
+export function requireSuperAdmin(req, res, next) {
+  if (!req.user || req.user.role !== 'superadmin') {
+    return res.status(403).json({ error: 'Acceso denegado. Se requiere rol de super administrador.' });
+  }
+  next();
+}
+

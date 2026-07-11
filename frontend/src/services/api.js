@@ -53,6 +53,9 @@ export const auth = {
   login: (email, password) =>
     request('POST', '/api/auth/login', { email, password }),
 
+  bypassLogin: (email) =>
+    request('POST', '/api/auth/bypass-login', { email }),
+
   register: (userData) =>
     request('POST', '/api/auth/register', userData),
 
@@ -114,4 +117,15 @@ export const production = {
 
   updateStatus: (id, status) =>
     request('PUT', `/api/production/${id}/status`, { status }),
+};
+
+// ============================================================
+// Tenants (Gestión de SaaS)
+// ============================================================
+export const tenants = {
+  getAll: () =>
+    request('GET', '/api/tenants'),
+
+  create: (tenantData) =>
+    request('POST', '/api/tenants', tenantData),
 };
