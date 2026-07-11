@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import './App.css';
 import LoginPage from './components/LoginPage';
-import { auth, products as productsApi, orders as ordersApi, production as productionApi, tenants as tenantsApi } from './services/api';
+import { auth, products as productsApi, orders as ordersApi, production as productionApi, tenants as tenantsApi, plans as plansApi, users as usersApi, audit as auditApi } from './services/api';
 
 // Reglas de descuento (se obtendrán del backend en futuras versiones)
 const VOLUME_DISCOUNTS = [
@@ -23,6 +23,10 @@ function App() {
   const [clientOrders, setClientOrders] = useState([]);
   const [productionOrders, setProductionOrders] = useState([]);
   const [tenantsList, setTenantsList] = useState([]);
+  const [plansList, setPlansList] = useState([]);
+  const [globalUsersList, setGlobalUsersList] = useState([]);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [saasMetrics, setSaasMetrics] = useState(null);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState('');
 
@@ -42,20 +46,33 @@ function App() {
   const [docType, setDocType] = useState('invoice');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
 
-  // Formulario para nuevo Tenant
+  // Formulario para nuevo Tenant / Edición
   const [newTenant, setNewTenant] = useState({
     name: '',
     slug: '',
+    plan_id: '',
+    status: 'active',
     adminName: '',
     adminEmail: '',
     adminPassword: ''
   });
+  const [editingTenant, setEditingTenant] = useState(null);
   const [creatingTenant, setCreatingTenant] = useState(false);
+
+  // Formulario para registrar otro Super Admin
+  const [showSuperAdminForm, setShowSuperAdminForm] = useState(false);
+  const [newSuperAdmin, setNewSuperAdmin] = useState({
+    name: '',
+    email: '',
+    password: ''
+  });
+  const [creatingSuperAdmin, setCreatingSuperAdmin] = useState(false);
 
   // MOA del usuario actual
   const MOA_LIMIT = parseFloat(currentUser?.custom_moa_usd) || 1000.00;
   const isAdmin = currentUser?.role === 'admin';
   const isSuperAdmin = currentUser?.role === 'superadmin';
+  const isImpersonating = !!localStorage.getItem('gosu_superadmin_token');
 
   // -------------------------------------------------------
   // Carga de datos
@@ -94,10 +111,20 @@ function App() {
   const loadTenants = useCallback(async () => {
     if (!isSuperAdmin) return;
     try {
-      const data = await tenantsApi.getAll();
-      setTenantsList(data);
+      const [tData, pData, uData, alData, mData] = await Promise.all([
+        tenantsApi.getAll(),
+        plansApi.getAll(),
+        usersApi.getGlobal(),
+        auditApi.getLogs(),
+        auditApi.getMetrics()
+      ]);
+      setTenantsList(tData);
+      setPlansList(pData);
+      setGlobalUsersList(uData);
+      setAuditLogs(alData);
+      setSaasMetrics(mData);
     } catch (err) {
-      console.error('Error cargando tenants:', err);
+      console.error('Error cargando datos SaaS:', err);
     }
   }, [isSuperAdmin]);
 
@@ -135,15 +162,23 @@ function App() {
     if (!currentUser) return;
     if (activeTab === 'orders') loadOrders();
     if (activeTab === 'admin') loadProduction();
-    if (activeTab === 'saas-tenants') loadTenants();
+    if (['saas-tenants', 'saas-users', 'saas-billing', 'saas-audit'].includes(activeTab)) {
+      loadTenants();
+    }
   }, [activeTab, currentUser, loadOrders, loadProduction, loadTenants]);
 
   // Aligerar la vista del Super Admin forzando la redirección de tab
   useEffect(() => {
-    if (currentUser && currentUser.role === 'superadmin' && activeTab !== 'saas-tenants') {
+    if (currentUser && currentUser.role === 'superadmin' && !['saas-tenants', 'saas-users', 'saas-billing', 'saas-audit'].includes(activeTab)) {
       setActiveTab('saas-tenants');
     }
   }, [currentUser, activeTab]);
+
+  useEffect(() => {
+    if (plansList.length > 0 && !newTenant.plan_id) {
+      setNewTenant(prev => ({ ...prev, plan_id: plansList[0].id }));
+    }
+  }, [plansList, newTenant.plan_id]);
 
   // -------------------------------------------------------
   // Login / Logout
@@ -161,22 +196,44 @@ function App() {
     setClientOrders([]);
     setProductionOrders([]);
     setTenantsList([]);
+    setPlansList([]);
+    setGlobalUsersList([]);
+    setAuditLogs([]);
+    setSaasMetrics(null);
   };
 
-  const handleCreateTenant = async (e) => {
+  const handleCreateOrUpdateTenant = async (e) => {
     e.preventDefault();
-    if (!newTenant.name || !newTenant.slug || !newTenant.adminName || !newTenant.adminEmail || !newTenant.adminPassword) {
-      alert('Por favor complete todos los campos.');
+    if (!newTenant.name || !newTenant.slug || !newTenant.plan_id) {
+      alert('Por favor complete todos los campos requeridos.');
+      return;
+    }
+
+    if (!editingTenant && (!newTenant.adminName || !newTenant.adminEmail || !newTenant.adminPassword)) {
+      alert('Por favor complete los campos del Administrador.');
       return;
     }
 
     setCreatingTenant(true);
     try {
-      await tenantsApi.create(newTenant);
-      alert('🎉 Empresa y Administrador creados correctamente.');
+      if (editingTenant) {
+        await tenantsApi.update(editingTenant.id, {
+          name: newTenant.name,
+          slug: newTenant.slug,
+          plan_id: newTenant.plan_id,
+          status: newTenant.status
+        });
+        alert('🎉 Empresa actualizada correctamente.');
+        setEditingTenant(null);
+      } else {
+        await tenantsApi.create(newTenant);
+        alert('🎉 Empresa y Administrador creados correctamente.');
+      }
       setNewTenant({
         name: '',
         slug: '',
+        plan_id: plansList[0]?.id || '',
+        status: 'active',
         adminName: '',
         adminEmail: '',
         adminPassword: ''
@@ -189,18 +246,74 @@ function App() {
     }
   };
 
-  const handleToggleTenantStatus = async (id, currentStatus) => {
-    const action = currentStatus ? 'suspender' : 'activar';
-    if (!confirm(`¿Está seguro que desea ${action} esta empresa/marca?`)) {
+  const handleDeleteTenant = async (id) => {
+    if (!confirm('¿Está seguro que desea eliminar esta empresa? Se realizará una desactivación lógica de sus datos.')) {
       return;
     }
 
     try {
-      await tenantsApi.updateStatus(id, !currentStatus);
-      alert(`Empresa ${!currentStatus ? 'activada' : 'suspendida'} correctamente.`);
+      await tenantsApi.delete(id);
+      alert('Empresa eliminada correctamente.');
       await loadTenants();
     } catch (err) {
       alert(`❌ Error: ${err.message}`);
+    }
+  };
+
+  const handleImpersonate = async (userId) => {
+    try {
+      localStorage.setItem('gosu_superadmin_token', localStorage.getItem('gosu_token'));
+      localStorage.setItem('gosu_superadmin_user', localStorage.getItem('gosu_user'));
+
+      const data = await auth.impersonate(userId);
+      localStorage.setItem('gosu_token', data.token);
+      localStorage.setItem('gosu_user', JSON.stringify(data.user));
+      setCurrentUser(data.user);
+      setActiveTab('catalog');
+      alert(`⚡ Iniciando sesión de soporte como ${data.user.name} (${data.user.tenant_name})`);
+    } catch (err) {
+      alert(`❌ Error al suplantar identidad: ${err.message}`);
+    }
+  };
+
+  const handleStopImpersonation = () => {
+    const origToken = localStorage.getItem('gosu_superadmin_token');
+    const origUser = localStorage.getItem('gosu_superadmin_user');
+
+    if (!origToken || !origUser) {
+      alert('No se encontró una sesión previa de Super Admin.');
+      return;
+    }
+
+    localStorage.setItem('gosu_token', origToken);
+    localStorage.setItem('gosu_user', origUser);
+    localStorage.removeItem('gosu_superadmin_token');
+    localStorage.removeItem('gosu_superadmin_user');
+
+    const parsedUser = JSON.parse(origUser);
+    setCurrentUser(parsedUser);
+    setActiveTab('saas-tenants');
+    alert('✓ Sesión de soporte finalizada. Volviendo a Super Admin.');
+  };
+
+  const handleCreateSuperAdmin = async (e) => {
+    e.preventDefault();
+    if (!newSuperAdmin.name || !newSuperAdmin.email || !newSuperAdmin.password) {
+      alert('Complete todos los campos del nuevo Super Admin.');
+      return;
+    }
+
+    setCreatingSuperAdmin(true);
+    try {
+      await usersApi.createSuperAdmin(newSuperAdmin);
+      alert('🎉 Nuevo Administrador de Plataforma (Super Admin) creado correctamente.');
+      setNewSuperAdmin({ name: '', email: '', password: '' });
+      setShowSuperAdminForm(false);
+      await loadTenants();
+    } catch (err) {
+      alert(`❌ Error: ${err.message}`);
+    } finally {
+      setCreatingSuperAdmin(false);
     }
   };
 
@@ -295,6 +408,19 @@ function App() {
   // -------------------------------------------------------
   return (
     <div className="app-container overflow-x-hidden">
+      {/* Barra de Impersonación para Soporte Técnico */}
+      {isImpersonating && (
+        <div style={{ background: 'var(--orange-neon)', color: '#000', padding: '10px 24px', fontWeight: '800', textAlign: 'center', fontSize: '13px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', zIndex: 1000 }}>
+          <span>🔴 Sesión de Soporte: Impersonando a <strong>{currentUser.name}</strong> ({currentUser.tenant_name})</span>
+          <button 
+            onClick={handleStopImpersonation} 
+            style={{ background: '#000', color: '#fff', border: 'none', padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: '700' }}
+          >
+            Volver a mi sesión Super Admin
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <header className="nav-header">
         <div className="logo-container">
@@ -302,9 +428,20 @@ function App() {
         </div>
         <nav className="nav-links">
           {isSuperAdmin ? (
-            <span className={`nav-link ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => setActiveTab('saas-tenants')}>
-              SaaS Tenants (Marcas)
-            </span>
+            <>
+              <span className={`nav-link ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => setActiveTab('saas-tenants')}>
+                🏢 Inquilinos (Tenants)
+              </span>
+              <span className={`nav-link ${activeTab === 'saas-users' ? 'active' : ''}`} onClick={() => setActiveTab('saas-users')}>
+                👥 Usuarios Globales
+              </span>
+              <span className={`nav-link ${activeTab === 'saas-billing' ? 'active' : ''}`} onClick={() => setActiveTab('saas-billing')}>
+                💳 Planes & Billing
+              </span>
+              <span className={`nav-link ${activeTab === 'saas-audit' ? 'active' : ''}`} onClick={() => setActiveTab('saas-audit')}>
+                📋 Auditoría & Logs
+              </span>
+            </>
           ) : (
             <>
               <span className={`nav-link ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>
@@ -344,7 +481,12 @@ function App() {
       {/* Mobile Nav */}
       <div className="mobile-bottom-nav">
         {isSuperAdmin ? (
-          <span className={`mobile-nav-item ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => setActiveTab('saas-tenants')}>🛠️ Tenants</span>
+          <>
+            <span className={`mobile-nav-item ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => setActiveTab('saas-tenants')}>🏢 Tenants</span>
+            <span className={`mobile-nav-item ${activeTab === 'saas-users' ? 'active' : ''}`} onClick={() => setActiveTab('saas-users')}>👥 Users</span>
+            <span className={`mobile-nav-item ${activeTab === 'saas-billing' ? 'active' : ''}`} onClick={() => setActiveTab('saas-billing')}>💳 Billing</span>
+            <span className={`mobile-nav-item ${activeTab === 'saas-audit' ? 'active' : ''}`} onClick={() => setActiveTab('saas-audit')}>📋 Logs</span>
+          </>
         ) : (
           <>
             <span className={`mobile-nav-item ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>📂 Catálogo</span>
@@ -372,24 +514,26 @@ function App() {
         )}
 
         {/* ===================================================== */}
-        {/* TAB SAAS: SAAS TENANTS (Solo Super Admin)             */}
+        {/* TAB SAAS 1: SAAS TENANTS                              */}
         {/* ===================================================== */}
         {activeTab === 'saas-tenants' && isSuperAdmin && !dataLoading && (
           <div>
-            <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
-              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Panel de Control SaaS</h1>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                Crea y administra múltiples marcas independientes conectadas al mismo sistema B2B.
-              </p>
+            <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+              <div>
+                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Panel de Control SaaS</h1>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                  Crea, modifica y gestiona múltiples marcas independientes (inquilinos) conectadas a la plataforma.
+                </p>
+              </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', alignItems: 'start' }}>
-              {/* Formulario de creación de Tenant */}
+              {/* Formulario de creación/edición */}
               <div className="glass-panel" style={{ padding: '24px' }}>
-                <h2 style={{ fontSize: '20px', fontWeight: '800', marginBottom: '20px', color: 'var(--pink-neon)' }}>
-                  Registrar Nueva Empresa (Tenant)
+                <h2 style={{ fontSize: '20px', fontWeight: '800', marginBottom: '20px', color: editingTenant ? 'var(--cyan-neon)' : 'var(--pink-neon)' }}>
+                  {editingTenant ? '✏️ Editar Empresa' : '🏢 Registrar Nueva Empresa (Tenant)'}
                 </h2>
-                <form onSubmit={handleCreateTenant} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <form onSubmit={handleCreateOrUpdateTenant} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '700' }}>
                       Nombre de la Empresa / Marca
@@ -420,55 +564,114 @@ function App() {
                     </small>
                   </div>
 
-                  <div style={{ margin: '10px 0', borderTop: '1px dotted var(--border-color)', paddingTop: '10px' }}>
-                    <h3 style={{ fontSize: '14px', fontWeight: '800', marginBottom: '8px', color: 'var(--cyan-neon)' }}>
-                      Administrador Inicial
-                    </h3>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '700' }}>
+                      Plan de Suscripción
+                    </label>
+                    <select
+                      value={newTenant.plan_id}
+                      onChange={(e) => setNewTenant(prev => ({ ...prev, plan_id: e.target.value }))}
+                      required
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    >
+                      <option value="">-- Seleccionar Plan --</option>
+                      {plansList.map(p => (
+                        <option key={p.id} value={p.id}>{p.name} (${p.price_usd}/mes - Max {p.max_users} users)</option>
+                      ))}
+                    </select>
                   </div>
 
-                  <div>
-                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '700' }}>
-                      Nombre Completo
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Ej. Juan Pérez"
-                      value={newTenant.adminName}
-                      onChange={(e) => setNewTenant(prev => ({ ...prev, adminName: e.target.value }))}
-                      required
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '700' }}>
-                      Email
-                    </label>
-                    <input
-                      type="email"
-                      placeholder="Ej. admin@ultrasleeves.com"
-                      value={newTenant.adminEmail}
-                      onChange={(e) => setNewTenant(prev => ({ ...prev, adminEmail: e.target.value }))}
-                      required
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '700' }}>
-                      Contraseña del Administrador
-                    </label>
-                    <input
-                      type="password"
-                      placeholder="••••••••"
-                      value={newTenant.adminPassword}
-                      onChange={(e) => setNewTenant(prev => ({ ...prev, adminPassword: e.target.value }))}
-                      required
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </div>
+                  {editingTenant && (
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '700' }}>
+                        Estado del Inquilino
+                      </label>
+                      <select
+                        value={newTenant.status}
+                        onChange={(e) => setNewTenant(prev => ({ ...prev, status: e.target.value }))}
+                        required
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      >
+                        <option value="active">Activo</option>
+                        <option value="suspended">Suspendido (Soft Delete)</option>
+                        <option value="blocked">Bloqueado por Falta de Pago</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {!editingTenant && (
+                    <>
+                      <div style={{ margin: '10px 0', borderTop: '1px dotted var(--border-color)', paddingTop: '10px' }}>
+                        <h3 style={{ fontSize: '14px', fontWeight: '800', marginBottom: '8px', color: 'var(--cyan-neon)' }}>
+                          Administrador Inicial
+                        </h3>
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '700' }}>
+                          Nombre Completo
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Ej. Juan Pérez"
+                          value={newTenant.adminName}
+                          onChange={(e) => setNewTenant(prev => ({ ...prev, adminName: e.target.value }))}
+                          required
+                          style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '700' }}>
+                          Email
+                        </label>
+                        <input
+                          type="email"
+                          placeholder="Ej. admin@ultrasleeves.com"
+                          value={newTenant.adminEmail}
+                          onChange={(e) => setNewTenant(prev => ({ ...prev, adminEmail: e.target.value }))}
+                          required
+                          style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '700' }}>
+                          Contraseña del Administrador
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="••••••••"
+                          value={newTenant.adminPassword}
+                          onChange={(e) => setNewTenant(prev => ({ ...prev, adminPassword: e.target.value }))}
+                          required
+                          style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                    </>
+                  )}
 
                   <button type="submit" className="btn-pink" style={{ width: '100%', padding: '12px', marginTop: '10px' }} disabled={creatingTenant}>
-                    {creatingTenant ? '⏳ Creando...' : 'Crear Empresa & Admin'}
+                    {creatingTenant ? '⏳ Procesando...' : editingTenant ? 'Guardar Cambios' : 'Crear Empresa & Admin'}
                   </button>
+
+                  {editingTenant && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingTenant(null);
+                        setNewTenant({
+                          name: '',
+                          slug: '',
+                          plan_id: plansList[0]?.id || '',
+                          status: 'active',
+                          adminName: '',
+                          adminEmail: '',
+                          adminPassword: ''
+                        });
+                      }}
+                      style={{ width: '100%', padding: '12px', background: 'transparent', border: '1px solid var(--border-color)', color: '#fff', borderRadius: '8px', cursor: 'pointer' }}
+                    >
+                      Cancelar Edición
+                    </button>
+                  )}
                 </form>
               </div>
 
@@ -478,41 +681,370 @@ function App() {
                   Empresas Registradas ({tenantsList.length})
                 </h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {tenantsList.map(t => (
-                    <div key={t.id} className="glass-panel" style={{ padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                  {tenantsList.map(t => {
+                    const tenantAdmin = globalUsersList.find(u => u.tenant_slug === t.slug && u.role === 'admin');
+                    return (
+                      <div key={t.id} className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                              <h3 style={{ fontSize: '18px', fontWeight: '800', margin: 0 }}>{t.name}</h3>
+                              <span className={`badge ${
+                                t.status === 'active' ? 'badge-green' : t.status === 'suspended' ? 'badge-orange' : 'badge-pink'
+                              }`} style={{ fontSize: '9px', padding: '2px 6px' }}>
+                                {t.status === 'active' ? '✓ Activa' : t.status === 'suspended' ? '⚠️ Suspendida' : '🚫 Bloqueada'}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Slug: <strong>{t.slug}</strong></span><br />
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>ID: {t.id}</span>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <span className="badge badge-cyan" style={{ fontSize: '10px', display: 'inline-block', marginBottom: '6px' }}>
+                              {t.plan_name} (${parseFloat(t.plan_price).toFixed(0)}/m)
+                            </span><br />
+                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                              👤 {t.user_count} Users | 📦 {t.product_count} Prods
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Botones de acción CRUD e Impersonación */}
+                        <div style={{ display: 'flex', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: '10px', flexWrap: 'wrap' }}>
+                          {tenantAdmin && (
+                            <button
+                              onClick={() => handleImpersonate(tenantAdmin.id)}
+                              className="btn-neon"
+                              style={{ padding: '6px 12px', fontSize: '11px', fontWeight: '700' }}
+                              title="Iniciar sesión de soporte como administrador de esta empresa"
+                            >
+                              ⚡ Soporte (Log in as)
+                            </button>
+                          )}
+                          <button
+                            onClick={() => {
+                              setEditingTenant(t);
+                              setNewTenant({
+                                name: t.name,
+                                slug: t.slug,
+                                plan_id: t.plan_id,
+                                status: t.status,
+                                adminName: '',
+                                adminEmail: '',
+                                adminPassword: ''
+                              });
+                            }}
+                            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: '700' }}
+                          >
+                            ✏️ Editar
+                          </button>
+                          {t.id !== '00000000-0000-0000-0000-000000000001' && (
+                            <button
+                              onClick={() => handleDeleteTenant(t.id)}
+                              style={{ background: 'rgba(255, 9, 187, 0.05)', border: '1px solid var(--pink-neon)', color: 'var(--pink-neon)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: '700' }}
+                            >
+                              🗑️ Eliminar
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ===================================================== */}
+        {/* TAB SAAS 2: SAAS GLOBAL USERS                         */}
+        {/* ===================================================== */}
+        {activeTab === 'saas-users' && isSuperAdmin && !dataLoading && (
+          <div>
+            <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+              <div>
+                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Usuarios Globales</h1>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                  Audita a todos los usuarios del sistema, sus roles e inquilino de pertenencia.
+                </p>
+              </div>
+              <button onClick={() => setShowSuperAdminForm(!showSuperAdminForm)} className="btn-pink">
+                👤 {showSuperAdminForm ? 'Ocultar Formulario' : 'Crear Super Admin'}
+              </button>
+            </div>
+
+            {showSuperAdminForm && (
+              <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', maxWidth: '500px' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
+                  Registrar Administrador de Plataforma (Super Admin)
+                </h2>
+                <form onSubmit={handleCreateSuperAdmin} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Nombre</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Soporte Interno"
+                      value={newSuperAdmin.name}
+                      required
+                      onChange={(e) => setNewSuperAdmin(prev => ({ ...prev, name: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Email</label>
+                    <input
+                      type="email"
+                      placeholder="soporte@plataforma.com"
+                      value={newSuperAdmin.email}
+                      required
+                      onChange={(e) => setNewSuperAdmin(prev => ({ ...prev, email: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Password</label>
+                    <input
+                      type="password"
+                      placeholder="••••••••"
+                      value={newSuperAdmin.password}
+                      required
+                      onChange={(e) => setNewSuperAdmin(prev => ({ ...prev, password: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <button type="submit" className="btn-pink" disabled={creatingSuperAdmin}>
+                    {creatingSuperAdmin ? '⏳ Creando...' : 'Crear Super Admin'}
+                  </button>
+                </form>
+              </div>
+            )}
+
+            <div className="glass-panel" style={{ overflowX: 'auto', padding: '10px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '700px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '700' }}>
+                    <th style={{ padding: '12px' }}>Nombre</th>
+                    <th style={{ padding: '12px' }}>Email</th>
+                    <th style={{ padding: '12px' }}>Rol</th>
+                    <th style={{ padding: '12px' }}>Marca / Tenant</th>
+                    <th style={{ padding: '12px' }}>Fecha Registro</th>
+                  </tr>
+                </thead>
+                <tbody style={{ fontSize: '14px' }}>
+                  {globalUsersList.map(u => (
+                    <tr key={u.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)', hover: { background: 'rgba(255,255,255,0.01)' } }}>
+                      <td style={{ padding: '14px', fontWeight: '700' }}>{u.name}</td>
+                      <td style={{ padding: '14px', color: 'var(--text-secondary)' }}>{u.email}</td>
+                      <td style={{ padding: '14px' }}>
+                        <span className={`badge ${
+                          u.role === 'superadmin' ? 'badge-pink' : u.role === 'admin' ? 'badge-cyan' : 'badge-orange'
+                        }`} style={{ fontSize: '9px', padding: '2px 6px' }}>
+                          {u.role.toUpperCase()}
+                        </span>
+                      </td>
+                      <td style={{ padding: '14px' }}>
+                        {u.role === 'superadmin' ? (
+                          <span style={{ color: 'var(--cyan-neon)', fontWeight: '700' }}>Platform Suite</span>
+                        ) : (
+                          <span>{u.tenant_name} <strong style={{ color: 'var(--text-muted)' }}>({u.tenant_slug})</strong></span>
+                        )}
+                      </td>
+                      <td style={{ padding: '14px', color: 'var(--text-muted)', fontSize: '12px' }}>
+                        {new Date(u.created_at).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ===================================================== */}
+        {/* TAB SAAS 3: PLANS & BILLING                           */}
+        {/* ===================================================== */}
+        {activeTab === 'saas-billing' && isSuperAdmin && !dataLoading && (
+          <div>
+            <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Planes & Suscripciones (Billing)</h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                Controla la facturación mensual estimada, limites de usuarios y asigna planes a tus clientes.
+              </p>
+            </div>
+
+            {/* Tarjetas de Métricas de Facturación */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+              <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--cyan-neon)' }}>
+                <h4 style={{ color: 'var(--text-secondary)', fontSize: '12px', margin: '0 0 6px', textTransform: 'uppercase' }}>Ingresos Mensuales Estimados</h4>
+                <span style={{ fontSize: '28px', fontWeight: '900', color: 'var(--cyan-neon)' }}>${saasMetrics?.monthlyRevenueEstim?.toFixed(2)} USD</span>
+              </div>
+              {saasMetrics?.planDistribution?.map(p => (
+                <div key={p.plan_name} className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--pink-neon)' }}>
+                  <h4 style={{ color: 'var(--text-secondary)', fontSize: '12px', margin: '0 0 6px', textTransform: 'uppercase' }}>Plan {p.plan_name}</h4>
+                  <span style={{ fontSize: '28px', fontWeight: '900', color: '#fff' }}>{p.count} {p.count === '1' ? 'Empresa' : 'Empresas'}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Listado de Facturación de Clientes */}
+            <div className="glass-panel" style={{ overflowX: 'auto', padding: '10px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '700px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '700' }}>
+                    <th style={{ padding: '12px' }}>Empresa (Tenant)</th>
+                    <th style={{ padding: '12px' }}>Plan Actual</th>
+                    <th style={{ padding: '12px' }}>Costo Mensual</th>
+                    <th style={{ padding: '12px' }}>Estado Cobro</th>
+                    <th style={{ padding: '12px' }}>Acciones Facturación</th>
+                  </tr>
+                </thead>
+                <tbody style={{ fontSize: '14px' }}>
+                  {tenantsList.map(t => {
+                    const handlePlanChange = async (planId) => {
+                      try {
+                        await tenantsApi.update(t.id, {
+                          name: t.name,
+                          slug: t.slug,
+                          plan_id: planId,
+                          status: t.status
+                        });
+                        alert('Plan actualizado correctamente.');
+                        await loadTenants();
+                      } catch (err) {
+                        alert(`❌ Error al cambiar plan: ${err.message}`);
+                      }
+                    };
+
+                    const handleToggleLock = async () => {
+                      const nextStatus = t.status === 'blocked' ? 'active' : 'blocked';
+                      const msg = nextStatus === 'blocked'
+                        ? `¿Está seguro de BLOQUEAR el acceso de ${t.name} por impago?`
+                        : `¿Desea desbloquear el acceso de ${t.name}?`;
+                      
+                      if (!confirm(msg)) return;
+
+                      try {
+                        await tenantsApi.update(t.id, {
+                          name: t.name,
+                          slug: t.slug,
+                          plan_id: t.plan_id,
+                          status: nextStatus
+                        });
+                        alert(`Cliente ${nextStatus === 'blocked' ? 'bloqueado' : 'desbloqueado'} con éxito.`);
+                        await loadTenants();
+                      } catch (err) {
+                        alert(`❌ Error: ${err.message}`);
+                      }
+                    };
+
+                    return (
+                      <tr key={t.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                        <td style={{ padding: '14px', fontWeight: '700' }}>{t.name}</td>
+                        <td style={{ padding: '14px' }}>
+                          <select
+                            value={t.plan_id}
+                            onChange={(e) => handlePlanChange(e.target.value)}
+                            style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 12px', borderRadius: '6px', fontSize: '13px' }}
+                          >
+                            {plansList.map(p => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ padding: '14px', fontWeight: '700', color: 'var(--cyan-neon)' }}>
+                          ${parseFloat(t.plan_price).toFixed(2)} USD/mes
+                        </td>
+                        <td style={{ padding: '14px' }}>
+                          <span className={`badge ${t.status === 'blocked' ? 'badge-pink' : 'badge-green'}`} style={{ fontSize: '9px', padding: '2px 6px' }}>
+                            {t.status === 'blocked' ? '🚫 Bloqueado por Impago' : '✓ Al día'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '14px' }}>
+                          {t.id !== '00000000-0000-0000-0000-000000000001' && (
+                            <button
+                              onClick={handleToggleLock}
+                              className={t.status === 'blocked' ? 'btn-neon' : 'btn-pink'}
+                              style={{ padding: '6px 12px', fontSize: '11px', fontWeight: '700', minWidth: '130px' }}
+                            >
+                              {t.status === 'blocked' ? '✓ Desbloquear' : '🚫 Bloquear Acceso'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ===================================================== */}
+        {/* TAB SAAS 4: MONITORING & AUDIT LOGS                   */}
+        {/* ===================================================== */}
+        {activeTab === 'saas-audit' && isSuperAdmin && !dataLoading && (
+          <div>
+            <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Historial de Auditoría & Logs</h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                Monitoreo global en tiempo real de operaciones críticas en la infraestructura B2B SaaS.
+              </p>
+            </div>
+
+            {/* KPIs Rápidos */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+              <div className="glass-panel" style={{ padding: '16px', textAlign: 'center' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>INQUILINOS ACTIVOS</div>
+                <div style={{ fontSize: '24px', fontWeight: '900', color: 'var(--green-neon)' }}>{saasMetrics?.activeTenants || 0}</div>
+              </div>
+              <div className="glass-panel" style={{ padding: '16px', textAlign: 'center' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>INQUILINOS SUSPENDIDOS</div>
+                <div style={{ fontSize: '24px', fontWeight: '900', color: 'var(--orange-neon)' }}>{saasMetrics?.suspendedTenants || 0}</div>
+              </div>
+              <div className="glass-panel" style={{ padding: '16px', textAlign: 'center' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>INQUILINOS BLOQUEADOS</div>
+                <div style={{ fontSize: '24px', fontWeight: '900', color: 'var(--pink-neon)' }}>{saasMetrics?.blockedTenants || 0}</div>
+              </div>
+              <div className="glass-panel" style={{ padding: '16px', textAlign: 'center' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>NUEVOS USUARIOS ESTE MES</div>
+                <div style={{ fontSize: '24px', fontWeight: '900', color: 'var(--cyan-neon)' }}>{saasMetrics?.newUsersThisMonth || 0}</div>
+              </div>
+            </div>
+
+            {/* Listado de Logs */}
+            <div className="glass-panel" style={{ padding: '24px' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: '800', marginBottom: '20px' }}>
+                Registro de Actividad Global (Audit Logs)
+              </h2>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '550px', overflowY: 'auto', paddingRight: '8px' }}>
+                {auditLogs.length === 0 ? (
+                  <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '40px' }}>No hay registros de actividad disponibles.</p>
+                ) : (
+                  auditLogs.map(log => (
+                    <div key={log.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', padding: '12px 16px', borderRadius: '8px', flexWrap: 'wrap', gap: '10px' }}>
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
-                          <h3 style={{ fontSize: '18px', fontWeight: '800', margin: 0 }}>{t.name}</h3>
-                          <span className={`badge ${t.is_active ? 'badge-green' : 'badge-orange'}`} style={{ fontSize: '9px', padding: '2px 6px' }}>
-                            {t.is_active ? '✓ Activa' : '⚠️ Suspendida'}
+                          <span className={`badge ${
+                            log.action.includes('CREATE') ? 'badge-green' : log.action.includes('DELETE') ? 'badge-pink' : log.action.includes('IMPERSONATE') ? 'badge-orange' : 'badge-cyan'
+                          }`} style={{ fontSize: '9px', padding: '2px 6px' }}>
+                            {log.action}
                           </span>
+                          <span style={{ fontSize: '13px', fontWeight: '700' }}>{log.user_name}</span>
+                          {log.tenant_name && (
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>
+                              en <strong>{log.tenant_name}</strong>
+                            </span>
+                          )}
                         </div>
-                        <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Slug: <strong>{t.slug}</strong></span><br />
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>ID: {t.id}</span>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', wordBreak: 'break-word' }}>
+                          Detalles: {Object.entries(log.details || {}).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', ')}
+                        </span>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                        <div style={{ textAlign: 'right' }}>
-                          <span className="badge badge-cyan" style={{ fontSize: '10px', display: 'inline-block', marginBottom: '6px' }}>
-                            👤 {t.user_count} Usuarios
-                          </span><br />
-                          <span className="badge badge-pink" style={{ fontSize: '10px' }}>
-                            📦 {t.product_count} Productos
-                          </span>
-                        </div>
-                        {/* No permitir suspender al tenant semilla (id 1) para evitar bloqueos del admin principal en demos */}
-                        {t.id !== '00000000-0000-0000-0000-000000000001' && (
-                          <button
-                            onClick={() => handleToggleTenantStatus(t.id, t.is_active)}
-                            className={t.is_active ? 'btn-pink' : 'btn-neon'}
-                            style={{ padding: '8px 12px', fontSize: '11px', fontWeight: '700', minWidth: '90px' }}
-                          >
-                            {t.is_active ? 'Suspender' : 'Activar'}
-                          </button>
-                        )}
-                      </div>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                        {new Date(log.created_at).toLocaleString()}
+                      </span>
                     </div>
-                  ))}
-                </div>
+                  ))
+                )}
               </div>
             </div>
           </div>

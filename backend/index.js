@@ -8,6 +8,9 @@ import productsRoutes from './routes/products.js';
 import ordersRoutes from './routes/orders.js';
 import productionRoutes from './routes/production.js';
 import tenantsRoutes from './routes/tenants.js';
+import plansRoutes from './routes/plans.js';
+import usersRoutes from './routes/users.js';
+import auditRoutes from './routes/audit.js';
 
 // Cargar variables de entorno según el entorno
 // En producción (Railway), las variables se inyectan directamente
@@ -65,6 +68,9 @@ app.use('/api/products', productsRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/production', productionRoutes);
 app.use('/api/tenants', tenantsRoutes);
+app.use('/api/plans', plansRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/audit', auditRoutes);
 
 // Estado de la API y conexión a BD
 app.get('/api/status', async (req, res) => {

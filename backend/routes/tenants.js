@@ -2,20 +2,24 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import pool from '../db/pool.js';
 import { requireAuth, requireSuperAdmin } from '../middleware/auth.js';
+import { logAudit } from '../utils/audit.js';
 
 const router = Router();
 
 // ============================================================
 // GET /api/tenants (Solo Super Admin)
-// Lista todos los tenants registrados en el sistema
+// Lista todos los tenants no eliminados registrados en el sistema,
+// incluyendo información del plan.
 // ============================================================
 router.get('/', requireAuth, requireSuperAdmin, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT t.id, t.name, t.slug, t.is_active, t.created_at,
+      `SELECT t.id, t.name, t.slug, t.status, t.plan_id, t.created_at, p.name as plan_name, p.price_usd as plan_price,
        (SELECT COUNT(*) FROM users WHERE tenant_id = t.id) as user_count,
        (SELECT COUNT(*) FROM products WHERE tenant_id = t.id) as product_count
        FROM tenants t
+       JOIN plans p ON p.id = t.plan_id
+       WHERE t.deleted_at IS NULL
        ORDER BY t.created_at DESC`
     );
     res.json(result.rows);
@@ -27,15 +31,15 @@ router.get('/', requireAuth, requireSuperAdmin, async (req, res) => {
 
 // ============================================================
 // POST /api/tenants (Solo Super Admin)
-// Crea una nueva empresa (tenant) y su primer usuario Administrador.
-// Body: { name, slug, adminName, adminEmail, adminPassword }
+// Crea una nueva empresa (tenant) con un plan asignado y su primer admin.
+// Body: { name, slug, plan_id, adminName, adminEmail, adminPassword }
 // ============================================================
 router.post('/', requireAuth, requireSuperAdmin, async (req, res) => {
-  const { name, slug, adminName, adminEmail, adminPassword } = req.body;
+  const { name, slug, plan_id, adminName, adminEmail, adminPassword } = req.body;
 
-  if (!name || !slug || !adminName || !adminEmail || !adminPassword) {
+  if (!name || !slug || !plan_id || !adminName || !adminEmail || !adminPassword) {
     return res.status(400).json({
-      error: 'Nombre de empresa, slug, nombre de administrador, email y contraseña son requeridos.',
+      error: 'Nombre de empresa, slug, plan, nombre de administrador, email y contraseña son requeridos.',
     });
   }
 
@@ -50,8 +54,8 @@ router.post('/', requireAuth, requireSuperAdmin, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Verificar si el slug ya existe
-    const slugCheck = await client.query('SELECT id FROM tenants WHERE slug = $1', [slug.toLowerCase()]);
+    // Verificar si el slug ya existe (y no está eliminado)
+    const slugCheck = await client.query('SELECT id FROM tenants WHERE slug = $1 AND deleted_at IS NULL', [slug.toLowerCase()]);
     if (slugCheck.rows.length > 0) {
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'El slug ya está registrado para otra empresa.' });
@@ -66,10 +70,10 @@ router.post('/', requireAuth, requireSuperAdmin, async (req, res) => {
 
     // 1. Crear el Tenant
     const tenantResult = await client.query(
-      `INSERT INTO tenants (name, slug)
-       VALUES ($1, $2)
-       RETURNING id, name, slug, created_at`,
-      [name, slug.toLowerCase()]
+      `INSERT INTO tenants (name, slug, plan_id, status)
+       VALUES ($1, $2, $3, 'active')
+       RETURNING id, name, slug, plan_id, status, created_at`,
+      [name, slug.toLowerCase(), plan_id]
     );
     const tenant = tenantResult.rows[0];
 
@@ -99,6 +103,15 @@ router.post('/', requireAuth, requireSuperAdmin, async (req, res) => {
 
     await client.query('COMMIT');
 
+    // Auditoría
+    await logAudit(
+      req.user.id,
+      req.user.name,
+      tenant.id,
+      'CREATE_TENANT',
+      { name: tenant.name, slug: tenant.slug, plan_id }
+    );
+
     res.status(201).json({
       message: 'Empresa (Tenant) y usuario administrador creados con éxito.',
       tenant,
@@ -114,37 +127,109 @@ router.post('/', requireAuth, requireSuperAdmin, async (req, res) => {
 });
 
 // ============================================================
-// PUT /api/tenants/:id/status (Solo Super Admin)
-// Activa o suspende una marca (tenant) en el sistema.
-// Body: { is_active }
+// PUT /api/tenants/:id (Solo Super Admin)
+// Modifica los datos principales de un Tenant (nombre, slug, plan, estado).
 // ============================================================
-router.put('/:id/status', requireAuth, requireSuperAdmin, async (req, res) => {
+router.put('/:id', requireAuth, requireSuperAdmin, async (req, res) => {
   const { id } = req.params;
-  const { is_active } = req.body;
+  const { name, slug, plan_id, status } = req.body;
 
-  if (typeof is_active !== 'boolean') {
-    return res.status(400).json({ error: 'El campo is_active debe ser un booleano.' });
+  if (!name || !slug || !plan_id || !status) {
+    return res.status(400).json({ error: 'Nombre, slug, plan y estado son requeridos.' });
+  }
+
+  const slugRegex = /^[a-z0-9-]+$/;
+  if (!slugRegex.test(slug)) {
+    return res.status(400).json({
+      error: 'El slug solo puede contener letras minúsculas, números y guiones.',
+    });
   }
 
   try {
+    // Verificar si el slug ya existe en otro tenant
+    const slugCheck = await pool.query(
+      'SELECT id FROM tenants WHERE slug = $1 AND id <> $2 AND deleted_at IS NULL',
+      [slug.toLowerCase(), id]
+    );
+    if (slugCheck.rows.length > 0) {
+      return res.status(409).json({ error: 'El slug ya está registrado para otra empresa.' });
+    }
+
     const result = await pool.query(
       `UPDATE tenants
-       SET is_active = $1
-       WHERE id = $2
-       RETURNING id, name, slug, is_active`,
-      [is_active, id]
+       SET name = $1, slug = $2, plan_id = $3, status = $4
+       WHERE id = $5 AND deleted_at IS NULL
+       RETURNING id, name, slug, plan_id, status`,
+      [name, slug.toLowerCase(), plan_id, status, id]
     );
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Empresa no encontrada.' });
     }
 
+    const updatedTenant = result.rows[0];
+
+    // Auditoría
+    await logAudit(
+      req.user.id,
+      req.user.name,
+      updatedTenant.id,
+      'UPDATE_TENANT',
+      { name: updatedTenant.name, slug: updatedTenant.slug, plan_id, status }
+    );
+
     res.json({
-      message: `Empresa ${is_active ? 'activada' : 'suspendida'} con éxito.`,
-      tenant: result.rows[0],
+      message: 'Empresa actualizada con éxito.',
+      tenant: updatedTenant,
     });
   } catch (err) {
-    console.error('Error al actualizar estado del tenant:', err);
+    console.error('Error al actualizar tenant:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ============================================================
+// DELETE /api/tenants/:id (Solo Super Admin)
+// Realiza una eliminación lógica (Soft Delete) de un Tenant
+// ============================================================
+router.delete('/:id', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { id } = req.params;
+
+  // Evitar eliminar el tenant por defecto (id 1)
+  if (id === '00000000-0000-0000-0000-000000000001') {
+    return res.status(400).json({ error: 'No está permitido eliminar el Tenant semilla principal.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE tenants
+       SET deleted_at = CURRENT_TIMESTAMP
+       WHERE id = $1 AND deleted_at IS NULL
+       RETURNING id, name, slug`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Empresa no encontrada o ya eliminada.' });
+    }
+
+    const deletedTenant = result.rows[0];
+
+    // Auditoría
+    await logAudit(
+      req.user.id,
+      req.user.name,
+      deletedTenant.id,
+      'DELETE_TENANT',
+      { name: deletedTenant.name, slug: deletedTenant.slug }
+    );
+
+    res.json({
+      message: 'Empresa eliminada con éxito (eliminación lógica).',
+      tenant: deletedTenant,
+    });
+  } catch (err) {
+    console.error('Error al eliminar tenant:', err);
     res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });

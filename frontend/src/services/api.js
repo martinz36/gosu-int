@@ -56,12 +56,17 @@ export const auth = {
   bypassLogin: (email) =>
     request('POST', '/api/auth/bypass-login', { email }),
 
+  impersonate: (userId) =>
+    request('POST', `/api/auth/impersonate/${userId}`),
+
   register: (userData) =>
     request('POST', '/api/auth/register', userData),
 
   logout: () => {
     localStorage.removeItem('gosu_token');
     localStorage.removeItem('gosu_user');
+    localStorage.removeItem('gosu_superadmin_token');
+    localStorage.removeItem('gosu_superadmin_user');
   },
 
   getUser: () => {
@@ -119,9 +124,6 @@ export const production = {
     request('PUT', `/api/production/${id}/status`, { status }),
 };
 
-// ============================================================
-// Tenants (Gestión de SaaS)
-// ============================================================
 export const tenants = {
   getAll: () =>
     request('GET', '/api/tenants'),
@@ -129,6 +131,39 @@ export const tenants = {
   create: (tenantData) =>
     request('POST', '/api/tenants', tenantData),
 
-  updateStatus: (id, is_active) =>
-    request('PUT', `/api/tenants/${id}/status`, { is_active }),
+  update: (id, tenantData) =>
+    request('PUT', `/api/tenants/${id}`, tenantData),
+
+  delete: (id) =>
+    request('DELETE', `/api/tenants/${id}`),
+};
+
+// ============================================================
+// Users (SaaS Global Users)
+// ============================================================
+export const users = {
+  getGlobal: () =>
+    request('GET', '/api/users/global'),
+
+  createSuperAdmin: (userData) =>
+    request('POST', '/api/users/superadmin', userData),
+};
+
+// ============================================================
+// Plans (SaaS Plans)
+// ============================================================
+export const plans = {
+  getAll: () =>
+    request('GET', '/api/plans'),
+};
+
+// ============================================================
+// Audit Logs & Metrics (SaaS Monitoring)
+// ============================================================
+export const audit = {
+  getLogs: () =>
+    request('GET', '/api/audit'),
+
+  getMetrics: () =>
+    request('GET', '/api/audit/metrics'),
 };

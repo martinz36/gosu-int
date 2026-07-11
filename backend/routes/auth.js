@@ -2,6 +2,8 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import pool from '../db/pool.js';
+import { requireAuth, requireSuperAdmin } from '../middleware/auth.js';
+import { logAudit } from '../utils/audit.js';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'gosu-dev-secret-change-in-prod';
@@ -18,10 +20,10 @@ router.post('/login', async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT u.*, t.slug as tenant_slug, t.name as tenant_name, t.is_active as tenant_is_active
+      `SELECT u.*, t.slug as tenant_slug, t.name as tenant_name, t.status as tenant_status
        FROM users u
        JOIN tenants t ON t.id = u.tenant_id
-       WHERE u.email = $1`,
+       WHERE u.email = $1 AND t.deleted_at IS NULL`,
       [email.toLowerCase()]
     );
 
@@ -30,8 +32,11 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Credenciales inválidas.' });
     }
 
-    if (user.role !== 'superadmin' && !user.tenant_is_active) {
-      return res.status(403).json({ error: 'Esta cuenta de marca/empresa ha sido suspendida. Por favor, contacte al administrador de la plataforma.' });
+    if (user.role !== 'superadmin' && user.tenant_status !== 'active') {
+      const msg = user.tenant_status === 'blocked' 
+        ? 'Esta cuenta de marca/empresa ha sido bloqueada por falta de pago. Por favor, contacte al administrador.'
+        : 'Esta cuenta de marca/empresa ha sido suspendida. Por favor, contacte al administrador.';
+      return res.status(403).json({ error: msg });
     }
 
     const passwordMatch = await bcrypt.compare(password, user.password_hash);
@@ -131,10 +136,10 @@ router.post('/bypass-login', async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT u.*, t.slug as tenant_slug, t.name as tenant_name, t.is_active as tenant_is_active
+      `SELECT u.*, t.slug as tenant_slug, t.name as tenant_name, t.status as tenant_status
        FROM users u
        JOIN tenants t ON t.id = u.tenant_id
-       WHERE u.email = $1`,
+       WHERE u.email = $1 AND t.deleted_at IS NULL`,
       [email.toLowerCase()]
     );
 
@@ -143,8 +148,11 @@ router.post('/bypass-login', async (req, res) => {
       return res.status(404).json({ error: 'Usuario no encontrado.' });
     }
 
-    if (user.role !== 'superadmin' && !user.tenant_is_active) {
-      return res.status(403).json({ error: 'Esta cuenta de marca/empresa ha sido suspendida. Por favor, contacte al administrador de la plataforma.' });
+    if (user.role !== 'superadmin' && user.tenant_status !== 'active') {
+      const msg = user.tenant_status === 'blocked' 
+        ? 'Esta cuenta de marca/empresa ha sido bloqueada por falta de pago. Por favor, contacte al administrador.'
+        : 'Esta cuenta de marca/empresa ha sido suspendida. Por favor, contacte al administrador.';
+      return res.status(403).json({ error: msg });
     }
 
     const token = jwt.sign(
@@ -178,6 +186,77 @@ router.post('/bypass-login', async (req, res) => {
     });
   } catch (err) {
     console.error('Error en bypass-login:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ============================================================
+// POST /api/auth/impersonate/:userId (Solo Super Admin)
+// Inicia sesión temporalmente como un administrador de tenant para soporte técnico.
+// ============================================================
+router.post('/impersonate/:userId', requireAuth, requireSuperAdmin, async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const result = await pool.query(
+      `SELECT u.*, t.slug as tenant_slug, t.name as tenant_name, t.status as tenant_status
+       FROM users u
+       JOIN tenants t ON t.id = u.tenant_id
+       WHERE u.id = $1 AND t.deleted_at IS NULL`,
+      [userId]
+    );
+
+    const targetUser = result.rows[0];
+    if (!targetUser) {
+      return res.status(404).json({ error: 'Usuario no encontrado o el inquilino correspondiente ha sido eliminado.' });
+    }
+
+    if (targetUser.role === 'superadmin') {
+      return res.status(400).json({ error: 'No está permitido impersonar a otros Super Administradores.' });
+    }
+
+    const token = jwt.sign(
+      {
+        id:              targetUser.id,
+        tenant_id:       targetUser.tenant_id,
+        email:           targetUser.email,
+        role:            targetUser.role,
+        name:            targetUser.name,
+        client_category: targetUser.client_category,
+        tenant_slug:     targetUser.tenant_slug,
+        tenant_name:     targetUser.tenant_name,
+        impersonatedBy:  req.user.id,
+      },
+      JWT_SECRET,
+      { expiresIn: '2h' }
+    );
+
+    // Auditoría
+    await logAudit(
+      req.user.id,
+      req.user.name,
+      targetUser.tenant_id,
+      'IMPERSONATE_USER',
+      { target_user_id: targetUser.id, target_user_email: targetUser.email }
+    );
+
+    res.json({
+      token,
+      user: {
+        id:              targetUser.id,
+        name:            targetUser.name,
+        email:           targetUser.email,
+        role:            targetUser.role,
+        client_category: targetUser.client_category,
+        tenant_id:       targetUser.tenant_id,
+        tenant_name:     targetUser.tenant_name,
+        tenant_slug:     targetUser.tenant_slug,
+        custom_moa_usd:  targetUser.custom_moa_usd,
+        impersonatedBy:  req.user.id,
+      }
+    });
+  } catch (err) {
+    console.error('Error al impersonar usuario:', err);
     res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
