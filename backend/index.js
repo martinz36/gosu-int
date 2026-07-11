@@ -108,8 +108,8 @@ app.use((err, req, res, next) => {
 // ============================================================
 // Iniciar Servidor
 // ============================================================
-app.listen(PORT, () => {
-  console.log(`\n🚀 Gosu Int API v2.0 corriendo en http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n🚀 Gosu Int API v2.0 corriendo en http://0.0.0.0:${PORT}`);
   console.log(`📦 Entorno: ${ENV}`);
   console.log(`🔗 Base de datos: ${process.env.DATABASE_URL ? 'Neon configurado ✓' : '⚠️  No configurada'}`);
   console.log(`🌐 CORS: middleware manual activo\n`);
