@@ -138,11 +138,19 @@ function App() {
     if (activeTab === 'saas-tenants') loadTenants();
   }, [activeTab, currentUser, loadOrders, loadProduction, loadTenants]);
 
+  // Aligerar la vista del Super Admin forzando la redirección de tab
+  useEffect(() => {
+    if (currentUser && currentUser.role === 'superadmin' && activeTab !== 'saas-tenants') {
+      setActiveTab('saas-tenants');
+    }
+  }, [currentUser, activeTab]);
+
   // -------------------------------------------------------
   // Login / Logout
   // -------------------------------------------------------
   const handleLogin = (user) => {
     setCurrentUser(user);
+    setActiveTab(user.role === 'superadmin' ? 'saas-tenants' : 'catalog');
   };
 
   const handleLogout = () => {

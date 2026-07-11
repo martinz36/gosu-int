@@ -160,14 +160,42 @@
 }
 
 /* Responsive Mobile-First adjustments */
+.mobile-bottom-nav {
+  display: none;
+}
+
 @media (max-width: 768px) {
   .nav-header {
     padding: 16px;
   }
   .nav-links {
-    display: none; /* Se usará un menú móvil o pestañas de navegación inferiores en móvil */
+    display: none;
   }
   .main-content {
     padding: 16px;
+    padding-bottom: 80px; /* space for mobile nav */
+  }
+  .mobile-bottom-nav {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0, 0, 0, 0.95);
+    border-top: 1px solid var(--border-color);
+    padding: 12px;
+    z-index: 100;
+    backdrop-filter: blur(10px);
+  }
+  .mobile-nav-item {
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .mobile-nav-item.active {
+    color: var(--cyan-neon);
+    font-weight: 700;
   }
 }
