@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import './App.css';
 import LoginPage from './components/LoginPage';
-import { auth, products as productsApi, orders as ordersApi, production as productionApi, tenants as tenantsApi, plans as plansApi, users as usersApi, audit as auditApi } from './services/api';
+import { auth, products as productsApi, orders as ordersApi, production as productionApi, tenants as tenantsApi, plans as plansApi, users as usersApi, audit as auditApi, config as configApi } from './services/api';
 
 // Reglas de descuento (se obtendrán del backend en futuras versiones)
 const VOLUME_DISCOUNTS = [
@@ -68,6 +68,40 @@ function App() {
   });
   const [creatingSuperAdmin, setCreatingSuperAdmin] = useState(false);
 
+  // Configuración dinámica de inquilinos
+  const [catalogViewMode, setCatalogViewMode] = useState('grid');
+  const [categoriesList, setCategoriesList] = useState([]);
+  const [brandsList, setBrandsList] = useState([]);
+
+  // Formulario para Marcas/Categorías
+  const [newCategory, setNewCategory] = useState({ name: '', slug: '' });
+  const [newBrand, setNewBrand] = useState({ name: '', slug: '' });
+  const [editingCategory, setEditingCategory] = useState(null);
+  const [editingBrand, setEditingBrand] = useState(null);
+
+  // Formulario para Productos (con campos extendidos B2B)
+  const [newProduct, setNewProduct] = useState({
+    name: '',
+    sku: '',
+    category: '',
+    brand: '',
+    barcode: '',
+    units_per_case: 1,
+    weight_per_unit_g: 100,
+    length_cm: 0,
+    width_cm: 0,
+    height_cm: 0,
+    price_per_case_usd: '',
+    pvp_price_usd: '',
+    cost_price_usd: '',
+    stock_cases: 0,
+    image_url: '',
+    video_url: '',
+    marketing_resources_url: ''
+  });
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [creatingProduct, setCreatingProduct] = useState(false);
+
   // MOA del usuario actual
   const MOA_LIMIT = parseFloat(currentUser?.custom_moa_usd) || 1000.00;
   const isAdmin = currentUser?.role === 'admin';
@@ -128,6 +162,20 @@ function App() {
     }
   }, [isSuperAdmin]);
 
+  const loadCatalogConfig = useCallback(async () => {
+    if (!currentUser || isSuperAdmin) return;
+    try {
+      const [catData, brandData] = await Promise.all([
+        configApi.categories.getAll(),
+        configApi.brands.getAll()
+      ]);
+      setCategoriesList(catData);
+      setBrandsList(brandData);
+    } catch (err) {
+      console.error('Error cargando marcas/categorías:', err);
+    }
+  }, [currentUser, isSuperAdmin]);
+
   // Carga inicial cuando el usuario se autentifica
   useEffect(() => {
     if (!currentUser) return;
@@ -139,7 +187,7 @@ function App() {
         if (isSuperAdmin) {
           await loadTenants();
         } else {
-          await Promise.all([loadProducts(), loadOrders(), loadProduction()]);
+          await Promise.all([loadProducts(), loadOrders(), loadProduction(), loadCatalogConfig()]);
         }
       } catch (err) {
         setDataError('Error al cargar datos del servidor.');
@@ -148,7 +196,7 @@ function App() {
       }
     };
     loadAll();
-  }, [currentUser, isSuperAdmin, loadTenants, loadProducts, loadOrders, loadProduction]);
+  }, [currentUser, isSuperAdmin, loadTenants, loadProducts, loadOrders, loadProduction, loadCatalogConfig]);
 
   // Recargar productos cuando cambian los filtros
   useEffect(() => {
@@ -162,10 +210,11 @@ function App() {
     if (!currentUser) return;
     if (activeTab === 'orders') loadOrders();
     if (activeTab === 'admin') loadProduction();
+    if (activeTab === 'catalog' || activeTab === 'config') loadCatalogConfig();
     if (['saas-tenants', 'saas-users', 'saas-billing', 'saas-audit'].includes(activeTab)) {
       loadTenants();
     }
-  }, [activeTab, currentUser, loadOrders, loadProduction, loadTenants]);
+  }, [activeTab, currentUser, loadOrders, loadProduction, loadTenants, loadCatalogConfig]);
 
   // Aligerar la vista del Super Admin forzando la redirección de tab
   useEffect(() => {
@@ -179,6 +228,18 @@ function App() {
       setNewTenant(prev => ({ ...prev, plan_id: plansList[0].id }));
     }
   }, [plansList, newTenant.plan_id]);
+
+  useEffect(() => {
+    if (categoriesList.length > 0 && !newProduct.category) {
+      setNewProduct(prev => ({ ...prev, category: categoriesList[0].slug }));
+    }
+  }, [categoriesList, newProduct.category]);
+
+  useEffect(() => {
+    if (brandsList.length > 0 && !newProduct.brand) {
+      setNewProduct(prev => ({ ...prev, brand: brandsList[0].name }));
+    }
+  }, [brandsList, newProduct.brand]);
 
   // -------------------------------------------------------
   // Login / Logout
@@ -317,6 +378,136 @@ function App() {
     }
   };
 
+  // ============================================================
+  // CRUD de Categorías
+  // ============================================================
+  const handleCreateOrUpdateCategory = async (e) => {
+    e.preventDefault();
+    if (!newCategory.name || !newCategory.slug) {
+      alert('Nombre y slug son requeridos.');
+      return;
+    }
+    try {
+      if (editingCategory) {
+        await configApi.categories.update(editingCategory.id, newCategory);
+        alert('🎉 Categoría actualizada con éxito.');
+        setEditingCategory(null);
+      } else {
+        await configApi.categories.create(newCategory);
+        alert('🎉 Categoría creada con éxito.');
+      }
+      setNewCategory({ name: '', slug: '' });
+      await loadCatalogConfig();
+    } catch (err) {
+      alert(`❌ Error: ${err.message}`);
+    }
+  };
+
+  const handleDeleteCategory = async (id) => {
+    if (!confirm('¿Está seguro de eliminar esta categoría?')) return;
+    try {
+      await configApi.categories.delete(id);
+      alert('Categoría eliminada.');
+      await loadCatalogConfig();
+    } catch (err) {
+      alert(`❌ Error: ${err.message}`);
+    }
+  };
+
+  // ============================================================
+  // CRUD de Marcas
+  // ============================================================
+  const handleCreateOrUpdateBrand = async (e) => {
+    e.preventDefault();
+    if (!newBrand.name || !newBrand.slug) {
+      alert('Nombre y slug son requeridos.');
+      return;
+    }
+    try {
+      if (editingBrand) {
+        await configApi.brands.update(editingBrand.id, newBrand);
+        alert('🎉 Marca actualizada con éxito.');
+        setEditingBrand(null);
+      } else {
+        await configApi.brands.create(newBrand);
+        alert('🎉 Marca creada con éxito.');
+      }
+      setNewBrand({ name: '', slug: '' });
+      await loadCatalogConfig();
+    } catch (err) {
+      alert(`❌ Error: ${err.message}`);
+    }
+  };
+
+  const handleDeleteBrand = async (id) => {
+    if (!confirm('¿Está seguro de eliminar esta marca?')) return;
+    try {
+      await configApi.brands.delete(id);
+      alert('Marca eliminada.');
+      await loadCatalogConfig();
+    } catch (err) {
+      alert(`❌ Error: ${err.message}`);
+    }
+  };
+
+  // ============================================================
+  // CRUD de Productos (Campos Extendidos B2B)
+  // ============================================================
+  const handleCreateOrUpdateProduct = async (e) => {
+    e.preventDefault();
+    if (!newProduct.name || !newProduct.sku || !newProduct.category || !newProduct.price_per_case_usd) {
+      alert('Nombre, SKU, Categoría y Precio por caja son campos obligatorios.');
+      return;
+    }
+
+    setCreatingProduct(true);
+    try {
+      if (editingProduct) {
+        await productsApi.update(editingProduct.id, newProduct);
+        alert('🎉 Producto actualizado con éxito.');
+        setEditingProduct(null);
+      } else {
+        await productsApi.create(newProduct);
+        alert('🎉 Producto creado con éxito.');
+      }
+      setNewProduct({
+        name: '',
+        sku: '',
+        category: categoriesList[0]?.slug || '',
+        brand: brandsList[0]?.name || '',
+        barcode: '',
+        units_per_case: 1,
+        weight_per_unit_g: 100,
+        length_cm: 0,
+        width_cm: 0,
+        height_cm: 0,
+        price_per_case_usd: '',
+        pvp_price_usd: '',
+        cost_price_usd: '',
+        stock_cases: 0,
+        image_url: '',
+        video_url: '',
+        marketing_resources_url: ''
+      });
+      await loadProducts();
+    } catch (err) {
+      alert(`❌ Error: ${err.message}`);
+    } finally {
+      setCreatingProduct(false);
+    }
+  };
+
+  const handleDeleteProduct = async (id) => {
+    if (!confirm('¿Está seguro de eliminar este producto del catálogo?')) return;
+    try {
+      await productsApi.delete(id);
+      alert('Producto eliminado con éxito.');
+      await loadProducts();
+    } catch (err) {
+      alert(`❌ Error: ${err.message}`);
+    }
+  };
+
   // -------------------------------------------------------
   // Lógica del Carrito
   // -------------------------------------------------------
@@ -407,7 +598,7 @@ function App() {
   // Render Principal
   // -------------------------------------------------------
   return (
-    <div className="app-container overflow-x-hidden">
+    <div className="app-container" style={{ display: 'flex', minHeight: '100vh', flexDirection: 'column' }}>
       {/* Barra de Impersonación para Soporte Técnico */}
       {isImpersonating && (
         <div style={{ background: 'var(--orange-neon)', color: '#000', padding: '10px 24px', fontWeight: '800', textAlign: 'center', fontSize: '13px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', zIndex: 1000 }}>
@@ -421,97 +612,117 @@ function App() {
         </div>
       )}
 
-      {/* Header */}
-      <header className="nav-header">
-        <div className="logo-container">
-          <div className="logo-text">{isSuperAdmin ? 'Gosu SaaS Portal' : 'Gosu Accessories'}</div>
-        </div>
-        <nav className="nav-links">
-          {isSuperAdmin ? (
-            <>
-              <span className={`nav-link ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => setActiveTab('saas-tenants')}>
-                🏢 Inquilinos (Tenants)
-              </span>
-              <span className={`nav-link ${activeTab === 'saas-users' ? 'active' : ''}`} onClick={() => setActiveTab('saas-users')}>
-                👥 Usuarios Globales
-              </span>
-              <span className={`nav-link ${activeTab === 'saas-billing' ? 'active' : ''}`} onClick={() => setActiveTab('saas-billing')}>
-                💳 Planes & Billing
-              </span>
-              <span className={`nav-link ${activeTab === 'saas-audit' ? 'active' : ''}`} onClick={() => setActiveTab('saas-audit')}>
-                📋 Auditoría & Logs
-              </span>
-            </>
-          ) : (
-            <>
-              <span className={`nav-link ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>
-                Catálogo B2B
-              </span>
-              <span className={`nav-link ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
-                Mis Pedidos & Bóveda
-              </span>
-              {isAdmin && (
-                <span className={`nav-link ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
-                  Fábrica & Producción
+      <div style={{ display: 'flex', flexGrow: 1, minHeight: 0 }}>
+        {/* Sidebar Lateral */}
+        <aside className="sidebar" style={{ width: '260px', background: 'rgba(10, 10, 10, 0.98)', borderRight: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', padding: '24px 16px', boxSizing: 'border-box', flexShrink: 0 }}>
+          <div style={{ marginBottom: '32px', textAlign: 'center' }}>
+            <h1 className="logo-text" style={{ margin: 0, fontSize: '20px', fontWeight: '900', letterSpacing: '1px', textTransform: 'uppercase' }}>
+              {isSuperAdmin ? 'Gosu SaaS' : currentUser.tenant_name || 'Gosu B2B'}
+            </h1>
+            {!isSuperAdmin && (
+              <span className="badge badge-cyan" style={{ fontSize: '9px', marginTop: '6px' }}>{currentUser.tenant_slug}</span>
+            )}
+          </div>
+
+          <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px', flexGrow: 1 }}>
+            {isSuperAdmin ? (
+              <>
+                <span className={`nav-link-btn ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => setActiveTab('saas-tenants')} style={{ cursor: 'pointer' }}>
+                  🏢 Inquilinos (Tenants)
                 </span>
-              )}
-            </>
-          )}
-        </nav>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <div style={{ fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'right' }}>
-            <div style={{ color: '#fff', fontWeight: '700' }}>{currentUser.name}</div>
-            <div style={{ fontSize: '11px' }}>
-              <span className={`badge ${isSuperAdmin ? 'badge-pink' : isAdmin ? 'badge-pink' : 'badge-cyan'}`} style={{ fontSize: '9px', padding: '2px 6px' }}>
+                <span className={`nav-link-btn ${activeTab === 'saas-users' ? 'active' : ''}`} onClick={() => setActiveTab('saas-users')} style={{ cursor: 'pointer' }}>
+                  👥 Usuarios Globales
+                </span>
+                <span className={`nav-link-btn ${activeTab === 'saas-billing' ? 'active' : ''}`} onClick={() => setActiveTab('saas-billing')} style={{ cursor: 'pointer' }}>
+                  💳 Planes & Billing
+                </span>
+                <span className={`nav-link-btn ${activeTab === 'saas-audit' ? 'active' : ''}`} onClick={() => setActiveTab('saas-audit')} style={{ cursor: 'pointer' }}>
+                  📋 Auditoría & Logs
+                </span>
+              </>
+            ) : (
+              <>
+                <span className={`nav-link-btn ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')} style={{ cursor: 'pointer' }}>
+                  📂 Catálogo B2B
+                </span>
+                <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')} style={{ cursor: 'pointer' }}>
+                  📜 Mis Pedidos & Bóveda
+                </span>
+                {isAdmin && (
+                  <>
+                    <span className={`nav-link-btn ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')} style={{ cursor: 'pointer' }}>
+                      🏭 Fábrica & Producción
+                    </span>
+                    <span className={`nav-link-btn ${activeTab === 'config' ? 'active' : ''}`} onClick={() => setActiveTab('config')} style={{ cursor: 'pointer' }}>
+                      ⚙️ Configuración
+                    </span>
+                  </>
+                )}
+              </>
+            )}
+          </nav>
+
+          <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+              <div style={{ color: '#fff', fontWeight: '700', wordBreak: 'break-all' }}>{currentUser.name}</div>
+              <div style={{ fontSize: '10px', marginTop: '2px', wordBreak: 'break-all' }}>{currentUser.email}</div>
+              <span className={`badge ${isSuperAdmin ? 'badge-pink' : isAdmin ? 'badge-pink' : 'badge-cyan'}`} style={{ fontSize: '8px', padding: '1px 4px', marginTop: '4px' }}>
                 {isSuperAdmin ? 'SUPER ADMIN' : isAdmin ? 'ADMIN' : currentUser.client_category?.replace('_', ' ')}
               </span>
             </div>
-          </div>
-          {!isSuperAdmin && (
-            <button className="btn-neon" onClick={() => setShowCart(true)}>
-              🛒 {cartTotals.totalCases} {cartTotals.totalCases === 1 ? 'Caja' : 'Cajas'}
+            <button onClick={handleLogout} className="btn-neon" style={{ width: '100%', padding: '8px', fontSize: '12px' }}>
+              Salir
             </button>
-          )}
-          <button onClick={handleLogout} style={{ background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px' }}>
-            Salir
-          </button>
-        </div>
-      </header>
+          </div>
+        </aside>
 
-      {/* Mobile Nav */}
-      <div className="mobile-bottom-nav">
-        {isSuperAdmin ? (
-          <>
-            <span className={`mobile-nav-item ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => setActiveTab('saas-tenants')}>🏢 Tenants</span>
-            <span className={`mobile-nav-item ${activeTab === 'saas-users' ? 'active' : ''}`} onClick={() => setActiveTab('saas-users')}>👥 Users</span>
-            <span className={`mobile-nav-item ${activeTab === 'saas-billing' ? 'active' : ''}`} onClick={() => setActiveTab('saas-billing')}>💳 Billing</span>
-            <span className={`mobile-nav-item ${activeTab === 'saas-audit' ? 'active' : ''}`} onClick={() => setActiveTab('saas-audit')}>📋 Logs</span>
-          </>
-        ) : (
-          <>
-            <span className={`mobile-nav-item ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>📂 Catálogo</span>
-            <span className={`mobile-nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>📜 Bóveda B2B</span>
-            {isAdmin && (
-              <span className={`mobile-nav-item ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>🏭 Fábrica</span>
+        {/* Contenido Principal */}
+        <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          {/* Header Bar */}
+          <header className="nav-header" style={{ position: 'sticky', top: 0, zIndex: 40, display: 'flex', justifyContent: 'flex-end', padding: '16px 24px', background: 'rgba(0, 0, 0, 0.95)', borderBottom: '1px solid var(--border-color)', backdropFilter: 'blur(20px)' }}>
+            {!isSuperAdmin && (
+              <button className="btn-neon" onClick={() => setShowCart(true)}>
+                🛒 Carrito ({cartTotals.totalCases} {cartTotals.totalCases === 1 ? 'Caja' : 'Cajas'})
+              </button>
             )}
-          </>
-        )}
-      </div>
+          </header>
 
-      <main className="main-content">
-
-        {/* Loading global */}
-        {dataLoading && (
-          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--cyan-neon)' }}>
-            ⏳ Cargando datos desde Neon...
+          {/* Mobile Nav */}
+          <div className="mobile-bottom-nav">
+            {isSuperAdmin ? (
+              <>
+                <span className={`mobile-nav-item ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => setActiveTab('saas-tenants')}>🏢 Tenants</span>
+                <span className={`mobile-nav-item ${activeTab === 'saas-users' ? 'active' : ''}`} onClick={() => setActiveTab('saas-users')}>👥 Users</span>
+                <span className={`mobile-nav-item ${activeTab === 'saas-billing' ? 'active' : ''}`} onClick={() => setActiveTab('saas-billing')}>💳 Billing</span>
+                <span className={`mobile-nav-item ${activeTab === 'saas-audit' ? 'active' : ''}`} onClick={() => setActiveTab('saas-audit')}>📋 Logs</span>
+              </>
+            ) : (
+              <>
+                <span className={`mobile-nav-item ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>📂 Catálogo</span>
+                <span className={`mobile-nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>📜 Pedidos</span>
+                {isAdmin && (
+                  <>
+                    <span className={`mobile-nav-item ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>🏭 Fábrica</span>
+                    <span className={`mobile-nav-item ${activeTab === 'config' ? 'active' : ''}`} onClick={() => setActiveTab('config')}>⚙️ Config</span>
+                  </>
+                )}
+              </>
+            )}
           </div>
-        )}
 
-        {dataError && (
-          <div className="glass-panel" style={{ padding: '16px', borderLeft: '4px solid var(--orange-neon)', marginBottom: '24px', color: 'var(--orange-neon)' }}>
-            ⚠️ {dataError}
-          </div>
-        )}
+          <main className="main-content" style={{ flexGrow: 1, padding: '24px', boxSizing: 'border-box' }}>
+            {/* Loading global */}
+            {dataLoading && (
+              <div style={{ textAlign: 'center', padding: '40px', color: 'var(--cyan-neon)' }}>
+                ⏳ Cargando datos desde Neon...
+              </div>
+            )}
+
+            {dataError && (
+              <div className="glass-panel" style={{ padding: '16px', borderLeft: '4px solid var(--orange-neon)', marginBottom: '24px', color: 'var(--orange-neon)' }}>
+                ⚠️ {dataError}
+              </div>
+            )}
 
         {/* ===================================================== */}
         {/* TAB SAAS 1: SAAS TENANTS                              */}
@@ -1062,7 +1273,30 @@ function App() {
                   Precios especiales para distribuidores despachados directamente de fábrica.
                 </p>
               </div>
-              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+                {isAdmin && (
+                  <button 
+                    onClick={() => { setCreatingProduct(prev => !prev); setEditingProduct(null); }}
+                    className="btn-pink"
+                    style={{ padding: '8px 16px', fontSize: '13px' }}
+                  >
+                    {creatingProduct ? 'Cerrar Formulario' : '➕ Añadir Producto'}
+                  </button>
+                )}
+                <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '2px' }}>
+                  <button
+                    onClick={() => setCatalogViewMode('grid')}
+                    style={{ background: catalogViewMode === 'grid' ? 'var(--cyan-neon)' : 'transparent', color: catalogViewMode === 'grid' ? '#000' : '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                  >
+                    🔲 Vista Rejilla
+                  </button>
+                  <button
+                    onClick={() => setCatalogViewMode('list')}
+                    style={{ background: catalogViewMode === 'list' ? 'var(--cyan-neon)' : 'transparent', color: catalogViewMode === 'list' ? '#000' : '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                  >
+                    ≡ Vista Lista
+                  </button>
+                </div>
                 <input
                   type="text"
                   id="product-search"
@@ -1074,16 +1308,189 @@ function App() {
               </div>
             </div>
 
-            {/* Filtros de Categoría */}
+            {/* Formulario de creación/edición de Producto (Solo Admin del Tenant) */}
+            {isAdmin && (creatingProduct || editingProduct) && (
+              <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
+                <h2 style={{ fontSize: '20px', fontWeight: '800', marginBottom: '20px', color: editingProduct ? 'var(--cyan-neon)' : 'var(--pink-neon)' }}>
+                  {editingProduct ? `✏️ Editar Producto: ${editingProduct.name}` : '➕ Añadir Nuevo Producto'}
+                </h2>
+                <form onSubmit={handleCreateOrUpdateProduct} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Nombre del Producto *</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Protectores Standard Negro"
+                      value={newProduct.name}
+                      required
+                      onChange={(e) => setNewProduct(prev => ({ ...prev, name: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>SKU *</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. GSU-SLV-001"
+                      value={newProduct.sku}
+                      required
+                      onChange={(e) => setNewProduct(prev => ({ ...prev, sku: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Código de Barras (EAN / UPC)</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. 7427246231221"
+                      value={newProduct.barcode}
+                      onChange={(e) => setNewProduct(prev => ({ ...prev, barcode: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Categoría *</label>
+                    <select
+                      value={newProduct.category}
+                      required
+                      onChange={(e) => setNewProduct(prev => ({ ...prev, category: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    >
+                      {categoriesList.map(cat => (
+                        <option key={cat.id} value={cat.slug}>{cat.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Marca *</label>
+                    <select
+                      value={newProduct.brand}
+                      required
+                      onChange={(e) => setNewProduct(prev => ({ ...prev, brand: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    >
+                      {brandsList.map(b => (
+                        <option key={b.id} value={b.name}>{b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Costo de Caja B2B ($ USD) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Ej. 45.00"
+                      value={newProduct.price_per_case_usd}
+                      required
+                      onChange={(e) => setNewProduct(prev => ({ ...prev, price_per_case_usd: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>PVP Sugerido ($ USD)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Ej. 5.99"
+                      value={newProduct.pvp_price_usd}
+                      onChange={(e) => setNewProduct(prev => ({ ...prev, pvp_price_usd: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Costo Unitario Interno ($ USD)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Ej. 1.20"
+                      value={newProduct.cost_price_usd}
+                      onChange={(e) => setNewProduct(prev => ({ ...prev, cost_price_usd: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Unidades por Caja Master</label>
+                    <input
+                      type="number"
+                      value={newProduct.units_per_case}
+                      onChange={(e) => setNewProduct(prev => ({ ...prev, units_per_case: parseInt(e.target.value) || 1 }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Stock Cajas Master *</label>
+                    <input
+                      type="number"
+                      value={newProduct.stock_cases}
+                      required
+                      onChange={(e) => setNewProduct(prev => ({ ...prev, stock_cases: parseInt(e.target.value) || 0 }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Imagen URL</label>
+                    <input
+                      type="url"
+                      placeholder="https://ejemplo.com/imagen.jpg"
+                      value={newProduct.image_url}
+                      onChange={(e) => setNewProduct(prev => ({ ...prev, image_url: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Video URL</label>
+                    <input
+                      type="url"
+                      placeholder="https://youtube.com/watch?v=..."
+                      value={newProduct.video_url}
+                      onChange={(e) => setNewProduct(prev => ({ ...prev, video_url: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Carpeta Recursos de Marketing (Google Drive / Dropbox)</label>
+                    <input
+                      type="url"
+                      placeholder="https://drive.google.com/drive/folders/..."
+                      value={newProduct.marketing_resources_url}
+                      onChange={(e) => setNewProduct(prev => ({ ...prev, marketing_resources_url: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div style={{ gridColumn: 'span 2', display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                    <button type="submit" className="btn-neon" style={{ flexGrow: 1, padding: '12px' }}>
+                      {editingProduct ? 'Guardar Cambios' : 'Registrar Producto'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingProduct(null);
+                        setCreatingProduct(false);
+                        setNewProduct({
+                          name: '', sku: '', category: categoriesList[0]?.slug || '', brand: brandsList[0]?.name || '',
+                          barcode: '', units_per_case: 1, weight_per_unit_g: 100, length_cm: 0, width_cm: 0, height_cm: 0,
+                          price_per_case_usd: '', pvp_price_usd: '', cost_price_usd: '', stock_cases: 0, image_url: '',
+                          video_url: '', marketing_resources_url: ''
+                        });
+                      }}
+                      style={{ background: 'transparent', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 20px', borderRadius: '8px', cursor: 'pointer' }}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {/* Filtros de Categoría Dinámicos */}
             <div style={{ display: 'flex', gap: '10px', marginBottom: '24px', flexWrap: 'wrap' }}>
-              {['all', 'sleeves', 'binders', 'deck_boxes'].map(cat => (
+              {[{ id: 'all', name: 'Ver Todos', slug: 'all' }, ...categoriesList].map(cat => (
                 <button
-                  key={cat}
-                  id={`filter-${cat}`}
-                  onClick={() => setSelectedCategory(cat)}
+                  key={cat.id || cat.slug}
+                  id={`filter-${cat.slug}`}
+                  onClick={() => setSelectedCategory(cat.slug)}
                   style={{
-                    background: selectedCategory === cat ? 'var(--cyan-neon)' : 'rgba(255,255,255,0.05)',
-                    color: selectedCategory === cat ? '#000' : '#fff',
+                    background: selectedCategory === cat.slug ? 'var(--cyan-neon)' : 'rgba(255,255,255,0.05)',
+                    color: selectedCategory === cat.slug ? '#000' : '#fff',
                     border: 'none',
                     padding: '8px 16px',
                     borderRadius: '20px',
@@ -1094,7 +1501,7 @@ function App() {
                     transition: 'all 0.2s',
                   }}
                 >
-                  {cat === 'all' ? 'Ver Todos' : cat.replace('_', ' ')}
+                  {cat.name}
                 </button>
               ))}
             </div>
@@ -1108,35 +1515,57 @@ function App() {
               </p>
             </div>
 
-            {/* Grilla del Catálogo */}
+            {/* Renderizado de Catálogo según el Modo de Vista */}
             {productList.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
                 {searchQuery ? `Sin resultados para "${searchQuery}"` : 'No hay productos disponibles.'}
               </div>
-            ) : (
+            ) : catalogViewMode === 'grid' ? (
               <div className="catalog-grid">
                 {productList.map(product => {
                   const inCartQty = cart[product.id] || 0;
                   const priceNum = parseFloat(product.price_per_case_usd);
                   return (
-                    <div key={product.id} className="glass-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '380px' }}>
+                    <div key={product.id} className="glass-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '420px' }}>
                       <div>
-                        {/* Ilustración SVG */}
-                        <div style={{ width: '100%', height: '140px', background: 'rgba(0,232,255,0.02)', border: '1px solid rgba(255,255,255,0.03)', borderRadius: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '16px' }}>
-                          <svg width="80" height="80" viewBox="0 0 24 24" fill="none"
-                            stroke={product.category === 'sleeves' ? 'var(--cyan-neon)' : product.category === 'binders' ? 'var(--pink-neon)' : 'var(--orange-neon)'}
-                            strokeWidth="1">
-                            {product.category === 'sleeves' && <rect x="4" y="2" width="16" height="20" rx="2" />}
-                            {product.category === 'binders' && <path d="M4 2h14a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H4V2z M8 2v20" />}
-                            {product.category === 'deck_boxes' && <rect x="3" y="5" width="18" height="14" rx="2" />}
-                          </svg>
+                        {/* Imagen del Producto */}
+                        <div style={{ width: '100%', height: '160px', background: 'rgba(0,232,255,0.02)', border: '1px solid rgba(255,255,255,0.03)', borderRadius: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '16px', overflow: 'hidden' }}>
+                          {product.image_url ? (
+                            <img src={product.image_url} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          ) : (
+                            <svg width="80" height="80" viewBox="0 0 24 24" fill="none"
+                              stroke="var(--cyan-neon)"
+                              strokeWidth="1">
+                              <rect x="4" y="2" width="16" height="20" rx="2" />
+                            </svg>
+                          )}
                         </div>
-                        <span className="badge badge-cyan" style={{ fontSize: '10px' }}>{product.category}</span>
-                        <h3 style={{ fontSize: '18px', margin: '8px 0 4px', fontWeight: '700', lineHeight: '1.2' }}>{product.name}</h3>
-                        <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>SKU: {product.sku}</p>
-                        <p style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
+                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                          <span className="badge badge-cyan" style={{ fontSize: '9px' }}>{product.brand || 'Gosu'}</span>
+                          <span className="badge badge-pink" style={{ fontSize: '9px' }}>{product.category}</span>
+                        </div>
+                        <h3 style={{ fontSize: '18px', margin: '0 0 4px', fontWeight: '700', lineHeight: '1.2' }}>{product.name}</h3>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '12px', fontFamily: 'monospace' }}>SKU: {product.sku}</p>
+                        {product.barcode && <p style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>EAN: {product.barcode}</p>}
+                        <p style={{ color: 'var(--text-muted)', fontSize: '11px', marginTop: '4px' }}>
                           Stock: <strong style={{ color: product.stock_cases > 10 ? 'var(--green-neon)' : 'var(--orange-neon)' }}>{product.stock_cases} cajas</strong>
                         </p>
+
+                        {/* Recursos de Marketing */}
+                        {(product.video_url || product.marketing_resources_url) && (
+                          <div style={{ marginTop: '8px', display: 'flex', gap: '10px', fontSize: '11px' }}>
+                            {product.video_url && (
+                              <a href={product.video_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--cyan-neon)', textDecoration: 'none' }}>
+                                🎥 Video Demo
+                              </a>
+                            )}
+                            {product.marketing_resources_url && (
+                              <a href={product.marketing_resources_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--pink-neon)', textDecoration: 'none' }}>
+                                📂 Assets Drive
+                              </a>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div style={{ marginTop: '20px' }}>
@@ -1144,31 +1573,189 @@ function App() {
                           <div>
                             <span style={{ fontSize: '20px', fontWeight: '900', color: 'var(--cyan-neon)' }}>${priceNum.toFixed(2)}</span>
                             <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}> / caja</span>
+                            {product.pvp_price_usd && (
+                              <div style={{ fontSize: '10px', color: 'var(--orange-neon)', marginTop: '2px' }}>PVP Sugerido: ${parseFloat(product.pvp_price_usd).toFixed(2)}</div>
+                            )}
                           </div>
                           <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>({product.units_per_case} packs/caja)</span>
                         </div>
 
-                        {inCartQty > 0 ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'center' }}>
-                            <button onClick={() => handleRemoveFromCart(product.id)} style={{ padding: '6px 12px', background: '#222', border: '1px solid #444', color: '#fff', borderRadius: '6px', cursor: 'pointer' }}>-</button>
-                            <span style={{ fontWeight: '700', fontSize: '16px' }}>{inCartQty} {inCartQty === 1 ? 'Caja' : 'Cajas'}</span>
-                            <button onClick={() => handleAddToCart(product.id)} style={{ padding: '6px 12px', background: '#222', border: '1px solid #444', color: '#fff', borderRadius: '6px', cursor: 'pointer' }}>+</button>
+                        {/* Controles de Carrito para Clientes */}
+                        {!isAdmin && (
+                          inCartQty > 0 ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'center' }}>
+                              <button onClick={() => handleRemoveFromCart(product.id)} style={{ padding: '6px 12px', background: '#222', border: '1px solid #444', color: '#fff', borderRadius: '6px', cursor: 'pointer' }}>-</button>
+                              <span style={{ fontWeight: '700', fontSize: '16px' }}>{inCartQty} {inCartQty === 1 ? 'Caja' : 'Cajas'}</span>
+                              <button onClick={() => handleAddToCart(product.id)} style={{ padding: '6px 12px', background: '#222', border: '1px solid #444', color: '#fff', borderRadius: '6px', cursor: 'pointer' }}>+</button>
+                            </div>
+                          ) : (
+                            <button
+                              id={`add-to-cart-${product.id}`}
+                              className="btn-neon"
+                              style={{ width: '100%' }}
+                              onClick={() => handleAddToCart(product.id)}
+                              disabled={product.stock_cases === 0}
+                            >
+                              {product.stock_cases === 0 ? 'Sin Stock' : 'Añadir al Carrito B2B'}
+                            </button>
+                          )
+                        )}
+
+                        {/* Botones de Administración (Solo Admin) */}
+                        {isAdmin && (
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                            <button 
+                              onClick={() => {
+                                setEditingProduct(product);
+                                setCreatingProduct(false);
+                                setNewProduct({
+                                  name: product.name, sku: product.sku, category: product.category, brand: product.brand || brandsList[0]?.name || '',
+                                  barcode: product.barcode || '', units_per_case: product.units_per_case, weight_per_unit_g: product.weight_per_unit_g,
+                                  length_cm: product.length_cm, width_cm: product.width_cm, height_cm: product.height_cm,
+                                  price_per_case_usd: product.price_per_case_usd, pvp_price_usd: product.pvp_price_usd || '',
+                                  cost_price_usd: product.cost_price_usd || '', stock_cases: product.stock_cases, image_url: product.image_url || '',
+                                  video_url: product.video_url || '', marketing_resources_url: product.marketing_resources_url || ''
+                                });
+                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                              }}
+                              style={{ flexGrow: 1, padding: '8px', background: 'rgba(0, 232, 255, 0.1)', border: '1px solid var(--cyan-neon)', color: 'var(--cyan-neon)', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}
+                            >
+                              ✏️ Editar
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteProduct(product.id)}
+                              style={{ padding: '8px 14px', background: 'rgba(255, 0, 127, 0.1)', border: '1px solid var(--pink-neon)', color: 'var(--pink-neon)', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}
+                            >
+                              🗑️
+                            </button>
                           </div>
-                        ) : (
-                          <button
-                            id={`add-to-cart-${product.id}`}
-                            className="btn-neon"
-                            style={{ width: '100%' }}
-                            onClick={() => handleAddToCart(product.id)}
-                            disabled={product.stock_cases === 0}
-                          >
-                            {product.stock_cases === 0 ? 'Sin Stock' : 'Añadir al Carrito B2B'}
-                          </button>
                         )}
                       </div>
                     </div>
                   );
                 })}
+              </div>
+            ) : (
+              /* Vista Lista ( spreadsheet / tabla de alta densidad) */
+              <div className="glass-panel" style={{ overflowX: 'auto', padding: '10px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '950px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '700' }}>
+                      <th style={{ padding: '12px' }}>Miniatura</th>
+                      <th style={{ padding: '12px' }}>Producto</th>
+                      <th style={{ padding: '12px' }}>SKU / EAN</th>
+                      <th style={{ padding: '12px' }}>Marca / Categoría</th>
+                      <th style={{ padding: '12px' }}>Costo Caja B2B</th>
+                      <th style={{ padding: '12px' }}>PVP Sugerido</th>
+                      <th style={{ padding: '12px' }}>Stock</th>
+                      <th style={{ padding: '12px' }}>Recursos Marketing</th>
+                      <th style={{ padding: '12px', textAlign: 'center' }}>Acciones B2B</th>
+                    </tr>
+                  </thead>
+                  <tbody style={{ fontSize: '13px' }}>
+                    {productList.map(product => {
+                      const inCartQty = cart[product.id] || 0;
+                      return (
+                        <tr key={product.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                          <td style={{ padding: '10px 12px' }}>
+                            {product.image_url ? (
+                              <img src={product.image_url} alt={product.name} style={{ width: '40px', height: '40px', borderRadius: '6px', objectFit: 'cover' }} />
+                            ) : (
+                              <div style={{ width: '40px', height: '40px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📦</div>
+                            )}
+                          </td>
+                          <td style={{ padding: '10px 12px', fontWeight: '700', color: '#fff' }}>{product.name}</td>
+                          <td style={{ padding: '10px 12px' }}>
+                            <div>SKU: <strong style={{ fontFamily: 'monospace' }}>{product.sku}</strong></div>
+                            {product.barcode && <div style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>EAN: {product.barcode}</div>}
+                          </td>
+                          <td style={{ padding: '10px 12px' }}>
+                            <span className="badge badge-cyan" style={{ fontSize: '9px', marginRight: '4px' }}>{product.brand || 'Gosu'}</span>
+                            <span className="badge badge-pink" style={{ fontSize: '9px' }}>{product.category}</span>
+                          </td>
+                          <td style={{ padding: '10px 12px', fontWeight: '700', color: 'var(--cyan-neon)' }}>
+                            ${parseFloat(product.price_per_case_usd).toFixed(2)} USD
+                            <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>({product.units_per_case} uds/caja)</div>
+                          </td>
+                          <td style={{ padding: '10px 12px', color: 'var(--orange-neon)', fontWeight: '600' }}>
+                            {product.pvp_price_usd ? `$${parseFloat(product.pvp_price_usd).toFixed(2)} USD` : 'N/A'}
+                          </td>
+                          <td style={{ padding: '10px 12px' }}>
+                            <span className={product.stock_cases > 0 ? 'badge badge-green' : 'badge-pink'} style={{ fontSize: '9px' }}>
+                              {product.stock_cases > 0 ? `${product.stock_cases} Cajas` : 'Sin Stock'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 12px' }}>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              {product.video_url && (
+                                <a href={product.video_url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: 'var(--cyan-neon)' }} title="Ver Video Demostrativo">
+                                  🎥 Video
+                                </a>
+                              )}
+                              {product.marketing_resources_url && (
+                                <a href={product.marketing_resources_url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: 'var(--pink-neon)' }} title="Recursos de Marketing (Fotos, Banners)">
+                                  📂 Assets
+                                </a>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ padding: '10px 12px' }}>
+                            {/* Vista Cliente: Controles de compra */}
+                            {!isAdmin && (
+                              product.stock_cases > 0 ? (
+                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center' }}>
+                                  {inCartQty > 0 && (
+                                    <>
+                                      <button onClick={() => handleRemoveFromCart(product.id)} className="btn-pink" style={{ padding: '2px 8px', fontSize: '11px' }}>-</button>
+                                      <strong style={{ minWidth: '20px', textAlign: 'center' }}>{inCartQty}</strong>
+                                    </>
+                                  )}
+                                  <button onClick={() => handleAddToCart(product.id)} className="btn-neon" style={{ padding: '4px 10px', fontSize: '11px' }}>
+                                    {inCartQty > 0 ? '+' : 'Añadir'}
+                                  </button>
+                                </div>
+                              ) : (
+                                <span style={{ color: 'var(--text-muted)', display: 'block', textAlign: 'center' }}>Agotado</span>
+                              )
+                            )}
+
+                            {/* Vista Admin: Controles de edición */}
+                            {isAdmin && (
+                              <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                                <button 
+                                  onClick={() => {
+                                    setEditingProduct(product);
+                                    setCreatingProduct(false);
+                                    setNewProduct({
+                                      name: product.name, sku: product.sku, category: product.category, brand: product.brand || brandsList[0]?.name || '',
+                                      barcode: product.barcode || '', units_per_case: product.units_per_case, weight_per_unit_g: product.weight_per_unit_g,
+                                      length_cm: product.length_cm, width_cm: product.width_cm, height_cm: product.height_cm,
+                                      price_per_case_usd: product.price_per_case_usd, pvp_price_usd: product.pvp_price_usd || '',
+                                      cost_price_usd: product.cost_price_usd || '', stock_cases: product.stock_cases, image_url: product.image_url || '',
+                                      video_url: product.video_url || '', marketing_resources_url: product.marketing_resources_url || ''
+                                    });
+                                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                                  }}
+                                  style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', cursor: 'pointer', fontSize: '14px' }}
+                                  title="Editar Producto"
+                                >
+                                  ✏️
+                                </button>
+                                <button 
+                                  onClick={() => handleDeleteProduct(product.id)}
+                                  style={{ background: 'transparent', border: 'none', color: 'var(--pink-neon)', cursor: 'pointer', fontSize: '14px' }}
+                                  title="Eliminar Producto"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
@@ -1383,12 +1970,142 @@ function App() {
             )}
           </div>
         )}
+
+        {/* ===================================================== */}
+        {/* TAB 4: CONFIGURACIÓN (Solo Admin del Tenant)          */}
+        {/* ===================================================== */}
+        {activeTab === 'config' && isAdmin && !dataLoading && (
+          <div>
+            <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Configuración de Marca</h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                Administra las marcas y categorías de productos disponibles para tu catálogo mayorista.
+              </p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', alignItems: 'start' }}>
+              {/* CRUD CATEGORIAS */}
+              <div className="glass-panel" style={{ padding: '24px' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--pink-neon)' }}>
+                  {editingCategory ? '✏️ Editar Categoría' : '📁 Nueva Categoría'}
+                </h2>
+                <form onSubmit={handleCreateOrUpdateCategory} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Nombre</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Protectores"
+                      value={newCategory.name}
+                      required
+                      onChange={(e) => setNewCategory({ name: e.target.value, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Slug</label>
+                    <input
+                      type="text"
+                      placeholder="ej. protectores"
+                      value={newCategory.slug}
+                      required
+                      onChange={(e) => setNewCategory(prev => ({ ...prev, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button type="submit" className="btn-pink" style={{ flexGrow: 1, padding: '10px' }}>
+                      {editingCategory ? 'Guardar' : 'Crear'}
+                    </button>
+                    {editingCategory && (
+                      <button type="button" onClick={() => { setEditingCategory(null); setNewCategory({ name: '', slug: '' }); }} style={{ background: 'transparent', border: '1px solid var(--border-color)', color: '#fff', borderRadius: '8px', padding: '10px', cursor: 'pointer' }}>
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </form>
+
+                <h3 style={{ fontSize: '15px', fontWeight: '800', marginBottom: '12px' }}>Categorías ({categoriesList.length})</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {categoriesList.map(cat => (
+                    <div key={cat.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', padding: '10px 14px', borderRadius: '8px' }}>
+                      <div>
+                        <strong>{cat.name}</strong> <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>({cat.slug})</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button onClick={() => { setEditingCategory(cat); setNewCategory({ name: cat.name, slug: cat.slug }); }} style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', cursor: 'pointer', fontSize: '12px' }}>✏️</button>
+                        <button onClick={() => handleDeleteCategory(cat.id)} style={{ background: 'transparent', border: 'none', color: 'var(--pink-neon)', cursor: 'pointer', fontSize: '12px' }}>🗑️</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* CRUD BRANDS */}
+              <div className="glass-panel" style={{ padding: '24px' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
+                  {editingBrand ? '✏️ Editar Marca' : '🏷️ Nueva Marca'}
+                </h2>
+                <form onSubmit={handleCreateOrUpdateBrand} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Nombre</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Gosu Sleeves"
+                      value={newBrand.name}
+                      required
+                      onChange={(e) => setNewBrand({ name: e.target.value, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Slug</label>
+                    <input
+                      type="text"
+                      placeholder="ej. gosu-sleeves"
+                      value={newBrand.slug}
+                      required
+                      onChange={(e) => setNewBrand(prev => ({ ...prev, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button type="submit" className="btn-neon" style={{ flexGrow: 1, padding: '10px' }}>
+                      {editingBrand ? 'Guardar' : 'Crear'}
+                    </button>
+                    {editingBrand && (
+                      <button type="button" onClick={() => { setEditingBrand(null); setNewBrand({ name: '', slug: '' }); }} style={{ background: 'transparent', border: '1px solid var(--border-color)', color: '#fff', borderRadius: '8px', padding: '10px', cursor: 'pointer' }}>
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </form>
+
+                <h3 style={{ fontSize: '15px', fontWeight: '800', marginBottom: '12px' }}>Marcas ({brandsList.length})</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {brandsList.map(b => (
+                    <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', padding: '10px 14px', borderRadius: '8px' }}>
+                      <div>
+                        <strong>{b.name}</strong> <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>({b.slug})</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button onClick={() => { setEditingBrand(b); setNewBrand({ name: b.name, slug: b.slug }); }} style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', cursor: 'pointer', fontSize: '12px' }}>✏️</button>
+                        <button onClick={() => handleDeleteBrand(b.id)} style={{ background: 'transparent', border: 'none', color: 'var(--pink-neon)', cursor: 'pointer', fontSize: '12px' }}>🗑️</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       <footer style={{ padding: '32px', textAlign: 'center', borderTop: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '12px' }}>
         © {new Date().getFullYear()} {isSuperAdmin ? 'Gosu B2B SaaS Platform' : 'Gosu Accessories Ltd'}. Todos los derechos reservados.
         {isAdmin && <span style={{ marginLeft: '8px', color: 'var(--pink-neon)' }}>• Admin Panel</span>}
       </footer>
+        </div>
+      </div>
 
       {/* ===================================================== */}
       {/* PANEL LATERAL: CARRITO B2B                            */}

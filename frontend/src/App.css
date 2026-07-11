@@ -199,3 +199,35 @@
     font-weight: 700;
   }
 }
+
+/* Sidebar y Navegación Lateral */
+.nav-link-btn {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  padding: 10px 14px;
+  border-radius: 8px;
+  transition: all 0.2s;
+  border-left: 3px solid transparent;
+}
+
+.nav-link-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.nav-link-btn.active {
+  color: var(--cyan-neon);
+  background: rgba(0, 232, 255, 0.05);
+  border-left: 3px solid var(--cyan-neon);
+  font-weight: 700;
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    display: none !important;
+  }
+}

@@ -15,7 +15,8 @@ router.get('/', requireAuth, async (req, res) => {
 
   let query = `
     SELECT id, name, sku, category, units_per_case, weight_per_unit_g,
-           length_cm, width_cm, height_cm, price_per_case_usd, stock_cases, image_url, created_at
+           length_cm, width_cm, height_cm, price_per_case_usd, stock_cases, image_url,
+           barcode, brand, pvp_price_usd, cost_price_usd, video_url, marketing_resources_url, created_at
     FROM products
     WHERE tenant_id = $1
   `;
@@ -28,7 +29,7 @@ router.get('/', requireAuth, async (req, res) => {
 
   if (search) {
     params.push(`%${search}%`);
-    query += ` AND (name ILIKE $${params.length} OR sku ILIKE $${params.length})`;
+    query += ` AND (name ILIKE $${params.length} OR sku ILIKE $${params.length} OR brand ILIKE $${params.length} OR barcode ILIKE $${params.length})`;
   }
 
   query += ' ORDER BY category, name';
@@ -50,24 +51,30 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
   const { tenant_id } = req.user;
   const {
     name, sku, category, units_per_case, weight_per_unit_g,
-    length_cm, width_cm, height_cm, price_per_case_usd, stock_cases, image_url
+    length_cm, width_cm, height_cm, price_per_case_usd, stock_cases, image_url,
+    barcode, brand, pvp_price_usd, cost_price_usd, video_url, marketing_resources_url
   } = req.body;
 
   if (!name || !sku || !category || !price_per_case_usd) {
-    return res.status(400).json({ error: 'Nombre, SKU, categoría y precio son requeridos.' });
+    return res.status(400).json({ error: 'Nombre, SKU, categoría y precio por caja son requeridos.' });
   }
 
   try {
     const result = await pool.query(
-      `INSERT INTO products (tenant_id, name, sku, category, units_per_case, weight_per_unit_g,
-        length_cm, width_cm, height_cm, price_per_case_usd, stock_cases, image_url)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      `INSERT INTO products (
+        tenant_id, name, sku, category, units_per_case, weight_per_unit_g,
+        length_cm, width_cm, height_cm, price_per_case_usd, stock_cases, image_url,
+        barcode, brand, pvp_price_usd, cost_price_usd, video_url, marketing_resources_url
+       )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
        RETURNING *`,
       [
         tenant_id, name, sku, category,
         units_per_case || 1, weight_per_unit_g || 100,
         length_cm || 0, width_cm || 0, height_cm || 0,
-        price_per_case_usd, stock_cases || 0, image_url || null
+        price_per_case_usd, stock_cases || 0, image_url || null,
+        barcode || null, brand || null, pvp_price_usd || null, cost_price_usd || null,
+        video_url || null, marketing_resources_url || null
       ]
     );
     res.status(201).json(result.rows[0]);
@@ -89,7 +96,8 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   const { id } = req.params;
   const {
     name, sku, category, units_per_case, weight_per_unit_g,
-    length_cm, width_cm, height_cm, price_per_case_usd, stock_cases, image_url
+    length_cm, width_cm, height_cm, price_per_case_usd, stock_cases, image_url,
+    barcode, brand, pvp_price_usd, cost_price_usd, video_url, marketing_resources_url
   } = req.body;
 
   try {
@@ -97,13 +105,16 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       `UPDATE products
        SET name=$1, sku=$2, category=$3, units_per_case=$4, weight_per_unit_g=$5,
            length_cm=$6, width_cm=$7, height_cm=$8, price_per_case_usd=$9,
-           stock_cases=$10, image_url=$11
-       WHERE id=$12 AND tenant_id=$13
+           stock_cases=$10, image_url=$11, barcode=$12, brand=$13,
+           pvp_price_usd=$14, cost_price_usd=$15, video_url=$16, marketing_resources_url=$17
+       WHERE id=$18 AND tenant_id=$19
        RETURNING *`,
       [
         name, sku, category, units_per_case, weight_per_unit_g,
         length_cm, width_cm, height_cm, price_per_case_usd,
-        stock_cases, image_url, id, tenant_id
+        stock_cases, image_url, barcode, brand,
+        pvp_price_usd, cost_price_usd, video_url, marketing_resources_url,
+        id, tenant_id
       ]
     );
 

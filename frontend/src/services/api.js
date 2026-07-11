@@ -167,3 +167,21 @@ export const audit = {
   getMetrics: () =>
     request('GET', '/api/audit/metrics'),
 };
+
+// ============================================================
+// Config (Dynamic Brands & Categories)
+// ============================================================
+export const config = {
+  categories: {
+    getAll: () => request('GET', '/api/config/categories'),
+    create: (data) => request('POST', '/api/config/categories', data),
+    update: (id, data) => request('PUT', `/api/config/categories/${id}`, data),
+    delete: (id) => request('DELETE', `/api/config/categories/${id}`),
+  },
+  brands: {
+    getAll: () => request('GET', '/api/config/brands'),
+    create: (data) => request('POST', '/api/config/brands', data),
+    update: (id, data) => request('PUT', `/api/config/brands/${id}`, data),
+    delete: (id) => request('DELETE', `/api/config/brands/${id}`),
+  }
+};
