@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import './App.css';
 import LoginPage from './components/LoginPage';
-import { auth, products as productsApi, orders as ordersApi, production as productionApi, tenants as tenantsApi, plans as plansApi, users as usersApi, audit as auditApi, config as configApi } from './services/api';
+import { auth, products as productsApi, orders as ordersApi, production as productionApi, tenants as tenantsApi, plans as plansApi, users as usersApi, audit as auditApi, config as configApi, pricingTiers as pricingTiersApi } from './services/api';
 
 // Reglas de descuento (se obtendrán del backend en futuras versiones)
 const VOLUME_DISCOUNTS = [
@@ -72,12 +72,15 @@ function App() {
   const [catalogViewMode, setCatalogViewMode] = useState('grid');
   const [categoriesList, setCategoriesList] = useState([]);
   const [brandsList, setBrandsList] = useState([]);
+  const [pricingTiersList, setPricingTiersList] = useState([]);
 
-  // Formulario para Marcas/Categorías
+  // Formulario para Marcas/Categorías/PricingTiers
   const [newCategory, setNewCategory] = useState({ name: '', slug: '' });
   const [newBrand, setNewBrand] = useState({ name: '', slug: '' });
+  const [newPricingTier, setNewPricingTier] = useState({ tier_name: '', discount_percentage: 0, min_order_amount: 1000, only_master_cases: false });
   const [editingCategory, setEditingCategory] = useState(null);
   const [editingBrand, setEditingBrand] = useState(null);
+  const [editingPricingTier, setEditingPricingTier] = useState(null);
 
   // Formulario para Productos (con campos extendidos B2B)
   const [newProduct, setNewProduct] = useState({
@@ -125,7 +128,9 @@ function App() {
   const [activeAuditOrderId, setActiveAuditOrderId] = useState(null);
 
   // Estados para Gestión de Clientes B2B (Fase 6.5)
+  // Estados para Gestión de Clientes B2B (Fase 6.5)
   const [configSubTab, setConfigSubTab] = useState('catalog');
+  const [clientSubTab, setClientSubTab] = useState('directorio'); // 'directorio' | 'pricing_tiers'
   const [clientFilter, setClientFilter] = useState('all'); // 'all' | 'clients' | 'leads'
   const [clientsList, setClientsList] = useState([]);
   const [editingClient, setEditingClient] = useState(null);
@@ -138,8 +143,7 @@ function App() {
     tax_id: '',
     billing_address: '',
     forwarder_address: '',
-    custom_moa_usd: 1000,
-    client_category: 'retail_store',
+    pricing_tier_id: '',
     destination_country: 'USA',
     account_status: 'lead_new',
     followup_notes: '',
@@ -147,7 +151,7 @@ function App() {
   });
 
   // MOA del usuario actual
-  const MOA_LIMIT = parseFloat(currentUser?.custom_moa_usd) || 1000.00;
+  const MOA_LIMIT = currentUser?.min_order_amount !== undefined ? parseFloat(currentUser.min_order_amount) : 1000.00;
   const isAdmin = currentUser?.role === 'tenant_admin';
   const isSuperAdmin = currentUser?.role === 'super_admin';
   const isImpersonating = !!localStorage.getItem('gosu_superadmin_token');
@@ -216,6 +220,16 @@ function App() {
     }
   }, [isSuperAdmin]);
 
+  const loadPricingTiers = useCallback(async () => {
+    if (!currentUser || isSuperAdmin || !isAdmin) return;
+    try {
+      const data = await pricingTiersApi.getAll();
+      setPricingTiersList(data);
+    } catch (err) {
+      console.error('Error cargando Pricing Tiers:', err);
+    }
+  }, [currentUser, isSuperAdmin, isAdmin]);
+
   const loadCatalogConfig = useCallback(async () => {
     if (!currentUser || isSuperAdmin) return;
     try {
@@ -226,12 +240,12 @@ function App() {
       setCategoriesList(catData);
       setBrandsList(brandData);
       if (isAdmin) {
-        await loadClients();
+        await Promise.all([loadClients(), loadPricingTiers()]);
       }
     } catch (err) {
       console.error('Error cargando marcas/categorías:', err);
     }
-  }, [currentUser, isSuperAdmin, isAdmin, loadClients]);
+  }, [currentUser, isSuperAdmin, isAdmin, loadClients, loadPricingTiers]);
 
   // Carga inicial cuando el usuario se autentifica
   useEffect(() => {
@@ -267,12 +281,15 @@ function App() {
     if (!currentUser) return;
     if (activeTab === 'orders') loadOrders();
     if (activeTab === 'admin') loadProduction();
-    if (activeTab === 'clients') loadClients();
+    if (activeTab === 'clients') {
+      loadClients();
+      loadPricingTiers();
+    }
     if (activeTab === 'catalog' || activeTab === 'config') loadCatalogConfig();
     if (['saas-tenants', 'saas-users', 'saas-billing', 'saas-audit'].includes(activeTab)) {
       loadTenants();
     }
-  }, [activeTab, currentUser, loadOrders, loadProduction, loadClients, loadTenants, loadCatalogConfig]);
+  }, [activeTab, currentUser, loadOrders, loadProduction, loadClients, loadPricingTiers, loadTenants, loadCatalogConfig]);
 
   // Aligerar la vista del Super Admin forzando la redirección de tab
   useEffect(() => {
@@ -509,6 +526,43 @@ function App() {
   };
 
   // ============================================================
+  // CRUD de Pricing Tiers (Niveles de Cliente Comercial)
+  // ============================================================
+  const handleCreateOrUpdatePricingTier = async (e) => {
+    e.preventDefault();
+    if (!newPricingTier.tier_name) {
+      alert('El nombre del nivel es obligatorio.');
+      return;
+    }
+    try {
+      if (editingPricingTier) {
+        await pricingTiersApi.update(editingPricingTier.id, newPricingTier);
+        alert('🎉 Nivel de precios actualizado con éxito.');
+        setEditingPricingTier(null);
+      } else {
+        await pricingTiersApi.create(newPricingTier);
+        alert('🎉 Nivel de precios creado con éxito.');
+      }
+      setNewPricingTier({ tier_name: '', discount_percentage: 0, min_order_amount: 1000, only_master_cases: false });
+      await loadPricingTiers();
+    } catch (err) {
+      alert(`❌ Error: ${err.message}`);
+    }
+  };
+
+  const handleDeletePricingTier = async (id) => {
+    if (!confirm('¿Está seguro de eliminar este nivel de precios? Los clientes que lo usen quedarán sin nivel asignado.')) return;
+    try {
+      await pricingTiersApi.delete(id);
+      alert('Nivel de precios eliminado.');
+      await loadPricingTiers();
+      await loadClients();
+    } catch (err) {
+      alert(`❌ Error: ${err.message}`);
+    }
+  };
+
+  // ============================================================
   // CRUD de Productos (Campos Extendidos B2B)
   // ============================================================
   const handleCreateOrUpdateProduct = async (e) => {
@@ -636,8 +690,7 @@ function App() {
         tax_id: '',
         billing_address: '',
         forwarder_address: '',
-        custom_moa_usd: 1000,
-        client_category: 'retail_store',
+        pricing_tier_id: '',
         destination_country: 'USA',
         account_status: 'lead_new',
         followup_notes: '',
@@ -703,8 +756,8 @@ function App() {
     const volumeDiscountAmount = subtotal * (volumeDiscountPercent / 100);
     const subtotalAfterVolume = subtotal - volumeDiscountAmount;
 
-    // Descuento por categoría (wholesale_distributor +5%)
-    let categoryDiscountPercent = currentUser?.client_category === 'wholesale_distributor' ? 5 : 0;
+    // Descuento por Pricing Tier comercial
+    let categoryDiscountPercent = currentUser?.discount_percentage !== undefined ? parseFloat(currentUser.discount_percentage) : 0;
     const distributorDiscountAmount = subtotalAfterVolume * (categoryDiscountPercent / 100);
 
     const totalDiscountAmount = volumeDiscountAmount + distributorDiscountAmount;
@@ -1486,6 +1539,21 @@ function App() {
                 />
               </div>
             </div>
+
+            {currentUser && currentUser.role === 'b2b_client' && (
+              <div className="glass-panel" style={{ padding: '16px', marginBottom: '24px', background: 'rgba(0, 232, 255, 0.05)', border: '1px solid rgba(0, 232, 255, 0.15)', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span style={{ fontSize: '24px' }}>🏷️</span>
+                <div>
+                  <h3 style={{ margin: '0 0 2px', fontSize: '15px', color: 'var(--cyan-neon)', fontWeight: '800' }}>
+                    Tu Nivel de Precios Comercial: {currentUser.tier_name || 'Precio Base Comercial'}
+                  </h3>
+                  <p style={{ margin: '0', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    Beneficios activos: <strong>-{currentUser.discount_percentage || 0}% de descuento</strong> en todo el catálogo y un Monto Mínimo de Orden (MOV) de <strong>${parseFloat(currentUser.min_order_amount || 1000).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</strong>.
+                    {currentUser.only_master_cases && <span style={{ color: 'var(--orange-neon)', marginLeft: '6px', fontWeight: '600' }}>📦 Compras restringidas únicamente a Master Cases (cajas enteras).</span>}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Formulario de creación/edición de Producto (Solo Admin del Tenant) */}
             {isAdmin && (creatingProduct || editingProduct) && (
@@ -2846,39 +2914,62 @@ function App() {
           <div>
             <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
               <div>
-                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Directorio y CRM de Clientes B2B</h1>
+                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>
+                  {clientSubTab === 'directorio' ? 'Directorio y CRM de Clientes B2B' : 'Niveles de Precios B2B (Pricing Tiers)'}
+                </h1>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                  Administra las cuentas de tus distribuidores activos y realiza el seguimiento a tus leads comerciales.
+                  {clientSubTab === 'directorio' 
+                    ? 'Administra las cuentas de tus distribuidores activos y realiza el seguimiento a tus leads comerciales.' 
+                    : 'Configura las reglas comerciales dinámicas (descuentos y mínimos de compra) aplicables a tus clientes.'}
                 </p>
               </div>
 
-              <div style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.15)', padding: '4px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+              <div style={{ display: 'flex', gap: '12px' }}>
                 <button
-                  onClick={() => setClientFilter('all')}
-                  className={clientFilter === 'all' ? 'btn-pink' : 'btn-glass'}
-                  style={{ padding: '6px 12px', fontSize: '11.5px' }}
+                  onClick={() => setClientSubTab('directorio')}
+                  className={clientSubTab === 'directorio' ? 'btn-pink' : 'btn-glass'}
+                  style={{ padding: '8px 16px', fontSize: '13px' }}
                 >
-                  Todos ({clientsList.length})
+                  👥 Directorio
                 </button>
                 <button
-                  onClick={() => setClientFilter('clients')}
-                  className={clientFilter === 'clients' ? 'btn-pink' : 'btn-glass'}
-                  style={{ padding: '6px 12px', fontSize: '11.5px' }}
+                  onClick={() => setClientSubTab('pricing_tiers')}
+                  className={clientSubTab === 'pricing_tiers' ? 'btn-pink' : 'btn-glass'}
+                  style={{ padding: '8px 16px', fontSize: '13px' }}
                 >
-                  👥 Clientes Activos ({clientsList.filter(c => c.account_status === 'client').length})
-                </button>
-                <button
-                  onClick={() => setClientFilter('leads')}
-                  className={clientFilter === 'leads' ? 'btn-pink' : 'btn-glass'}
-                  style={{ padding: '6px 12px', fontSize: '11.5px' }}
-                >
-                  ⚡ Leads / Prospectos ({clientsList.filter(c => c.account_status !== 'client').length})
+                  🏷️ Niveles de Precios
                 </button>
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            {clientSubTab === 'directorio' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                  <div style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.15)', padding: '4px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                    <button
+                      onClick={() => setClientFilter('all')}
+                      className={clientFilter === 'all' ? 'btn-pink' : 'btn-glass'}
+                      style={{ padding: '6px 12px', fontSize: '11.5px' }}
+                    >
+                      Todos ({clientsList.length})
+                    </button>
+                    <button
+                      onClick={() => setClientFilter('clients')}
+                      className={clientFilter === 'clients' ? 'btn-pink' : 'btn-glass'}
+                      style={{ padding: '6px 12px', fontSize: '11.5px' }}
+                    >
+                      👥 Clientes Activos ({clientsList.filter(c => c.account_status === 'client').length})
+                    </button>
+                    <button
+                      onClick={() => setClientFilter('leads')}
+                      className={clientFilter === 'leads' ? 'btn-pink' : 'btn-glass'}
+                      style={{ padding: '6px 12px', fontSize: '11.5px' }}
+                    >
+                      ⚡ Leads / Prospectos ({clientsList.filter(c => c.account_status !== 'client').length})
+                    </button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <button
                   onClick={() => {
                     setCreatingClient(!creatingClient);
@@ -2891,8 +2982,7 @@ function App() {
                       tax_id: '',
                       billing_address: '',
                       forwarder_address: '',
-                      custom_moa_usd: 1000,
-                      client_category: 'retail_store',
+                      pricing_tier_id: '',
                       destination_country: 'USA',
                       account_status: 'lead_new',
                       followup_notes: '',
@@ -3009,31 +3099,23 @@ function App() {
                         />
                       </div>
                       <div>
-                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Monto Mínimo de Compra (MOA) *</label>
-                        <input
-                          type="number"
-                          required
-                          placeholder="Mínimo de orden ($)"
-                          value={newClientForm.custom_moa_usd}
-                          onChange={(e) => setNewClientForm(prev => ({ ...prev, custom_moa_usd: parseFloat(e.target.value) || 0 }))}
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Nivel de Precios B2B (Pricing Tier) *</label>
+                        <select
+                          value={newClientForm.pricing_tier_id || ''}
+                          onChange={(e) => setNewClientForm(prev => ({ ...prev, pricing_tier_id: e.target.value || null }))}
                           style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                        />
+                        >
+                          <option value="">-- Sin Nivel / Precio Base Comercial --</option>
+                          {pricingTiersList.map(tier => (
+                            <option key={tier.id} value={tier.id}>
+                              {tier.tier_name} (-{tier.discount_percentage}% desc, MOV: ${tier.min_order_amount}) {tier.only_master_cases ? ' [Solo Cajas]' : ''}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-                      <div>
-                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Categoría de Distribuidor B2B *</label>
-                        <select
-                          value={newClientForm.client_category}
-                          onChange={(e) => setNewClientForm(prev => ({ ...prev, client_category: e.target.value }))}
-                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                        >
-                          <option value="wholesale_distributor">Wholesale Distributor (Distribuidor Mayorista -5% extra)</option>
-                          <option value="retail_store">Retail Store (Tienda Física Minorista)</option>
-                          <option value="dropshipper">Dropshipper (Despacho sin inventario)</option>
-                        </select>
-                      </div>
                       <div>
                         <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Fecha de Último Contacto *</label>
                         <input
@@ -3124,7 +3206,7 @@ function App() {
                         <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Empresa / Lead</th>
                         <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Destino</th>
                         <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Estado CRM</th>
-                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Categoría / MOA</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Nivel de Precios B2B / MOV</th>
                         <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Último Contacto & Notas de CRM</th>
                         <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600', textAlign: 'center' }}>Acciones</th>
                       </tr>
@@ -3183,16 +3265,21 @@ function App() {
                                 </span>
                               </td>
                               <td style={{ padding: '14px 8px' }}>
-                                <span className="badge badge-glass" style={{ fontSize: '10px', display: 'inline-block', marginBottom: '4px' }}>
-                                  {{
-                                    'wholesale_distributor': 'Mayorista (-5%)',
-                                    'retail_store': 'Tienda Física',
-                                    'dropshipper': 'Dropshipper'
-                                  }[client.client_category] || client.client_category}
-                                </span>
-                                <div style={{ fontWeight: '700', color: '#fff', fontSize: '12px' }}>
-                                  MOA: ${parseFloat(client.custom_moa_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                </div>
+                                {client.tier_name ? (
+                                  <>
+                                    <span className="badge badge-green" style={{ fontSize: '10px', display: 'inline-block', marginBottom: '4px' }}>
+                                      {client.tier_name.split(' (')[0]}
+                                    </span>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                      Descuento: <strong>{parseFloat(client.discount_percentage)}%</strong>
+                                    </div>
+                                    <div style={{ fontWeight: '700', color: '#fff', fontSize: '12px' }}>
+                                      MOV: ${parseFloat(client.min_order_amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <span style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>Precio Base Comercial</span>
+                                )}
                               </td>
                               <td style={{ padding: '14px 8px', maxWidth: '350px' }}>
                                 <div style={{ fontSize: '11px', color: 'var(--cyan-neon)', marginBottom: '4px', fontWeight: '600' }}>
@@ -3215,8 +3302,7 @@ function App() {
                                         tax_id: client.tax_id || '',
                                         billing_address: client.billing_address || '',
                                         forwarder_address: client.forwarder_address || '',
-                                        custom_moa_usd: parseFloat(client.custom_moa_usd),
-                                        client_category: client.client_category,
+                                        pricing_tier_id: client.pricing_tier_id || '',
                                         destination_country: client.destination_country,
                                         account_status: client.account_status,
                                         followup_notes: client.followup_notes || '',
@@ -3245,6 +3331,145 @@ function App() {
                 )}
               </div>
             </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px' }}>
+                {/* Crear / Editar Pricing Tier */}
+                <div className="glass-panel" style={{ padding: '24px' }}>
+                  <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '20px', color: 'var(--cyan-neon)' }}>
+                    {editingPricingTier ? '✏️ Editar Nivel de Precios B2B' : '➕ Crear Nuevo Nivel de Precios B2B'}
+                  </h2>
+                  <form onSubmit={handleCreateOrUpdatePricingTier} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Nombre del Nivel *</label>
+                      <input
+                        type="text"
+                        placeholder="Ej. Distribuidor Exclusivo"
+                        required
+                        value={newPricingTier.tier_name}
+                        onChange={(e) => setNewPricingTier(prev => ({ ...prev, tier_name: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Porcentaje de Descuento (%) *</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="Ej. 15.00"
+                        required
+                        value={newPricingTier.discount_percentage}
+                        onChange={(e) => setNewPricingTier(prev => ({ ...prev, discount_percentage: parseFloat(e.target.value) || 0 }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Monto Mínimo de Orden (MOV en USD) *</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="Ej. 2000.00"
+                        required
+                        value={newPricingTier.min_order_amount}
+                        onChange={(e) => setNewPricingTier(prev => ({ ...prev, min_order_amount: parseFloat(e.target.value) || 0 }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
+                      <input
+                        type="checkbox"
+                        id="only_master_cases"
+                        checked={newPricingTier.only_master_cases}
+                        onChange={(e) => setNewPricingTier(prev => ({ ...prev, only_master_cases: e.target.checked }))}
+                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                      />
+                      <label htmlFor="only_master_cases" style={{ fontSize: '12.5px', color: '#fff', cursor: 'pointer', fontWeight: '600' }}>
+                        Forzar compras únicamente en Master Cases (cajas enteras)
+                      </label>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                      <button type="submit" className="btn-pink" style={{ flexGrow: 1, padding: '10px 20px', fontSize: '12.5px' }}>
+                        {editingPricingTier ? 'Guardar Cambios' : 'Crear Nivel'}
+                      </button>
+                      {editingPricingTier && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingPricingTier(null);
+                            setNewPricingTier({ tier_name: '', discount_percentage: 0, min_order_amount: 1000, only_master_cases: false });
+                          }}
+                          className="btn-glass"
+                          style={{ padding: '10px 20px', fontSize: '12.5px' }}
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                    </div>
+                  </form>
+                </div>
+
+                {/* Listado de Pricing Tiers */}
+                <div className="glass-panel" style={{ padding: '24px' }}>
+                  <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
+                    Niveles Configurados ({pricingTiersList.length})
+                  </h2>
+
+                  {pricingTiersList.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                      No has creado ningún nivel de precios personalizado aún.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {pricingTiersList.map(tier => (
+                        <div key={tier.id} style={{ border: '1px solid rgba(255,255,255,0.06)', padding: '16px', borderRadius: '12px', background: 'rgba(255,255,255,0.01)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <strong style={{ fontSize: '15px', color: '#fff' }}>{tier.tier_name}</strong>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+                              <span className="badge badge-green" style={{ fontSize: '10px' }}>
+                                -{parseFloat(tier.discount_percentage)}% Descuento
+                              </span>
+                              <span className="badge badge-cyan" style={{ fontSize: '10px' }}>
+                                MOV: ${parseFloat(tier.min_order_amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </span>
+                              {tier.only_master_cases && (
+                                <span className="badge badge-yellow" style={{ fontSize: '10px' }}>
+                                  📦 Solo Master Cases
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                              onClick={() => {
+                                setEditingPricingTier(tier);
+                                setNewPricingTier({
+                                  tier_name: tier.tier_name,
+                                  discount_percentage: parseFloat(tier.discount_percentage),
+                                  min_order_amount: parseFloat(tier.min_order_amount),
+                                  only_master_cases: tier.only_master_cases === true
+                                });
+                              }}
+                              className="btn-glass"
+                              style={{ padding: '6px 12px', fontSize: '12px' }}
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              onClick={() => handleDeletePricingTier(tier.id)}
+                              className="btn-glass-pink"
+                              style={{ padding: '6px 12px', fontSize: '12px' }}
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>

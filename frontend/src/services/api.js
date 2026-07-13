@@ -200,3 +200,13 @@ export const config = {
     delete: (id) => request('DELETE', `/api/config/brands/${id}`),
   }
 };
+
+// ============================================================
+// Pricing Tiers (Niveles de Cliente Comercial)
+// ============================================================
+export const pricingTiers = {
+  getAll: () => request('GET', '/api/pricing-tiers'),
+  create: (data) => request('POST', '/api/pricing-tiers', data),
+  update: (id, data) => request('PUT', `/api/pricing-tiers/${id}`, data),
+  delete: (id) => request('DELETE', `/api/pricing-tiers/${id}`),
+};
