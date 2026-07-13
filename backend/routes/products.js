@@ -27,7 +27,7 @@ router.get('/', requireAuth, async (req, res) => {
   if (role === 'tenant_admin' || role === 'super_admin') {
     selectFields += `,
       p.factory_name, p.factory_sku, p.factory_cost_per_case_usd,
-      p.pantone_codes, p.cut_measurements, p.fabrication_notes
+      p.pantone_codes, p.cut_measurements, p.fabrication_notes, p.production_files_url
     `;
   }
 
@@ -71,7 +71,7 @@ router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
     commercial_description, price_per_case_usd, units_per_case, finished_measurements,
     factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
     case_weight_kg, case_length_cm, case_width_cm, case_height_cm,
-    stock_physical_cases, stock_in_production_cases
+    stock_physical_cases, stock_in_production_cases, production_files_url
   } = req.body;
 
   if (!name || !sku || !category || !price_per_case_usd || !case_weight_kg || !case_length_cm || !case_width_cm || !case_height_cm) {
@@ -88,16 +88,16 @@ router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
         tenant_id, sku, name, category, image_url, is_active,
         commercial_description, price_per_case_usd, units_per_case, finished_measurements,
         factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
-        case_weight_kg, case_length_cm, case_width_cm, case_height_cm
+        case_weight_kg, case_length_cm, case_width_cm, case_height_cm, production_files_url
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
        RETURNING *`,
       [
         tenant_id, sku, name, category, image_url || null, is_active !== false,
         commercial_description || null, price_per_case_usd, units_per_case || 1, finished_measurements || null,
         factory_name || null, factory_sku || null, factory_cost_per_case_usd || null, pantone_codes || null,
         cut_measurements || null, fabrication_notes || null,
-        case_weight_kg, case_length_cm, case_width_cm, case_height_cm
+        case_weight_kg, case_length_cm, case_width_cm, case_height_cm, production_files_url || null
       ]
     );
 
@@ -147,7 +147,7 @@ router.put('/:id', requireAuth, requireTenantAdmin, async (req, res) => {
     commercial_description, price_per_case_usd, units_per_case, finished_measurements,
     factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
     case_weight_kg, case_length_cm, case_width_cm, case_height_cm,
-    stock_physical_cases, stock_in_production_cases
+    stock_physical_cases, stock_in_production_cases, production_files_url
   } = req.body;
 
   const client = await pool.connect();
@@ -160,15 +160,15 @@ router.put('/:id', requireAuth, requireTenantAdmin, async (req, res) => {
        SET name=$1, sku=$2, category=$3, image_url=$4, is_active=$5,
            commercial_description=$6, price_per_case_usd=$7, units_per_case=$8, finished_measurements=$9,
            factory_name=$10, factory_sku=$11, factory_cost_per_case_usd=$12, pantone_codes=$13, cut_measurements=$14, fabrication_notes=$15,
-           case_weight_kg=$16, case_length_cm=$17, case_width_cm=$18, case_height_cm=$19,
+           case_weight_kg=$16, case_length_cm=$17, case_width_cm=$18, case_height_cm=$19, production_files_url=$20,
            updated_at=CURRENT_TIMESTAMP
-       WHERE id=$20 AND tenant_id=$21
+       WHERE id=$21 AND tenant_id=$22
        RETURNING *`,
       [
         name, sku, category, image_url, is_active !== false,
         commercial_description, price_per_case_usd, units_per_case, finished_measurements,
         factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
-        case_weight_kg, case_length_cm, case_width_cm, case_height_cm,
+        case_weight_kg, case_length_cm, case_width_cm, case_height_cm, production_files_url || null,
         id, tenant_id
       ]
     );
@@ -240,7 +240,7 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
         commercial_description, price_per_case_usd, units_per_case, finished_measurements,
         factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
         case_weight_kg, case_length_cm, case_width_cm, case_height_cm,
-        stock_physical_cases, stock_in_production_cases
+        stock_physical_cases, stock_in_production_cases, production_files_url
       } = p;
 
       // Validación simple
@@ -261,9 +261,9 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
           tenant_id, sku, name, category, image_url, is_active,
           commercial_description, price_per_case_usd, units_per_case, finished_measurements,
           factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
-          case_weight_kg, case_length_cm, case_width_cm, case_height_cm
+          case_weight_kg, case_length_cm, case_width_cm, case_height_cm, production_files_url
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
         ON CONFLICT (tenant_id, sku)
         DO UPDATE SET
           name = EXCLUDED.name,
@@ -284,6 +284,7 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
           case_length_cm = EXCLUDED.case_length_cm,
           case_width_cm = EXCLUDED.case_width_cm,
           case_height_cm = EXCLUDED.case_height_cm,
+          production_files_url = COALESCE(EXCLUDED.production_files_url, products.production_files_url),
           updated_at = CURRENT_TIMESTAMP
         RETURNING id;
       `;
@@ -308,7 +309,8 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
         parseFloat(case_weight_kg) || 10.00,
         parseFloat(case_length_cm) || 40.00,
         parseFloat(case_width_cm) || 30.00,
-        parseFloat(case_height_cm) || 20.00
+        parseFloat(case_height_cm) || 20.00,
+        production_files_url || null
       ]);
 
       const productId = productResult.rows[0].id;

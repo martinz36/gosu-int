@@ -114,7 +114,8 @@ function App() {
     
     // Inventarios
     stock_physical_cases: 0,
-    stock_in_production_cases: 0
+    stock_in_production_cases: 0,
+    production_files_url: ''
   });
   const [editingProduct, setEditingProduct] = useState(null);
   const [creatingProduct, setCreatingProduct] = useState(false);
@@ -126,7 +127,7 @@ function App() {
     factory_name: 'Dongguan Card Supplies Factory',
     estimated_completion_date: '',
     tracking_number: '',
-    status: 'Production',
+    status: 'Draft',
     items: []
   });
   const [productionAuditLogs, setProductionAuditLogs] = useState([]);
@@ -666,7 +667,8 @@ function App() {
             case_width_cm: parseFloat(getValue('case_width_cm')) || 30.0,
             case_height_cm: parseFloat(getValue('case_height_cm')) || 20.0,
             stock_physical_cases: parseInt(getValue('stock_physical_cases')) || 0,
-            stock_in_production_cases: parseInt(getValue('stock_in_production_cases')) || 0
+            stock_in_production_cases: parseInt(getValue('stock_in_production_cases')) || 0,
+            production_files_url: getValue('production_files_url') || ''
           });
         }
 
@@ -721,9 +723,9 @@ function App() {
   const handleDownloadCSVTemplate = () => {
     const csvContent = 
       "sep=;\n" +
-      "sku;name;category;price_per_case_usd;units_per_case;case_weight_kg;case_length_cm;case_width_cm;case_height_cm;stock_physical_cases;stock_in_production_cases;image_url;commercial_description;factory_name;factory_sku;factory_cost_per_case_usd;pantone_codes;cut_measurements;fabrication_notes\n" +
-      "GOSU-SLV-001;Protectores de Cartas Mate - Black;Protectores;35.00;100;12.5;42;32;22;250;50;https://ejemplo.com/black.jpg;Protectores premium mate tamaño Standard.;Fábrica Dongguan;FAC-SKU-99;18.00;Pantone 426C;32x32cm;Embalado especial anti-humedad\n" +
-      "GOSU-SLV-002;Protectores de Cartas Mate - Red;Protectores;35.00;100;12.5;42;32;22;180;0;https://ejemplo.com/red.jpg;Protectores premium mate color rojo.;Fábrica Dongguan;FAC-SKU-100;18.00;Pantone 186C;32x32cm;Sin notas\n";
+      "sku;name;category;price_per_case_usd;units_per_case;case_weight_kg;case_length_cm;case_width_cm;case_height_cm;stock_physical_cases;stock_in_production_cases;image_url;commercial_description;factory_name;factory_sku;factory_cost_per_case_usd;pantone_codes;cut_measurements;fabrication_notes;production_files_url\n" +
+      "GOSU-SLV-001;Protectores de Cartas Mate - Black;Protectores;35.00;100;12.5;42;32;22;250;50;https://ejemplo.com/black.jpg;Protectores premium mate tamaño Standard.;Fábrica Dongguan;FAC-SKU-99;18.00;Pantone 426C;32x32cm;Embalado especial anti-humedad;https://drive.google.com/drive/folders/ejemplo1\n" +
+      "GOSU-SLV-002;Protectores de Cartas Mate - Red;Protectores;35.00;100;12.5;42;32;22;180;0;https://ejemplo.com/red.jpg;Protectores premium mate color rojo.;Fábrica Dongguan;FAC-SKU-100;18.00;Pantone 186C;32x32cm;Sin notas;https://drive.google.com/drive/folders/ejemplo2\n";
     
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -812,7 +814,8 @@ function App() {
         case_width_cm: 30,
         case_height_cm: 20,
         stock_physical_cases: 0,
-        stock_in_production_cases: 0
+        stock_in_production_cases: 0,
+        production_files_url: ''
       });
       await loadProducts();
     } catch (err) {
@@ -849,7 +852,7 @@ function App() {
         factory_name: 'Dongguan Card Supplies Factory',
         estimated_completion_date: '',
         tracking_number: '',
-        status: 'Production',
+        status: 'Draft',
         items: []
       });
       setShowProdForm(false);
@@ -920,6 +923,114 @@ function App() {
     } catch (err) {
       alert(`❌ Error al cambiar estado: ${err.message}`);
     }
+  };
+
+  const handleExportPDF = (pOrder) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('❌ Error: El navegador bloqueó la ventana emergente de impresión.');
+      return;
+    }
+
+    const itemsRows = pOrder.items.map(item => `
+      <tr style="border-bottom: 1px solid #eee;">
+        <td style="padding: 10px; font-family: monospace; font-size: 13px;">${item.sku}</td>
+        <td style="padding: 10px; font-weight: 600;">${item.name}</td>
+        <td style="padding: 10px; text-align: center;">${item.quantity_cases}</td>
+        <td style="padding: 10px; text-align: right;">$${parseFloat(item.cost_per_case_usd).toFixed(2)}</td>
+        <td style="padding: 10px; text-align: right; font-weight: 700;">$${parseFloat(item.total_item_cost_usd).toFixed(2)}</td>
+        <td style="padding: 10px; text-align: center;">${parseFloat(item.item_cbm).toFixed(4)} CBM</td>
+        <td style="padding: 10px; text-align: center;">
+          ${item.production_files_url ? `
+            <a href="${item.production_files_url}" target="_blank" style="color: #00bcd4; font-weight: bold; text-decoration: underline;">Ver Archivos</a>
+          ` : '<span style="color: #888;">N/A</span>'}
+        </td>
+      </tr>
+    `).join('');
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Ficha de Fabricación B2B - ${pOrder.order_number}</title>
+          <style>
+            body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #222; padding: 40px; line-height: 1.5; }
+            .header { display: flex; justify-content: space-between; border-bottom: 3px solid #00bcd4; padding-bottom: 20px; margin-bottom: 30px; }
+            .header h1 { margin: 0 0 10px 0; font-size: 28px; color: #00bcd4; font-weight: 800; }
+            .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 40px; background: #f9f9f9; padding: 20px; border-radius: 8px; border: 1px solid #eee; }
+            .info-grid div { font-size: 14px; }
+            .info-grid strong { color: #00bcd4; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+            th { background: #333; color: #fff; padding: 12px 10px; text-align: left; font-size: 13px; text-transform: uppercase; }
+            td { font-size: 13.5px; }
+            .totals-box { display: flex; justify-content: flex-end; gap: 30px; font-size: 16px; margin-top: 20px; border-top: 2px solid #333; padding-top: 15px; }
+            .totals-box div { font-weight: bold; }
+            .footer { text-align: center; margin-top: 80px; font-size: 12px; color: #666; border-top: 1px solid #eee; padding-top: 20px; }
+            @media print {
+              body { padding: 0; }
+              .no-print { display: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="no-print" style="margin-bottom: 20px; text-align: right;">
+            <button onclick="window.print()" style="background: #00bcd4; color: #fff; border: none; padding: 12px 24px; font-size: 14px; font-weight: bold; border-radius: 6px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,188,212,0.3);">
+              🖨️ Imprimir / Guardar como PDF
+            </button>
+          </div>
+
+          <div class="header">
+            <div>
+              <h1>FICHA DE FABRICACIÓN</h1>
+              <div style="font-size: 18px; font-weight: bold; color: #555;">Orden de Producción: ${pOrder.order_number}</div>
+            </div>
+            <div style="text-align: right;">
+              <div style="font-size: 20px; font-weight: bold; color: #333;">GOSU ACCESSORIES</div>
+              <div style="font-size: 12px; color: #666;">Sistema Multitenant B2B</div>
+            </div>
+          </div>
+
+          <div class="info-grid">
+            <div>
+              <div>🏭 <strong>Fábrica Proveedora:</strong> ${pOrder.factory_name}</div>
+              <div style="margin-top: 8px;">📅 <strong>Fecha Registro:</strong> ${new Date(pOrder.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+            </div>
+            <div>
+              <div>📊 <strong>Estado Actual:</strong> ${pOrder.status}</div>
+              <div style="margin-top: 8px;">🚢 <strong>Tracking de Embarque:</strong> ${pOrder.tracking_number || 'N/A'}</div>
+            </div>
+          </div>
+
+          <h2 style="font-size: 18px; border-bottom: 1px solid #ddd; padding-bottom: 8px; margin-bottom: 15px; color: #333;">PRODUCTOS EN ORDEN DE PRODUCCIÓN</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Nombre del Producto</th>
+                <th style="text-align: center;">Cajas Master</th>
+                <th style="text-align: right;">Costo/Caja</th>
+                <th style="text-align: right;">Subtotal</th>
+                <th style="text-align: center;">Volumen CBM</th>
+                <th style="text-align: center;">Archivos Producción</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsRows}
+            </tbody>
+          </table>
+
+          <div class="totals-box">
+            <div>Volumen Total: <span style="color: #00bcd4;">${parseFloat(pOrder.total_cbm).toFixed(4)} CBM</span></div>
+            <div>Inversión Total Lote: <span style="color: #4caf50;">$${parseFloat(pOrder.total_cost_usd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</span></div>
+          </div>
+
+          <div class="footer">
+            <p>Este documento es confidencial y contiene especificaciones técnicas y comerciales privadas de la cadena de suministro.</p>
+            <p>© Gosu Accessories Ltd. - Control Interno de Fabricación.</p>
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   // ============================================================
@@ -1979,17 +2090,27 @@ function App() {
                           style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', height: '60px', resize: 'vertical' }}
                         />
                       </div>
+                      <div style={{ gridColumn: 'span 2' }}>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>📁 Carpeta de Archivos de Producción (Link a Drive/Dropbox con etiquetas y diseños de empaque)</label>
+                        <input
+                          type="url"
+                          placeholder="Ej. https://drive.google.com/drive/folders/..."
+                          value={newProduct.production_files_url || ''}
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, production_files_url: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
                     </div>
                   </div>
 
-                  {/* Seccion 3: Logistica e Inventarios */}
+                  {/* Seccion 3: Logística e Inventarios */}
                   <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.04)' }}>
                     <h3 style={{ fontSize: '14px', fontWeight: '700', color: 'var(--cyan-neon)', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
                       📦 Logística de Master Case e Inventarios
                     </h3>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
                       <div>
-                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Peso Caja (KG) *</label>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Peso Caja Master (kg) *</label>
                         <input
                           type="number"
                           step="0.01"
@@ -2001,7 +2122,7 @@ function App() {
                         />
                       </div>
                       <div>
-                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Largo Caja (cm) *</label>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Largo Caja Master (cm) *</label>
                         <input
                           type="number"
                           step="0.1"
@@ -2013,7 +2134,7 @@ function App() {
                         />
                       </div>
                       <div>
-                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Ancho Caja (cm) *</label>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Ancho Caja Master (cm) *</label>
                         <input
                           type="number"
                           step="0.1"
@@ -2025,7 +2146,7 @@ function App() {
                         />
                       </div>
                       <div>
-                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Alto Caja (cm) *</label>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Alto Caja Master (cm) *</label>
                         <input
                           type="number"
                           step="0.1"
@@ -2073,7 +2194,7 @@ function App() {
                           factory_name: '', factory_sku: '', factory_cost_per_case_usd: '',
                           pantone_codes: '', cut_measurements: '', fabrication_notes: '',
                           case_weight_kg: 10, case_length_cm: 40, case_width_cm: 30, case_height_cm: 20,
-                          stock_physical_cases: 0, stock_in_production_cases: 0
+                          stock_physical_cases: 0, stock_in_production_cases: 0, production_files_url: ''
                         });
                       }}
                       className="btn-glass"
@@ -2230,6 +2351,9 @@ function App() {
                                 <div>🎨 Pantone: <strong style={{ color: '#fff' }}>{product.pantone_codes || 'N/A'}</strong></div>
                                 <div>📐 Corte Fábrica: <strong style={{ color: '#fff' }}>{product.cut_measurements || 'N/A'}</strong></div>
                                 <div>⚙️ Stock en Producción: <strong style={{ color: 'var(--cyan-neon)' }}>{product.stock_in_production_cases || 0} cajas</strong></div>
+                                {product.production_files_url && (
+                                  <div>📁 Archivos Diseño/Etiquetas: <a href={product.production_files_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--cyan-neon)', fontWeight: '700', textDecoration: 'underline' }}>📂 Ver carpeta de archivos</a></div>
+                                )}
                                 <div style={{ borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '6px', color: 'var(--cyan-neon)' }}>Logística de Despacho (CBM)</div>
                                 <div>⚖️ Peso Master Case: <strong>{product.case_weight_kg} kg</strong></div>
                                 <div>📏 Dimensiones Caja: <strong>{product.case_length_cm}x{product.case_width_cm}x{product.case_height_cm} cm</strong></div>
@@ -2302,7 +2426,8 @@ function App() {
                                   case_width_cm: product.case_width_cm,
                                   case_height_cm: product.case_height_cm,
                                   stock_physical_cases: product.stock_physical_cases || 0,
-                                  stock_in_production_cases: product.stock_in_production_cases || 0
+                                  stock_in_production_cases: product.stock_in_production_cases || 0,
+                                  production_files_url: product.production_files_url || ''
                                 });
                                 window.scrollTo({ top: 0, behavior: 'smooth' });
                               }}
@@ -2451,7 +2576,8 @@ function App() {
                                       case_width_cm: product.case_width_cm,
                                       case_height_cm: product.case_height_cm,
                                       stock_physical_cases: product.stock_physical_cases || 0,
-                                      stock_in_production_cases: product.stock_in_production_cases || 0
+                                      stock_in_production_cases: product.stock_in_production_cases || 0,
+                                      production_files_url: product.production_files_url || ''
                                     });
                                     window.scrollTo({ top: 0, behavior: 'smooth' });
                                   }}
@@ -3011,8 +3137,15 @@ function App() {
                         <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', margin: '0 0 10px', letterSpacing: '0.5px' }}>Productos a Producir:</h4>
                         <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
                           {pOrder.items?.map((item, idx) => (
-                            <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', borderBottom: '1px solid rgba(255,255,255,0.01)', paddingBottom: '4px' }}>
-                              <span style={{ color: '#fff' }}>{item.name} <em style={{ fontSize: '11px', color: 'var(--text-secondary)', fontStyle: 'normal' }}>(SKU: {item.sku})</em></span>
+                            <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', borderBottom: '1px solid rgba(255,255,255,0.01)', paddingBottom: '4px' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <span style={{ color: '#fff' }}>{item.name} <em style={{ fontSize: '11px', color: 'var(--text-secondary)', fontStyle: 'normal' }}>(SKU: {item.sku})</em></span>
+                                {item.production_files_url && (
+                                  <a href={item.production_files_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '11px', color: 'var(--cyan-neon)', textDecoration: 'underline', width: 'fit-content', marginTop: '2px' }}>
+                                    📁 Ver archivos de producción
+                                  </a>
+                                )}
+                              </div>
                               <span style={{ color: 'var(--cyan-neon)' }}>
                                 <strong>{item.quantity_cases} Cajas master</strong> ({parseFloat(item.item_cbm).toFixed(4)} CBM)
                               </span>
@@ -3021,8 +3154,16 @@ function App() {
                         </ul>
                       </div>
 
-                      {/* Control de Auditoría Expandible */}
-                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      {/* Control de Auditoría Expandible y Exportar PDF */}
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleExportPDF(pOrder)}
+                          className="btn-glass-neon"
+                          style={{ padding: '6px 14px', fontSize: '11.5px', fontWeight: '700' }}
+                        >
+                          📄 Exportar Ficha (PDF)
+                        </button>
                         <button
                           type="button"
                           onClick={() => {

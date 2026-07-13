@@ -27,7 +27,8 @@ router.get('/', requireAuth, requireTenantAdmin, async (req, res) => {
                'quantity_cases', poi.quantity_cases,
                'cost_per_case_usd', poi.cost_per_case_usd,
                'total_item_cost_usd', poi.total_item_cost_usd,
-               'item_cbm', poi.item_cbm
+               'item_cbm', poi.item_cbm,
+               'production_files_url', p.production_files_url
              ) ORDER BY p.name
            ) FILTER (WHERE poi.id IS NOT NULL), '[]'
          ) AS items
@@ -214,6 +215,18 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
       return res.json(order);
     }
 
+    // Validación de transición secuencial estricta según @order-state-machine
+    const stepNames = ['Draft', 'Proforma', 'Production', 'QC Inspection', 'Port', 'Transit', 'Delivered'];
+    const oldStepIdx = stepNames.indexOf(oldStatus);
+    const newStepIdx = stepNames.indexOf(status);
+
+    if (newStepIdx > oldStepIdx && newStepIdx !== oldStepIdx + 1) {
+      client.release();
+      return res.status(400).json({ 
+        error: `Transición de estado inválida. Debes avanzar secuencialmente paso a paso: el siguiente estado permitido para "${oldStatus}" es "${stepNames[oldStepIdx + 1]}".` 
+      });
+    }
+
     // Obtener los items para actualizar inventario
     const itemsResult = await client.query(
       'SELECT product_id, quantity_cases FROM production_order_items WHERE production_order_id=$1 AND tenant_id=$2',
@@ -221,10 +234,21 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
     );
     const items = itemsResult.rows;
 
-    // 2. Lógica de traspaso de inventario
-    
-    // CASO A: Avanza a 'Production' (Aumenta stock en producción)
-    if (status === 'Production') {
+    // 2. Lógica de traspaso de inventario inteligente y reversible
+    const PRE_PROD = ['Draft', 'Proforma'];
+    const IN_PROD = ['Production', 'QC Inspection', 'Port', 'Transit'];
+    const POST_PROD = ['Delivered'];
+
+    const wasPre = PRE_PROD.includes(oldStatus);
+    const wasIn = IN_PROD.includes(oldStatus);
+    const wasPost = POST_PROD.includes(oldStatus);
+
+    const isPre = PRE_PROD.includes(status);
+    const isIn = IN_PROD.includes(status);
+    const isPost = POST_PROD.includes(status);
+
+    if (wasPre && isIn) {
+      // Sumar a stock en producción
       for (const item of items) {
         await client.query(
           `INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases)
@@ -236,12 +260,20 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
           [tenant_id, item.product_id, item.quantity_cases]
         );
       }
-    }
-
-    // CASO B: Avanza a 'Delivered' (Traslada de stock en producción a stock físico)
-    if (status === 'Delivered') {
+    } else if (wasIn && isPre) {
+      // Restar de stock en producción (se regresó a borrador/proforma)
       for (const item of items) {
-        // Restar de stock en producción y sumar a stock físico comercial
+        await client.query(
+          `UPDATE inventory
+           SET stock_in_production_cases = GREATEST(0, stock_in_production_cases - $1),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE tenant_id = $2 AND product_id = $3`,
+          [item.quantity_cases, tenant_id, item.product_id]
+        );
+      }
+    } else if (wasIn && isPost) {
+      // Trasladar de stock en producción a stock físico
+      for (const item of items) {
         await client.query(
           `INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases)
            VALUES ($1, $2, $3, 0)
@@ -251,6 +283,44 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
              stock_physical_cases = inventory.stock_physical_cases + EXCLUDED.stock_physical_cases,
              updated_at = CURRENT_TIMESTAMP`,
           [tenant_id, item.product_id, item.quantity_cases]
+        );
+      }
+    } else if (wasPre && isPost) {
+      // Sumar directamente a stock físico (nunca pasó por producción)
+      for (const item of items) {
+        await client.query(
+          `INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases)
+           VALUES ($1, $2, $3, 0)
+           ON CONFLICT (tenant_id, product_id)
+           DO UPDATE SET 
+             stock_physical_cases = inventory.stock_physical_cases + EXCLUDED.stock_physical_cases,
+             updated_at = CURRENT_TIMESTAMP`,
+          [tenant_id, item.product_id, item.quantity_cases]
+        );
+      }
+    } else if (wasPost && isIn) {
+      // Deshacer entregado: Restar de stock físico y sumar a stock en producción
+      for (const item of items) {
+        await client.query(
+          `INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases)
+           VALUES ($1, $2, 0, $3)
+           ON CONFLICT (tenant_id, product_id)
+           DO UPDATE SET 
+             stock_physical_cases = GREATEST(0, inventory.stock_physical_cases - $4),
+             stock_in_production_cases = inventory.stock_in_production_cases + EXCLUDED.stock_in_production_cases,
+             updated_at = CURRENT_TIMESTAMP`,
+          [tenant_id, item.product_id, item.quantity_cases, item.quantity_cases]
+        );
+      }
+    } else if (wasPost && isPre) {
+      // Deshacer entregado a borrador/proforma: Restar de stock físico
+      for (const item of items) {
+        await client.query(
+          `UPDATE inventory
+           SET stock_physical_cases = GREATEST(0, stock_physical_cases - $1),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE tenant_id = $2 AND product_id = $3`,
+          [item.quantity_cases, tenant_id, item.product_id]
         );
       }
     }
