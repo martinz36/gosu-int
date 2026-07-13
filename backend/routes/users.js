@@ -90,10 +90,12 @@ router.get('/clients', requireAuth, requireTenantAdmin, async (req, res) => {
       `SELECT 
          u.id, u.name, u.email, u.is_active, u.created_at,
          p.company_name, p.tax_id, p.billing_address, p.forwarder_address, 
-         p.custom_moa_usd, p.client_category, p.destination_country,
-         p.account_status, p.followup_notes, p.last_contact_date
+         p.destination_country, p.account_status, p.followup_notes, p.last_contact_date,
+         p.pricing_tier_id,
+         pt.tier_name, pt.discount_percentage, pt.min_order_amount, pt.only_master_cases
        FROM users u
        JOIN b2b_client_profiles p ON p.user_id = u.id AND p.tenant_id = u.tenant_id
+       LEFT JOIN pricing_tiers pt ON pt.id = p.pricing_tier_id
        WHERE u.tenant_id = $1 AND u.role = 'b2b_client'
        ORDER BY u.created_at DESC`,
       [tenant_id]
@@ -110,8 +112,8 @@ router.post('/clients', requireAuth, requireTenantAdmin, async (req, res) => {
   const { tenant_id } = req.user;
   const { 
     name, email, password, company_name, tax_id, 
-    billing_address, forwarder_address, custom_moa_usd, 
-    client_category, destination_country, account_status,
+    billing_address, forwarder_address, pricing_tier_id, 
+    destination_country, account_status,
     followup_notes, last_contact_date
   } = req.body;
 
@@ -154,19 +156,18 @@ router.post('/clients', requireAuth, requireTenantAdmin, async (req, res) => {
     const newUser = userResult.rows[0];
 
     // Insertar en b2b_client_profiles
-    const moa = parseFloat(custom_moa_usd) || 1000.00;
     const contactDate = last_contact_date ? new Date(last_contact_date) : new Date();
 
     await client.query(
       `INSERT INTO b2b_client_profiles (
-         tenant_id, user_id, company_name, tax_id, billing_address, 
-         forwarder_address, custom_moa_usd, client_category, destination_country,
+         tenant_id, user_id, pricing_tier_id, company_name, tax_id, billing_address, 
+         forwarder_address, destination_country,
          account_status, followup_notes, last_contact_date
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
-        tenant_id, newUser.id, company_name || null, tax_id || null, billing_address || null, 
-        forwarder_address || null, moa, client_category || 'retail_store', destination_country || 'USA',
+        tenant_id, newUser.id, pricing_tier_id || null, company_name || null, tax_id || null, 
+        billing_address || null, forwarder_address || null, destination_country || 'USA',
         statusVal, followup_notes || null, contactDate
       ]
     );
@@ -195,8 +196,8 @@ router.put('/clients/:id', requireAuth, requireTenantAdmin, async (req, res) => 
   const { id } = req.params;
   const { 
     name, email, company_name, tax_id, 
-    billing_address, forwarder_address, custom_moa_usd, 
-    client_category, destination_country, is_active,
+    billing_address, forwarder_address, pricing_tier_id, 
+    destination_country, is_active,
     account_status, followup_notes, last_contact_date
   } = req.body;
 
@@ -230,18 +231,17 @@ router.put('/clients/:id', requireAuth, requireTenantAdmin, async (req, res) => 
     );
 
     // Actualizar perfil
-    const moa = parseFloat(custom_moa_usd) || 1000.00;
     const contactDate = last_contact_date ? new Date(last_contact_date) : new Date();
 
     await client.query(
       `UPDATE b2b_client_profiles 
        SET company_name=$1, tax_id=$2, billing_address=$3, forwarder_address=$4, 
-           custom_moa_usd=$5, client_category=$6, destination_country=$7, 
-           account_status=$8, followup_notes=$9, last_contact_date=$10, updated_at=CURRENT_TIMESTAMP
-       WHERE user_id=$11 AND tenant_id=$12`,
+           pricing_tier_id=$5, destination_country=$6, 
+           account_status=$7, followup_notes=$8, last_contact_date=$9, updated_at=CURRENT_TIMESTAMP
+       WHERE user_id=$10 AND tenant_id=$11`,
       [
         company_name || null, tax_id || null, billing_address || null, forwarder_address || null, 
-        moa, client_category, destination_country, statusVal, followup_notes || null, contactDate,
+        pricing_tier_id || null, destination_country, statusVal, followup_notes || null, contactDate,
         id, tenant_id
       ]
     );

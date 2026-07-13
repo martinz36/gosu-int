@@ -19,11 +19,15 @@ router.post('/login', async (req, res) => {
   }
 
   try {
-    // Usamos LEFT JOIN para que los Super Admins (tenant_id = NULL) puedan autenticarse.
+    // Usamos LEFT JOIN para obtener el perfil y el pricing tier si es b2b_client
     const result = await pool.query(
-      `SELECT u.*, t.slug as tenant_slug, t.name as tenant_name, t.is_active as tenant_active
+      `SELECT u.*, t.slug as tenant_slug, t.name as tenant_name, t.is_active as tenant_active,
+              p.pricing_tier_id,
+              pt.tier_name, pt.discount_percentage, pt.min_order_amount, pt.only_master_cases
        FROM users u
        LEFT JOIN tenants t ON t.id = u.tenant_id
+       LEFT JOIN b2b_client_profiles p ON p.user_id = u.id AND p.tenant_id = u.tenant_id
+       LEFT JOIN pricing_tiers pt ON pt.id = p.pricing_tier_id
        WHERE u.email = $1`,
       [email.toLowerCase()]
     );
@@ -66,13 +70,18 @@ router.post('/login', async (req, res) => {
     res.json({
       token,
       user: {
-        id:          user.id,
-        name:        user.name,
-        email:       user.email,
-        role:        user.role,
-        tenant_id:   user.tenant_id,
-        tenant_name: user.tenant_name || null,
-        tenant_slug: user.tenant_slug || null,
+        id:                  user.id,
+        name:                user.name,
+        email:               user.email,
+        role:                user.role,
+        tenant_id:           user.tenant_id,
+        tenant_name:         user.tenant_name || null,
+        tenant_slug:         user.tenant_slug || null,
+        pricing_tier_id:     user.pricing_tier_id || null,
+        tier_name:           user.tier_name || null,
+        discount_percentage: user.discount_percentage ? parseFloat(user.discount_percentage) : 0,
+        min_order_amount:    user.min_order_amount ? parseFloat(user.min_order_amount) : 1000.00,
+        only_master_cases:   user.only_master_cases === true
       }
     });
   } catch (err) {
@@ -157,9 +166,13 @@ router.post('/bypass-login', async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT u.*, t.slug as tenant_slug, t.name as tenant_name, t.is_active as tenant_active
+      `SELECT u.*, t.slug as tenant_slug, t.name as tenant_name, t.is_active as tenant_active,
+              p.pricing_tier_id,
+              pt.tier_name, pt.discount_percentage, pt.min_order_amount, pt.only_master_cases
        FROM users u
        LEFT JOIN tenants t ON t.id = u.tenant_id
+       LEFT JOIN b2b_client_profiles p ON p.user_id = u.id AND p.tenant_id = u.tenant_id
+       LEFT JOIN pricing_tiers pt ON pt.id = p.pricing_tier_id
        WHERE u.email = $1`,
       [email.toLowerCase()]
     );
@@ -196,13 +209,18 @@ router.post('/bypass-login', async (req, res) => {
     res.json({
       token,
       user: {
-        id:          user.id,
-        name:        user.name,
-        email:       user.email,
-        role:        user.role,
-        tenant_id:   user.tenant_id,
-        tenant_name: user.tenant_name || null,
-        tenant_slug: user.tenant_slug || null,
+        id:                  user.id,
+        name:                user.name,
+        email:               user.email,
+        role:                user.role,
+        tenant_id:           user.tenant_id,
+        tenant_name:         user.tenant_name || null,
+        tenant_slug:         user.tenant_slug || null,
+        pricing_tier_id:     user.pricing_tier_id || null,
+        tier_name:           user.tier_name || null,
+        discount_percentage: user.discount_percentage ? parseFloat(user.discount_percentage) : 0,
+        min_order_amount:    user.min_order_amount ? parseFloat(user.min_order_amount) : 1000.00,
+        only_master_cases:   user.only_master_cases === true
       }
     });
   } catch (err) {

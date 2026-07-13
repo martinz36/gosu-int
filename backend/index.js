@@ -12,6 +12,7 @@ import plansRoutes from './routes/plans.js';
 import usersRoutes from './routes/users.js';
 import auditRoutes from './routes/audit.js';
 import configRoutes from './routes/config.js';
+import pricingTiersRoutes from './routes/pricingTiers.js';
 
 // Cargar variables de entorno según el entorno
 // En producción (Railway), las variables se inyectan directamente
@@ -73,6 +74,7 @@ app.use('/api/plans', plansRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/config', configRoutes);
+app.use('/api/pricing-tiers', pricingTiersRoutes);
 
 // Estado de la API y conexión a BD
 app.get('/api/status', async (req, res) => {

@@ -73,18 +73,25 @@ VALUES (
 )
 ON CONFLICT (email) DO NOTHING;
 
+-- 2.7. Crear Niveles de Precios B2B (Pricing Tiers)
+INSERT INTO pricing_tiers (id, tenant_id, tier_name, discount_percentage, min_order_amount, only_master_cases)
+VALUES
+  ('00000000-0000-0000-0000-000000000200', '00000000-0000-0000-0000-000000000001', 'Mayorista Gold (-15% y MOV $2,000)', 15.00, 2000.00, true),
+  ('00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000001', 'Retail Normal (-5% y MOV $1,000)', 5.00, 1000.00, false),
+  ('00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000001', 'Lead Prospecto (MOV $500)', 0.00, 500.00, false)
+ON CONFLICT (id) DO NOTHING;
+
 -- 3. Crear Perfil B2B para el Cliente
-INSERT INTO b2b_client_profiles (id, tenant_id, user_id, company_name, tax_id, billing_address, forwarder_address, custom_moa_usd, client_category, destination_country, account_status, followup_notes, last_contact_date)
+INSERT INTO b2b_client_profiles (id, tenant_id, user_id, pricing_tier_id, company_name, tax_id, billing_address, forwarder_address, destination_country, account_status, followup_notes, last_contact_date)
 VALUES (
   '00000000-0000-0000-0000-000000000100',
   '00000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000003',
+  '00000000-0000-0000-0000-000000000200', -- Mayorista Gold
   'Card Shop & Games Ltd',
   'US-987654321-TX',
   '123 Gaming Street, Austin, TX 78701, USA',
   'Warehouse A, Lane 88, Yiwu Trade City, Zhejiang, China (Forwarder ID: FW-GOSU-99)',
-  1500.00,
-  'wholesale_distributor',
   'USA',
   'client',
   'Cuenta activa completamente validada y con historial de órdenes comercialmente aprobadas.',
@@ -93,17 +100,16 @@ VALUES (
 ON CONFLICT (tenant_id, user_id) DO NOTHING;
 
 -- Perfil para Lead 1 (Nuevo)
-INSERT INTO b2b_client_profiles (id, tenant_id, user_id, company_name, tax_id, billing_address, forwarder_address, custom_moa_usd, client_category, destination_country, account_status, followup_notes, last_contact_date)
+INSERT INTO b2b_client_profiles (id, tenant_id, user_id, pricing_tier_id, company_name, tax_id, billing_address, forwarder_address, destination_country, account_status, followup_notes, last_contact_date)
 VALUES (
   '00000000-0000-0000-0000-000000000101',
   '00000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000005',
+  '00000000-0000-0000-0000-000000000202', -- Lead Prospecto
   'Kame Games Japan',
   NULL,
   NULL,
   NULL,
-  1000.00,
-  'retail_store',
   'Japón',
   'lead_new',
   'Contacto inicial por formulario. Solicita catálogo de protectores mate Standard y precios FOB. Aún no cuenta con forwarder en China.',
@@ -112,17 +118,16 @@ VALUES (
 ON CONFLICT (tenant_id, user_id) DO NOTHING;
 
 -- Perfil para Lead 2 (Negociación)
-INSERT INTO b2b_client_profiles (id, tenant_id, user_id, company_name, tax_id, billing_address, forwarder_address, custom_moa_usd, client_category, destination_country, account_status, followup_notes, last_contact_date)
+INSERT INTO b2b_client_profiles (id, tenant_id, user_id, pricing_tier_id, company_name, tax_id, billing_address, forwarder_address, destination_country, account_status, followup_notes, last_contact_date)
 VALUES (
   '00000000-0000-0000-0000-000000000102',
   '00000000-0000-0000-0000-000000000001',
   '00000000-0000-0000-0000-000000000006',
+  '00000000-0000-0000-0000-000000000201', -- Retail Normal
   'Spiel und Spass Vertriebs GmbH',
   'DE-811122334',
   'Nordring 45, Munich, Germany',
   NULL,
-  2500.00,
-  'wholesale_distributor',
   'Alemania',
   'lead_negotiation',
   'En negociación de volumen de compra. Se propone un MOA de $2,500.00 con un 5% de descuento adicional por canal de distribuidor regional.',
