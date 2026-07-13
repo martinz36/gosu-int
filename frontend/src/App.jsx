@@ -82,6 +82,12 @@ function App() {
   const [editingBrand, setEditingBrand] = useState(null);
   const [editingPricingTier, setEditingPricingTier] = useState(null);
 
+  const isSleevesCategory = (categorySlug) => {
+    if (!categorySlug) return false;
+    const cat = categorySlug.toLowerCase();
+    return cat.includes('sleeves');
+  };
+
   // Estados para Carga Masiva (Productos/Inventario)
   const [bulkPreview, setBulkPreview] = useState([]);
   const [bulkUploading, setBulkUploading] = useState(false);
@@ -97,6 +103,7 @@ function App() {
     price_per_case_usd: '',
     units_per_case: 100,
     finished_measurements: '',
+    color: '',
     
     // Datos de Fabricación
     factory_name: '',
@@ -656,6 +663,7 @@ function App() {
             commercial_description: getValue('commercial_description') || '',
             units_per_case: parseInt(getValue('units_per_case')) || 1,
             finished_measurements: getValue('finished_measurements') || '',
+            color: getValue('color') || '',
             factory_name: getValue('factory_name') || '',
             factory_sku: getValue('factory_sku') || '',
             factory_cost_per_case_usd: getValue('factory_cost_per_case_usd') !== '' ? parseFloat(getValue('factory_cost_per_case_usd')) : '',
@@ -723,9 +731,9 @@ function App() {
   const handleDownloadCSVTemplate = () => {
     const csvContent = 
       "sep=;\n" +
-      "sku;name;category;price_per_case_usd;units_per_case;case_weight_kg;case_length_cm;case_width_cm;case_height_cm;stock_physical_cases;stock_in_production_cases;image_url;commercial_description;factory_name;factory_sku;factory_cost_per_case_usd;pantone_codes;cut_measurements;fabrication_notes;production_files_url\n" +
-      "GOSU-SLV-001;Protectores de Cartas Mate - Black;Protectores;35.00;100;12.5;42;32;22;250;50;https://ejemplo.com/black.jpg;Protectores premium mate tamaño Standard.;Fábrica Dongguan;FAC-SKU-99;18.00;Pantone 426C;32x32cm;Embalado especial anti-humedad;https://drive.google.com/drive/folders/ejemplo1\n" +
-      "GOSU-SLV-002;Protectores de Cartas Mate - Red;Protectores;35.00;100;12.5;42;32;22;180;0;https://ejemplo.com/red.jpg;Protectores premium mate color rojo.;Fábrica Dongguan;FAC-SKU-100;18.00;Pantone 186C;32x32cm;Sin notas;https://drive.google.com/drive/folders/ejemplo2\n";
+      "sku;name;category;price_per_case_usd;units_per_case;case_weight_kg;case_length_cm;case_width_cm;case_height_cm;stock_physical_cases;stock_in_production_cases;image_url;commercial_description;finished_measurements;color;factory_name;factory_sku;factory_cost_per_case_usd;pantone_codes;cut_measurements;fabrication_notes;production_files_url\n" +
+      "GOSU-SLV-001;Protectores de Cartas Mate - Black;Protectores;35.00;100;12.5;42;32;22;250;50;https://ejemplo.com/black.jpg;Protectores premium mate tamaño Standard.;66x91 mm;Black;Fábrica Dongguan;FAC-SKU-99;18.00;Pantone 426C;68x93 mm;Embalado especial anti-humedad;https://drive.google.com/drive/folders/ejemplo1\n" +
+      "GOSU-SLV-002;Protectores de Cartas Mate - Red;Protectores;35.00;100;12.5;42;32;22;180;0;https://ejemplo.com/red.jpg;Protectores premium mate color rojo.;66x91 mm;Red;Fábrica Dongguan;FAC-SKU-100;18.00;Pantone 186C;68x93 mm;Sin notas;https://drive.google.com/drive/folders/ejemplo2\n";
     
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -784,6 +792,13 @@ function App() {
       return;
     }
 
+    if (isSleevesCategory(newProduct.category)) {
+      if (!newProduct.finished_measurements || !newProduct.cut_measurements || !newProduct.color) {
+        alert('⚠️ Para la categoría de protectores (Sleeves), los campos Medida Final, Medida de Fabricación (Corte) y Color son obligatorios.');
+        return;
+      }
+    }
+
     setCreatingProduct(true);
     try {
       if (editingProduct) {
@@ -803,6 +818,7 @@ function App() {
         price_per_case_usd: '',
         units_per_case: 100,
         finished_measurements: '',
+        color: '',
         factory_name: '',
         factory_sku: '',
         factory_cost_per_case_usd: '',
@@ -1993,13 +2009,45 @@ function App() {
                         />
                       </div>
                       <div>
-                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Medida Final Comercial</label>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>
+                          Medida Final Comercial {isSleevesCategory(newProduct.category) && <span style={{ color: 'var(--pink-neon)' }}>* (Requerido para Sleeves)</span>}
+                        </label>
                         <input
                           type="text"
                           placeholder="Ej. 66x91 mm"
                           value={newProduct.finished_measurements}
                           onChange={(e) => setNewProduct(prev => ({ ...prev, finished_measurements: e.target.value }))}
-                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          style={{
+                            background: 'rgba(0,0,0,0.2)',
+                            border: isSleevesCategory(newProduct.category) && !newProduct.finished_measurements ? '1px solid var(--pink-neon)' : '1px solid var(--border-color)',
+                            color: '#fff',
+                            padding: '10px 14px',
+                            borderRadius: '8px',
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            boxShadow: isSleevesCategory(newProduct.category) && !newProduct.finished_measurements ? '0 0 5px rgba(255, 9, 187, 0.3)' : 'none'
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>
+                          Color {isSleevesCategory(newProduct.category) && <span style={{ color: 'var(--pink-neon)' }}>* (Requerido para Sleeves)</span>}
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Ej. Clear, Matte Black"
+                          value={newProduct.color || ''}
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, color: e.target.value }))}
+                          style={{
+                            background: 'rgba(0,0,0,0.2)',
+                            border: isSleevesCategory(newProduct.category) && !newProduct.color ? '1px solid var(--pink-neon)' : '1px solid var(--border-color)',
+                            color: '#fff',
+                            padding: '10px 14px',
+                            borderRadius: '8px',
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            boxShadow: isSleevesCategory(newProduct.category) && !newProduct.color ? '0 0 5px rgba(255, 9, 187, 0.3)' : 'none'
+                          }}
                         />
                       </div>
                       <div style={{ gridColumn: 'span 2' }}>
@@ -2072,13 +2120,24 @@ function App() {
                         />
                       </div>
                       <div>
-                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Medida de Corte en Producción</label>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>
+                          Medida de Corte en Producción {isSleevesCategory(newProduct.category) && <span style={{ color: 'var(--pink-neon)' }}>* (Requerido para Sleeves)</span>}
+                        </label>
                         <input
                           type="text"
                           placeholder="Ej. 68x93 mm"
                           value={newProduct.cut_measurements}
                           onChange={(e) => setNewProduct(prev => ({ ...prev, cut_measurements: e.target.value }))}
-                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          style={{
+                            background: 'rgba(0,0,0,0.2)',
+                            border: isSleevesCategory(newProduct.category) && !newProduct.cut_measurements ? '1px solid var(--pink-neon)' : '1px solid var(--border-color)',
+                            color: '#fff',
+                            padding: '10px 14px',
+                            borderRadius: '8px',
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            boxShadow: isSleevesCategory(newProduct.category) && !newProduct.cut_measurements ? '0 0 5px rgba(255, 9, 187, 0.3)' : 'none'
+                          }}
                         />
                       </div>
                       <div style={{ gridColumn: 'span 2' }}>
@@ -2319,7 +2378,12 @@ function App() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px', fontSize: '12px' }}>
                           {product.finished_measurements && (
                             <span style={{ color: 'var(--text-secondary)' }}>
-                              📏 Medida Final: <strong>{product.finished_measurements}</strong>
+                              📏 Medida: <strong>{product.finished_measurements}</strong>
+                            </span>
+                          )}
+                          {product.color && (
+                            <span style={{ color: 'var(--text-secondary)' }}>
+                              🎨 Color: <strong>{product.color}</strong>
                             </span>
                           )}
                           <span style={{ color: 'var(--text-secondary)' }}>
@@ -2489,7 +2553,16 @@ function App() {
                               <div style={{ width: '40px', height: '40px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📦</div>
                             )}
                           </td>
-                          <td style={{ padding: '10px 12px', fontWeight: '700', color: '#fff' }}>{product.name}</td>
+                          <td style={{ padding: '10px 12px', fontWeight: '700', color: '#fff' }}>
+                            {product.name}
+                            {(product.finished_measurements || product.color) && (
+                              <div style={{ fontSize: '11px', fontWeight: 'normal', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                {product.finished_measurements && <span>📏 {product.finished_measurements}</span>}
+                                {product.finished_measurements && product.color && <span> | </span>}
+                                {product.color && <span>🎨 {product.color}</span>}
+                              </div>
+                            )}
+                          </td>
                           <td style={{ padding: '10px 12px', fontFamily: 'monospace' }}>{product.sku}</td>
                           <td style={{ padding: '10px 12px' }}>
                             <span className="badge badge-pink" style={{ fontSize: '9px' }}>{product.category}</span>

@@ -109,6 +109,7 @@ CREATE TABLE products (
   price_per_case_usd         NUMERIC(12,2) NOT NULL, -- Precio de venta por Master Case
   units_per_case             INTEGER NOT NULL DEFAULT 1, -- Unidades contenidas en cada Master Case
   finished_measurements      VARCHAR(100), -- Medida final comercial (ej: 66x91mm)
+  color                      VARCHAR(100), -- Color o variante (ej: Clear, Matte Black)
   
   -- Datos de Fabricación (Confidenciales: NUNCA visibles por Clientes B2B)
   factory_name               VARCHAR(255),

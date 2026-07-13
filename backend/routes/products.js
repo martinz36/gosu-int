@@ -16,7 +16,7 @@ router.get('/', requireAuth, async (req, res) => {
   // Campos comerciales base comunes a todos
   let selectFields = `
     p.id, p.tenant_id, p.sku, p.name, p.category, p.image_url, p.is_active,
-    p.commercial_description, p.price_per_case_usd, p.units_per_case, p.finished_measurements,
+    p.commercial_description, p.price_per_case_usd, p.units_per_case, p.finished_measurements, p.color,
     p.case_weight_kg, p.case_length_cm, p.case_width_cm, p.case_height_cm, p.case_cbm,
     p.created_at, p.updated_at,
     COALESCE(i.stock_physical_cases, 0) as stock_physical_cases,
@@ -68,7 +68,7 @@ router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
   const { tenant_id } = req.user;
   const {
     name, sku, category, image_url, is_active,
-    commercial_description, price_per_case_usd, units_per_case, finished_measurements,
+    commercial_description, price_per_case_usd, units_per_case, finished_measurements, color,
     factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
     case_weight_kg, case_length_cm, case_width_cm, case_height_cm,
     stock_physical_cases, stock_in_production_cases, production_files_url
@@ -86,15 +86,15 @@ router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
     const productResult = await client.query(
       `INSERT INTO products (
         tenant_id, sku, name, category, image_url, is_active,
-        commercial_description, price_per_case_usd, units_per_case, finished_measurements,
+        commercial_description, price_per_case_usd, units_per_case, finished_measurements, color,
         factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
         case_weight_kg, case_length_cm, case_width_cm, case_height_cm, production_files_url
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
        RETURNING *`,
       [
         tenant_id, sku, name, category, image_url || null, is_active !== false,
-        commercial_description || null, price_per_case_usd, units_per_case || 1, finished_measurements || null,
+        commercial_description || null, price_per_case_usd, units_per_case || 1, finished_measurements || null, color || null,
         factory_name || null, factory_sku || null, factory_cost_per_case_usd || null, pantone_codes || null,
         cut_measurements || null, fabrication_notes || null,
         case_weight_kg, case_length_cm, case_width_cm, case_height_cm, production_files_url || null
@@ -144,7 +144,7 @@ router.put('/:id', requireAuth, requireTenantAdmin, async (req, res) => {
   const { id } = req.params;
   const {
     name, sku, category, image_url, is_active,
-    commercial_description, price_per_case_usd, units_per_case, finished_measurements,
+    commercial_description, price_per_case_usd, units_per_case, finished_measurements, color,
     factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
     case_weight_kg, case_length_cm, case_width_cm, case_height_cm,
     stock_physical_cases, stock_in_production_cases, production_files_url
@@ -158,15 +158,15 @@ router.put('/:id', requireAuth, requireTenantAdmin, async (req, res) => {
     const productResult = await client.query(
       `UPDATE products
        SET name=$1, sku=$2, category=$3, image_url=$4, is_active=$5,
-           commercial_description=$6, price_per_case_usd=$7, units_per_case=$8, finished_measurements=$9,
-           factory_name=$10, factory_sku=$11, factory_cost_per_case_usd=$12, pantone_codes=$13, cut_measurements=$14, fabrication_notes=$15,
-           case_weight_kg=$16, case_length_cm=$17, case_width_cm=$18, case_height_cm=$19, production_files_url=$20,
+           commercial_description=$6, price_per_case_usd=$7, units_per_case=$8, finished_measurements=$9, color=$10,
+           factory_name=$11, factory_sku=$12, factory_cost_per_case_usd=$13, pantone_codes=$14, cut_measurements=$15, fabrication_notes=$16,
+           case_weight_kg=$17, case_length_cm=$18, case_width_cm=$19, case_height_cm=$20, production_files_url=$21,
            updated_at=CURRENT_TIMESTAMP
-       WHERE id=$21 AND tenant_id=$22
+       WHERE id=$22 AND tenant_id=$23
        RETURNING *`,
       [
         name, sku, category, image_url, is_active !== false,
-        commercial_description, price_per_case_usd, units_per_case, finished_measurements,
+        commercial_description, price_per_case_usd, units_per_case, finished_measurements, color,
         factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
         case_weight_kg, case_length_cm, case_width_cm, case_height_cm, production_files_url || null,
         id, tenant_id
@@ -237,7 +237,7 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
       const p = products[i];
       const {
         sku, name, category, image_url, is_active,
-        commercial_description, price_per_case_usd, units_per_case, finished_measurements,
+        commercial_description, price_per_case_usd, units_per_case, finished_measurements, color,
         factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
         case_weight_kg, case_length_cm, case_width_cm, case_height_cm,
         stock_physical_cases, stock_in_production_cases, production_files_url
@@ -259,11 +259,11 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
       const productQuery = `
         INSERT INTO products (
           tenant_id, sku, name, category, image_url, is_active,
-          commercial_description, price_per_case_usd, units_per_case, finished_measurements,
+          commercial_description, price_per_case_usd, units_per_case, finished_measurements, color,
           factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
           case_weight_kg, case_length_cm, case_width_cm, case_height_cm, production_files_url
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
         ON CONFLICT (tenant_id, sku)
         DO UPDATE SET
           name = EXCLUDED.name,
@@ -274,6 +274,7 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
           price_per_case_usd = EXCLUDED.price_per_case_usd,
           units_per_case = EXCLUDED.units_per_case,
           finished_measurements = COALESCE(EXCLUDED.finished_measurements, products.finished_measurements),
+          color = COALESCE(EXCLUDED.color, products.color),
           factory_name = COALESCE(EXCLUDED.factory_name, products.factory_name),
           factory_sku = COALESCE(EXCLUDED.factory_sku, products.factory_sku),
           factory_cost_per_case_usd = EXCLUDED.factory_cost_per_case_usd,
@@ -300,6 +301,7 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
         parseFloat(price_per_case_usd) || 0.00,
         parseInt(units_per_case) || 1,
         finished_measurements || null,
+        color || null,
         factory_name || null,
         factory_sku || null,
         factory_cost_per_case_usd !== undefined && factory_cost_per_case_usd !== '' ? parseFloat(factory_cost_per_case_usd) : null,
