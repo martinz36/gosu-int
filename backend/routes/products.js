@@ -215,6 +215,146 @@ router.put('/:id', requireAuth, requireTenantAdmin, async (req, res) => {
 });
 
 // ============================================================
+// POST /api/products/bulk  (Solo Tenant Admin)
+// Carga masiva o actualización de productos e inventarios.
+// ============================================================
+router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { products } = req.body;
+
+  if (!products || !Array.isArray(products) || products.length === 0) {
+    return res.status(400).json({ error: 'Debes proporcionar un arreglo de productos bajo la propiedad "products".' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    let insertedCount = 0;
+    let updatedCount = 0;
+
+    for (let i = 0; i < products.length; i++) {
+      const p = products[i];
+      const {
+        sku, name, category, image_url, is_active,
+        commercial_description, price_per_case_usd, units_per_case, finished_measurements,
+        factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
+        case_weight_kg, case_length_cm, case_width_cm, case_height_cm,
+        stock_physical_cases, stock_in_production_cases
+      } = p;
+
+      // Validación simple
+      if (!sku || !name || !category || price_per_case_usd === undefined) {
+        throw new Error(`Fila ${i + 1}: SKU, Nombre, Categoría y Precio por Caja son obligatorios.`);
+      }
+
+      // Validar si existe para el conteo de inserts/updates
+      const existingProduct = await client.query(
+        'SELECT id FROM products WHERE tenant_id = $1 AND sku = $2',
+        [tenant_id, sku.trim()]
+      );
+      const existed = existingProduct.rows.length > 0;
+
+      // Upsert del producto
+      const productQuery = `
+        INSERT INTO products (
+          tenant_id, sku, name, category, image_url, is_active,
+          commercial_description, price_per_case_usd, units_per_case, finished_measurements,
+          factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
+          case_weight_kg, case_length_cm, case_width_cm, case_height_cm
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+        ON CONFLICT (tenant_id, sku)
+        DO UPDATE SET
+          name = EXCLUDED.name,
+          category = EXCLUDED.category,
+          image_url = COALESCE(EXCLUDED.image_url, products.image_url),
+          is_active = EXCLUDED.is_active,
+          commercial_description = COALESCE(EXCLUDED.commercial_description, products.commercial_description),
+          price_per_case_usd = EXCLUDED.price_per_case_usd,
+          units_per_case = EXCLUDED.units_per_case,
+          finished_measurements = COALESCE(EXCLUDED.finished_measurements, products.finished_measurements),
+          factory_name = COALESCE(EXCLUDED.factory_name, products.factory_name),
+          factory_sku = COALESCE(EXCLUDED.factory_sku, products.factory_sku),
+          factory_cost_per_case_usd = EXCLUDED.factory_cost_per_case_usd,
+          pantone_codes = COALESCE(EXCLUDED.pantone_codes, products.pantone_codes),
+          cut_measurements = COALESCE(EXCLUDED.cut_measurements, products.cut_measurements),
+          fabrication_notes = COALESCE(EXCLUDED.fabrication_notes, products.fabrication_notes),
+          case_weight_kg = EXCLUDED.case_weight_kg,
+          case_length_cm = EXCLUDED.case_length_cm,
+          case_width_cm = EXCLUDED.case_width_cm,
+          case_height_cm = EXCLUDED.case_height_cm,
+          updated_at = CURRENT_TIMESTAMP
+        RETURNING id;
+      `;
+
+      const productResult = await client.query(productQuery, [
+        tenant_id,
+        sku.trim(),
+        name.trim(),
+        category.trim(),
+        image_url || null,
+        is_active !== false,
+        commercial_description || null,
+        parseFloat(price_per_case_usd) || 0.00,
+        parseInt(units_per_case) || 1,
+        finished_measurements || null,
+        factory_name || null,
+        factory_sku || null,
+        factory_cost_per_case_usd !== undefined && factory_cost_per_case_usd !== '' ? parseFloat(factory_cost_per_case_usd) : null,
+        pantone_codes || null,
+        cut_measurements || null,
+        fabrication_notes || null,
+        parseFloat(case_weight_kg) || 10.00,
+        parseFloat(case_length_cm) || 40.00,
+        parseFloat(case_width_cm) || 30.00,
+        parseFloat(case_height_cm) || 20.00
+      ]);
+
+      const productId = productResult.rows[0].id;
+
+      if (existed) {
+        updatedCount++;
+      } else {
+        insertedCount++;
+      }
+
+      // Upsert del inventario
+      const inventoryQuery = `
+        INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (tenant_id, product_id)
+        DO UPDATE SET
+          stock_physical_cases = EXCLUDED.stock_physical_cases,
+          stock_in_production_cases = EXCLUDED.stock_in_production_cases,
+          updated_at = CURRENT_TIMESTAMP;
+      `;
+
+      await client.query(inventoryQuery, [
+        tenant_id,
+        productId,
+        parseInt(stock_physical_cases) || 0,
+        parseInt(stock_in_production_cases) || 0
+      ]);
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      success: true,
+      processed: products.length,
+      inserted: insertedCount,
+      updated: updatedCount
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error en carga masiva de productos:', err);
+    res.status(500).json({ error: err.message || 'Error al procesar la carga masiva en la base de datos.' });
+  } finally {
+    client.release();
+  }
+});
+
+// ============================================================
 // DELETE /api/products/:id  (Solo Tenant Admin)
 // ============================================================
 router.delete('/:id', requireAuth, requireTenantAdmin, async (req, res) => {

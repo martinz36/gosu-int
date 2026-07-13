@@ -82,6 +82,11 @@ function App() {
   const [editingBrand, setEditingBrand] = useState(null);
   const [editingPricingTier, setEditingPricingTier] = useState(null);
 
+  // Estados para Carga Masiva (Productos/Inventario)
+  const [bulkPreview, setBulkPreview] = useState([]);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkResult, setBulkResult] = useState(null);
+
   // Formulario para Productos (con campos extendidos B2B)
   const [newProduct, setNewProduct] = useState({
     name: '',
@@ -529,6 +534,185 @@ function App() {
     } catch (err) {
       alert(`❌ Error: ${err.message}`);
     }
+  };
+
+  // ============================================================
+  // Handlers para Carga Masiva de Catálogo (Fase 7)
+  // ============================================================
+  const parseCSV = (text) => {
+    const lines = [];
+    let row = [""];
+    let inQuotes = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      const next = text[i + 1];
+
+      if (c === '"') {
+        if (inQuotes && next === '"') {
+          row[row.length - 1] += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (c === ',' && !inQuotes) {
+        row.push('');
+      } else if ((c === '\r' || c === '\n') && !inQuotes) {
+        if (c === '\r' && next === '\n') {
+          i++;
+        }
+        lines.push(row);
+        row = [''];
+      } else {
+        row[row.length - 1] += c;
+      }
+    }
+    if (row.length > 1 || row[0] !== '') {
+      lines.push(row);
+    }
+    return lines;
+  };
+
+  const handleCSVFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target.result;
+        const rawRows = parseCSV(text);
+
+        if (rawRows.length < 2) {
+          alert('❌ El archivo CSV está vacío o no contiene una fila de cabecera.');
+          return;
+        }
+
+        const headers = rawRows[0].map(h => h.trim().toLowerCase());
+
+        const skuIdx = headers.indexOf('sku');
+        const nameIdx = headers.indexOf('name');
+        const categoryIdx = headers.indexOf('category');
+        const priceIdx = headers.indexOf('price_per_case_usd');
+
+        if (skuIdx === -1 || nameIdx === -1 || categoryIdx === -1 || priceIdx === -1) {
+          alert('❌ Cabecera del CSV inválida. Debe contener al menos: sku, name, category, price_per_case_usd.');
+          return;
+        }
+
+        const previewData = [];
+
+        for (let i = 1; i < rawRows.length; i++) {
+          const row = rawRows[i];
+          if (row.length === 1 && row[0] === '') continue;
+
+          const getValue = (columnName) => {
+            const idx = headers.indexOf(columnName);
+            return (idx !== -1 && row[idx] !== undefined) ? row[idx].trim() : '';
+          };
+
+          const sku = getValue('sku');
+          const name = getValue('name');
+          const category = getValue('category');
+          const price = getValue('price_per_case_usd');
+
+          if (!sku || !name || !category || !price) {
+            previewData.push({
+              error: `Línea ${i + 1}: Faltan campos obligatorios.`,
+              sku: sku || 'N/A',
+              name: name || 'N/A',
+              category: category || 'N/A',
+              price_per_case_usd: price || '0'
+            });
+            continue;
+          }
+
+          previewData.push({
+            sku,
+            name,
+            category,
+            price_per_case_usd: parseFloat(price) || 0,
+            image_url: getValue('image_url') || '',
+            is_active: getValue('is_active').toLowerCase() !== 'false',
+            commercial_description: getValue('commercial_description') || '',
+            units_per_case: parseInt(getValue('units_per_case')) || 1,
+            finished_measurements: getValue('finished_measurements') || '',
+            factory_name: getValue('factory_name') || '',
+            factory_sku: getValue('factory_sku') || '',
+            factory_cost_per_case_usd: getValue('factory_cost_per_case_usd') !== '' ? parseFloat(getValue('factory_cost_per_case_usd')) : '',
+            pantone_codes: getValue('pantone_codes') || '',
+            cut_measurements: getValue('cut_measurements') || '',
+            fabrication_notes: getValue('fabrication_notes') || '',
+            case_weight_kg: parseFloat(getValue('case_weight_kg')) || 10.0,
+            case_length_cm: parseFloat(getValue('case_length_cm')) || 40.0,
+            case_width_cm: parseFloat(getValue('case_width_cm')) || 30.0,
+            case_height_cm: parseFloat(getValue('case_height_cm')) || 20.0,
+            stock_physical_cases: parseInt(getValue('stock_physical_cases')) || 0,
+            stock_in_production_cases: parseInt(getValue('stock_in_production_cases')) || 0
+          });
+        }
+
+        setBulkPreview(previewData);
+        setBulkResult(null);
+      } catch (err) {
+        alert(`❌ Error al procesar el archivo: ${err.message}`);
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+  };
+
+  const handleBulkUploadSubmit = async () => {
+    if (bulkPreview.length === 0) return;
+
+    const hasErrors = bulkPreview.some(p => p.error);
+    if (hasErrors) {
+      alert('❌ Corrige los errores en la vista previa del archivo CSV antes de continuar.');
+      return;
+    }
+
+    setBulkUploading(true);
+    setBulkResult(null);
+
+    try {
+      const res = await productsApi.bulkUpload(bulkPreview);
+      setBulkResult({
+        success: true,
+        processed: res.processed,
+        inserted: res.inserted,
+        updated: res.updated
+      });
+      setBulkPreview([]);
+      
+      // Limpiar input del file selector
+      const fileInput = document.getElementById('csv-file-selector');
+      if (fileInput) fileInput.value = '';
+
+      alert(`🎉 Carga masiva completada con éxito. ${res.processed} productos procesados.`);
+      await loadProducts();
+    } catch (err) {
+      setBulkResult({
+        success: false,
+        error: err.message || 'Error desconocido al subir archivo CSV.'
+      });
+    } finally {
+      setBulkUploading(false);
+    }
+  };
+
+  const handleDownloadCSVTemplate = () => {
+    const csvContent = 
+      "sku,name,category,price_per_case_usd,units_per_case,case_weight_kg,case_length_cm,case_width_cm,case_height_cm,stock_physical_cases,stock_in_production_cases,image_url,commercial_description,factory_name,factory_sku,factory_cost_per_case_usd,pantone_codes,cut_measurements,fabrication_notes\n" +
+      "GOSU-SLV-001,Protectores de Cartas Mate - Black,Protectores,35.00,100,12.5,42,32,22,250,50,https://ejemplo.com/black.jpg,Protectores premium mate tamaño Standard.,Fábrica Dongguan,FAC-SKU-99,18.00,Pantone 426C,32x32cm,Embalado especial anti-humedad\n" +
+      "GOSU-SLV-002,Protectores de Cartas Mate - Red,Protectores,35.00,100,12.5,42,32,22,180,0,https://ejemplo.com/red.jpg,Protectores premium mate color rojo.,Fábrica Dongguan,FAC-SKU-100,18.00,Pantone 186C,32x32cm,Sin notas\n";
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "gosu_catalog_template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   // ============================================================
@@ -2962,6 +3146,145 @@ function App() {
                   ))}
                 </div>
               </div>
+            </div>
+
+            {/* PANEL DE CARGA Y ACTUALIZACIÓN MASIVA DE CATÁLOGO */}
+            <div className="glass-panel" style={{ padding: '24px', marginTop: '24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '16px', marginBottom: '20px' }}>
+                <div>
+                  <h2 style={{ fontSize: '20px', fontWeight: '800', margin: 0, color: 'var(--cyan-neon)' }}>
+                    📥 Carga y Actualización Masiva de Catálogo (CSV)
+                  </h2>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '4px 0 0' }}>
+                    Agrega nuevos productos o actualiza información de dimensiones, precios e inventario usando archivos CSV.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDownloadCSVTemplate}
+                  className="btn-glass"
+                  style={{ padding: '8px 16px', fontSize: '12px', fontWeight: '700' }}
+                >
+                  📄 Descargar Plantilla CSV
+                </button>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+                <div>
+                  <h4 style={{ fontSize: '14px', fontWeight: '700', color: '#fff', marginBottom: '8px' }}>Instrucciones de Carga:</h4>
+                  <ul style={{ fontSize: '12px', color: 'var(--text-secondary)', paddingLeft: '18px', margin: 0, lineHeight: '1.6' }}>
+                    <li><strong>sku, name, category, price_per_case_usd</strong> son campos obligatorios.</li>
+                    <li>Si el <strong>sku</strong> ya existe en tu catálogo, el producto y su stock se actualizarán.</li>
+                    <li>Campos numéricos decimales opcionales: dimensions (case_length_cm, case_width_cm, case_height_cm) y peso (case_weight_kg).</li>
+                    <li>Campos opcionales de inventario: stock_physical_cases y stock_in_production_cases.</li>
+                    <li>La carga se procesa de forma transaccional; si una línea tiene un error grave de validación, no se guarda nada para mantener la base de datos limpia.</li>
+                  </ul>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', border: '2px dashed rgba(255,255,255,0.1)', borderRadius: '12px', padding: '24px', background: 'rgba(0,0,0,0.15)' }}>
+                  <label htmlFor="csv-file-selector" style={{ cursor: 'pointer', textAlign: 'center' }}>
+                    <span style={{ fontSize: '32px', display: 'block', marginBottom: '8px' }}>📂</span>
+                    <strong style={{ display: 'block', fontSize: '13px', color: 'var(--cyan-neon)' }}>Selecciona tu archivo CSV</strong>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Haz clic para navegar en tu equipo</span>
+                  </label>
+                  <input
+                    type="file"
+                    id="csv-file-selector"
+                    accept=".csv"
+                    onChange={handleCSVFileChange}
+                    style={{ display: 'none' }}
+                  />
+                </div>
+              </div>
+
+              {/* Mensajes de Resultado de Upload */}
+              {bulkResult && (
+                <div 
+                  className="glass-panel" 
+                  style={{ 
+                    padding: '16px', 
+                    marginBottom: '20px', 
+                    borderLeft: `4px solid ${bulkResult.success ? 'var(--green-neon)' : 'var(--pink-neon)'}`, 
+                    background: bulkResult.success ? 'rgba(34, 239, 0, 0.03)' : 'rgba(255, 9, 187, 0.03)' 
+                  }}
+                >
+                  {bulkResult.success ? (
+                    <div>
+                      <strong style={{ color: 'var(--green-neon)', fontSize: '14px', display: 'block' }}>✓ Carga Masiva Completada Exitosamente</strong>
+                      <p style={{ fontSize: '12.5px', margin: '4px 0 0', color: 'var(--text-secondary)' }}>
+                        Se procesaron <strong>{bulkResult.processed}</strong> productos.
+                        (Nuevos creados: <strong>{bulkResult.inserted}</strong>, Existentes actualizados: <strong>{bulkResult.updated}</strong>).
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <strong style={{ color: 'var(--pink-neon)', fontSize: '14px', display: 'block' }}>❌ Error al Procesar Carga Masiva</strong>
+                      <p style={{ fontSize: '12.5px', margin: '4px 0 0', color: 'var(--text-secondary)' }}>
+                        {bulkResult.error}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Vista Previa de Filas CSV */}
+              {bulkPreview.length > 0 && (
+                <div>
+                  <h3 style={{ fontSize: '14px', fontWeight: '800', marginBottom: '12px', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>👀 Vista Previa de Carga ({bulkPreview.length} filas detectadas)</span>
+                    <button
+                      type="button"
+                      disabled={bulkUploading}
+                      onClick={handleBulkUploadSubmit}
+                      className="btn-pink"
+                      style={{ padding: '8px 24px', fontSize: '12.5px' }}
+                    >
+                      {bulkUploading ? 'Subiendo a Neon...' : '🚀 Subir e Importar a Neon'}
+                    </button>
+                  </h3>
+
+                  <div style={{ overflowX: 'auto', maxHeight: '300px', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', background: 'rgba(0,0,0,0.2)' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.02)', color: 'var(--text-secondary)' }}>
+                          <th style={{ padding: '10px 12px' }}>Fila / Estado</th>
+                          <th style={{ padding: '10px 12px' }}>SKU</th>
+                          <th style={{ padding: '10px 12px' }}>Nombre</th>
+                          <th style={{ padding: '10px 12px' }}>Categoría</th>
+                          <th style={{ padding: '10px 12px', textAlign: 'right' }}>Precio Caja</th>
+                          <th style={{ padding: '10px 12px', textAlign: 'center' }}>Uds/Caja</th>
+                          <th style={{ padding: '10px 12px', textAlign: 'center' }}>Stock Físico</th>
+                          <th style={{ padding: '10px 12px', textAlign: 'center' }}>Stock En Prod.</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {bulkPreview.map((item, idx) => (
+                          <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)', background: item.error ? 'rgba(255,9,187,0.05)' : 'transparent' }}>
+                            <td style={{ padding: '10px 12px' }}>
+                              {item.error ? (
+                                <span className="badge badge-red" style={{ fontSize: '9px' }}>⚠️ Error</span>
+                              ) : (
+                                <span className="badge badge-green" style={{ fontSize: '9px' }}>✓ Listo</span>
+                              )}
+                            </td>
+                            <td style={{ padding: '10px 12px', fontFamily: 'monospace' }}>{item.sku}</td>
+                            <td style={{ padding: '10px 12px', color: '#fff', fontWeight: '600' }}>
+                              {item.error ? <span style={{ color: 'var(--pink-neon)' }}>{item.error}</span> : item.name}
+                            </td>
+                            <td style={{ padding: '10px 12px' }}>{item.category}</td>
+                            <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--cyan-neon)' }}>
+                              ${parseFloat(item.price_per_case_usd).toFixed(2)}
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>{item.units_per_case || 1}</td>
+                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>{item.stock_physical_cases || 0}</td>
+                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>{item.stock_in_production_cases || 0}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
