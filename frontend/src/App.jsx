@@ -3267,6 +3267,7 @@ function App() {
                       <thead>
                         <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.02)', color: 'var(--text-secondary)' }}>
                           <th style={{ padding: '10px 12px' }}>Fila / Estado</th>
+                          <th style={{ padding: '10px 12px' }}>Detalle Error</th>
                           <th style={{ padding: '10px 12px' }}>SKU</th>
                           <th style={{ padding: '10px 12px' }}>Nombre</th>
                           <th style={{ padding: '10px 12px' }}>Categoría</th>
@@ -3286,9 +3287,12 @@ function App() {
                                 <span className="badge badge-green" style={{ fontSize: '9px' }}>✓ Listo</span>
                               )}
                             </td>
+                            <td style={{ padding: '10px 12px', color: item.error ? 'var(--pink-neon)' : 'var(--text-muted)' }}>
+                              {item.error || 'Ninguno'}
+                            </td>
                             <td style={{ padding: '10px 12px', fontFamily: 'monospace' }}>{item.sku}</td>
                             <td style={{ padding: '10px 12px', color: '#fff', fontWeight: '600' }}>
-                              {item.error ? <span style={{ color: 'var(--pink-neon)' }}>{item.error}</span> : item.name}
+                              {item.name}
                             </td>
                             <td style={{ padding: '10px 12px' }}>{item.category}</td>
                             <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--cyan-neon)' }}>
