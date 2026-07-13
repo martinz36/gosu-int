@@ -2143,7 +2143,9 @@ function App() {
                           width: '100%', 
                           aspectRatio: '1 / 1', 
                           background: 'linear-gradient(135deg, rgba(10,12,18,0.6) 0%, rgba(20,24,36,0.8) 100%)', 
-                          border: '1px solid rgba(255,255,255,0.06)', 
+                          border: product.category === 'sleeves' ? '1px solid rgba(0,232,255,0.25)' :
+                                  product.category === 'binders' ? '1px solid rgba(255,9,187,0.25)' :
+                                  '1px solid rgba(255,92,0,0.25)', 
                           borderRadius: '12px', 
                           display: 'flex', 
                           justifyContent: 'center', 
@@ -2151,7 +2153,9 @@ function App() {
                           marginBottom: '16px', 
                           overflow: 'hidden', 
                           position: 'relative',
-                          boxShadow: 'inset 0 0 20px rgba(0,0,0,0.6)'
+                          boxShadow: product.category === 'sleeves' ? 'inset 0 0 20px rgba(0,0,0,0.6), 0 0 15px rgba(0,232,255,0.1)' :
+                                     product.category === 'binders' ? 'inset 0 0 20px rgba(0,0,0,0.6), 0 0 15px rgba(255,9,187,0.1)' :
+                                     'inset 0 0 20px rgba(0,0,0,0.6), 0 0 15px rgba(255,92,0,0.1)'
                         }}>
                           {/* Halo de luz neon difuso detrás de la foto */}
                           <div style={{
