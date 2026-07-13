@@ -37,6 +37,30 @@ VALUES (
 )
 ON CONFLICT (email) DO NOTHING;
 
+-- Lead Seed 1 (Nuevo)
+INSERT INTO users (id, tenant_id, name, email, password_hash, role)
+VALUES (
+  '00000000-0000-0000-0000-000000000005',
+  '00000000-0000-0000-0000-000000000001',
+  'Yugi Muto',
+  'lead_yugi@kaiba.com',
+  '$2b$12$xDKb0X0JPWMjFn4eGjPgeOO405fAEeuUepqebJe42i03aBXR3cGZi',
+  'b2b_client'
+)
+ON CONFLICT (email) DO NOTHING;
+
+-- Lead Seed 2 (Negociación)
+INSERT INTO users (id, tenant_id, name, email, password_hash, role)
+VALUES (
+  '00000000-0000-0000-0000-000000000006',
+  '00000000-0000-0000-0000-000000000001',
+  'Gunter Schmidt',
+  'lead_germany@gamers.de',
+  '$2b$12$xDKb0X0JPWMjFn4eGjPgeOO405fAEeuUepqebJe42i03aBXR3cGZi',
+  'b2b_client'
+)
+ON CONFLICT (email) DO NOTHING;
+
 -- Super Admin Global (Sin tenant_id, administra la plataforma entera)
 INSERT INTO users (id, tenant_id, name, email, password_hash, role)
 VALUES (
@@ -50,7 +74,7 @@ VALUES (
 ON CONFLICT (email) DO NOTHING;
 
 -- 3. Crear Perfil B2B para el Cliente
-INSERT INTO b2b_client_profiles (id, tenant_id, user_id, company_name, tax_id, billing_address, forwarder_address, custom_moa_usd, client_category, destination_country)
+INSERT INTO b2b_client_profiles (id, tenant_id, user_id, company_name, tax_id, billing_address, forwarder_address, custom_moa_usd, client_category, destination_country, account_status, followup_notes, last_contact_date)
 VALUES (
   '00000000-0000-0000-0000-000000000100',
   '00000000-0000-0000-0000-000000000001',
@@ -61,7 +85,48 @@ VALUES (
   'Warehouse A, Lane 88, Yiwu Trade City, Zhejiang, China (Forwarder ID: FW-GOSU-99)',
   1500.00,
   'wholesale_distributor',
-  'USA'
+  'USA',
+  'client',
+  'Cuenta activa completamente validada y con historial de órdenes comercialmente aprobadas.',
+  CURRENT_DATE
+)
+ON CONFLICT (tenant_id, user_id) DO NOTHING;
+
+-- Perfil para Lead 1 (Nuevo)
+INSERT INTO b2b_client_profiles (id, tenant_id, user_id, company_name, tax_id, billing_address, forwarder_address, custom_moa_usd, client_category, destination_country, account_status, followup_notes, last_contact_date)
+VALUES (
+  '00000000-0000-0000-0000-000000000101',
+  '00000000-0000-0000-0000-000000000001',
+  '00000000-0000-0000-0000-000000000005',
+  'Kame Games Japan',
+  NULL,
+  NULL,
+  NULL,
+  1000.00,
+  'retail_store',
+  'Japón',
+  'lead_new',
+  'Contacto inicial por formulario. Solicita catálogo de protectores mate Standard y precios FOB. Aún no cuenta con forwarder en China.',
+  CURRENT_DATE
+)
+ON CONFLICT (tenant_id, user_id) DO NOTHING;
+
+-- Perfil para Lead 2 (Negociación)
+INSERT INTO b2b_client_profiles (id, tenant_id, user_id, company_name, tax_id, billing_address, forwarder_address, custom_moa_usd, client_category, destination_country, account_status, followup_notes, last_contact_date)
+VALUES (
+  '00000000-0000-0000-0000-000000000102',
+  '00000000-0000-0000-0000-000000000001',
+  '00000000-0000-0000-0000-000000000006',
+  'Spiel und Spass Vertriebs GmbH',
+  'DE-811122334',
+  'Nordring 45, Munich, Germany',
+  NULL,
+  2500.00,
+  'wholesale_distributor',
+  'Alemania',
+  'lead_negotiation',
+  'En negociación de volumen de compra. Se propone un MOA de $2,500.00 con un 5% de descuento adicional por canal de distribuidor regional.',
+  CURRENT_DATE
 )
 ON CONFLICT (tenant_id, user_id) DO NOTHING;
 

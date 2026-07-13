@@ -54,18 +54,21 @@ CREATE INDEX idx_users_email ON users(email);
 -- 3. B2B CLIENT PROFILES (Perfiles de Compradores B2B)
 -- ============================================================
 CREATE TABLE b2b_client_profiles (
-  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id          UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  company_name       VARCHAR(255) NOT NULL, -- Razón Social
-  tax_id             VARCHAR(100) NOT NULL, -- Identificación Fiscal
-  billing_address    TEXT NOT NULL,         -- Dirección de Facturación
-  forwarder_address  TEXT NOT NULL,         -- Dirección de Forwarder en China
-  custom_moa_usd     NUMERIC(12,2) DEFAULT 1000.00, -- Mínimo de Compra en USD personalizado
-  client_category    VARCHAR(100) NOT NULL DEFAULT 'retail_store', -- wholesale_distributor, retail_store, dropshipper
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id           UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  company_name        VARCHAR(255), -- Razón Social (Opcional para Leads)
+  tax_id              VARCHAR(100), -- Identificación Fiscal (Opcional para Leads)
+  billing_address     TEXT,         -- Dirección de Facturación (Opcional para Leads)
+  forwarder_address   TEXT,         -- Dirección de Forwarder en China (Opcional para Leads)
+  custom_moa_usd      NUMERIC(12,2) DEFAULT 1000.00, -- Mínimo de Compra en USD personalizado
+  client_category     VARCHAR(100) NOT NULL DEFAULT 'retail_store', -- wholesale_distributor, retail_store, dropshipper
   destination_country VARCHAR(100) NOT NULL DEFAULT 'USA', -- País de destino
-  created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  account_status      VARCHAR(50) NOT NULL DEFAULT 'lead_new', -- client, lead_new, lead_negotiation, lead_pending_moa, lead_rejected
+  followup_notes      TEXT, -- Notas del último contacto comercial
+  last_contact_date   DATE, -- Fecha de la última interacción
+  created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE(tenant_id, user_id)
 );
 

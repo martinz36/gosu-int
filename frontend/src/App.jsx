@@ -126,6 +126,7 @@ function App() {
 
   // Estados para Gestión de Clientes B2B (Fase 6.5)
   const [configSubTab, setConfigSubTab] = useState('catalog');
+  const [clientFilter, setClientFilter] = useState('all'); // 'all' | 'clients' | 'leads'
   const [clientsList, setClientsList] = useState([]);
   const [editingClient, setEditingClient] = useState(null);
   const [creatingClient, setCreatingClient] = useState(false);
@@ -139,7 +140,10 @@ function App() {
     forwarder_address: '',
     custom_moa_usd: 1000,
     client_category: 'retail_store',
-    destination_country: 'USA'
+    destination_country: 'USA',
+    account_status: 'lead_new',
+    followup_notes: '',
+    last_contact_date: new Date().toISOString().split('T')[0]
   });
 
   // MOA del usuario actual
@@ -633,7 +637,10 @@ function App() {
         forwarder_address: '',
         custom_moa_usd: 1000,
         client_category: 'retail_store',
-        destination_country: 'USA'
+        destination_country: 'USA',
+        account_status: 'lead_new',
+        followup_notes: '',
+        last_contact_date: new Date().toISOString().split('T')[0]
       });
       setEditingClient(null);
       setCreatingClient(false);
@@ -2851,7 +2858,32 @@ function App() {
             {/* SECCIÓN B: GESTIÓN DE DISTRIBUIDORES B2B (Fase 6.5) */}
             {configSubTab === 'clients' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                  {/* Filtros rápidos de Leads vs Clientes */}
+                  <div style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.15)', padding: '4px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                    <button
+                      onClick={() => setClientFilter('all')}
+                      className={clientFilter === 'all' ? 'btn-pink' : 'btn-glass'}
+                      style={{ padding: '6px 12px', fontSize: '11.5px' }}
+                    >
+                      Todos ({clientsList.length})
+                    </button>
+                    <button
+                      onClick={() => setClientFilter('clients')}
+                      className={clientFilter === 'clients' ? 'btn-pink' : 'btn-glass'}
+                      style={{ padding: '6px 12px', fontSize: '11.5px' }}
+                    >
+                      👥 Clientes Activos ({clientsList.filter(c => c.account_status === 'client').length})
+                    </button>
+                    <button
+                      onClick={() => setClientFilter('leads')}
+                      className={clientFilter === 'leads' ? 'btn-pink' : 'btn-glass'}
+                      style={{ padding: '6px 12px', fontSize: '11.5px' }}
+                    >
+                      ⚡ Leads / Prospectos ({clientsList.filter(c => c.account_status !== 'client').length})
+                    </button>
+                  </div>
+
                   <button
                     onClick={() => {
                       setCreatingClient(!creatingClient);
@@ -2866,13 +2898,16 @@ function App() {
                         forwarder_address: '',
                         custom_moa_usd: 1000,
                         client_category: 'retail_store',
-                        destination_country: 'USA'
+                        destination_country: 'USA',
+                        account_status: 'lead_new',
+                        followup_notes: '',
+                        last_contact_date: new Date().toISOString().split('T')[0]
                       });
                     }}
                     className="btn-pink"
                     style={{ padding: '10px 20px', fontSize: '12.5px' }}
                   >
-                    {creatingClient ? 'Cancelar Registro' : '➕ Añadir Distribuidor B2B'}
+                    {creatingClient ? 'Cancelar Registro' : '➕ Registrar Cliente / Lead'}
                   </button>
                 </div>
 
@@ -2880,7 +2915,7 @@ function App() {
                 {(creatingClient || editingClient) && (
                   <div className="glass-panel" style={{ padding: '24px', border: '1px solid rgba(255,255,255,0.08)' }}>
                     <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '20px', color: 'var(--pink-neon)' }}>
-                      {editingClient ? `✏️ Editar Distribuidor: ${editingClient.company_name}` : '🚀 Registrar Nuevo Distribuidor B2B'}
+                      {editingClient ? `✏️ Editar Cuenta: ${editingClient.company_name || editingClient.name}` : '🚀 Registrar Nuevo Cliente o Lead B2B'}
                     </h2>
                     
                     <form onSubmit={handleCreateOrUpdateClient} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -2923,24 +2958,44 @@ function App() {
                         )}
                         
                         <div>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Razón Social / Empresa *</label>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>
+                            Estado de la Cuenta *
+                          </label>
+                          <select
+                            value={newClientForm.account_status}
+                            onChange={(e) => setNewClientForm(prev => ({ ...prev, account_status: e.target.value }))}
+                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          >
+                            <option value="client">🟢 Cliente Activo (Validado comercialmente)</option>
+                            <option value="lead_new">🟡 Lead: Nuevo Prospecto</option>
+                            <option value="lead_negotiation">🟠 Lead: En Negociación</option>
+                            <option value="lead_pending_moa">🔵 Lead: Pendiente de MOA / Propuesta</option>
+                            <option value="lead_rejected">🔴 Lead: Descalificado</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>
+                            Razón Social / Empresa {newClientForm.account_status === 'client' && '*'}
+                          </label>
                           <input
                             type="text"
-                            required
+                            required={newClientForm.account_status === 'client'}
                             placeholder="Ej. Kame Game Shop Inc"
                             value={newClientForm.company_name}
                             onChange={(e) => setNewClientForm(prev => ({ ...prev, company_name: e.target.value }))}
                             style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
                           />
                         </div>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
                         <div>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>ID Fiscal / Tax ID *</label>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>
+                            ID Fiscal / Tax ID {newClientForm.account_status === 'client' && '*'}
+                          </label>
                           <input
                             type="text"
-                            required
+                            required={newClientForm.account_status === 'client'}
                             placeholder="Ej. JP-9876543"
                             value={newClientForm.tax_id}
                             onChange={(e) => setNewClientForm(prev => ({ ...prev, tax_id: e.target.value }))}
@@ -2969,6 +3024,9 @@ function App() {
                             style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
                           />
                         </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
                         <div>
                           <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Categoría de Distribuidor B2B *</label>
                           <select
@@ -2981,31 +3039,56 @@ function App() {
                             <option value="dropshipper">Dropshipper (Despacho sin inventario)</option>
                           </select>
                         </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Fecha de Último Contacto *</label>
+                          <input
+                            type="date"
+                            required
+                            value={newClientForm.last_contact_date}
+                            onChange={(e) => setNewClientForm(prev => ({ ...prev, last_contact_date: e.target.value }))}
+                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                        </div>
                       </div>
 
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                         <div>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Dirección Fiscal / Facturación *</label>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>
+                            Dirección Fiscal / Facturación {newClientForm.account_status === 'client' && '*'}
+                          </label>
                           <textarea
-                            required
+                            required={newClientForm.account_status === 'client'}
                             rows="2"
-                            placeholder="Dirección fiscal registrada"
+                            placeholder="Dirección fiscal registrada (Opcional para Leads)"
                             value={newClientForm.billing_address}
                             onChange={(e) => setNewClientForm(prev => ({ ...prev, billing_address: e.target.value }))}
                             style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', resize: 'none' }}
                           />
                         </div>
                         <div>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Dirección de Forwarder (Bodega en China) *</label>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>
+                            Dirección de Forwarder (Bodega en China) {newClientForm.account_status === 'client' && '*'}
+                          </label>
                           <textarea
-                            required
+                            required={newClientForm.account_status === 'client'}
                             rows="2"
-                            placeholder="Instrucciones de entrega para aduana de exportación china"
+                            placeholder="Instrucciones de entrega para aduana de exportación china (Opcional para Leads)"
                             value={newClientForm.forwarder_address}
                             onChange={(e) => setNewClientForm(prev => ({ ...prev, forwarder_address: e.target.value }))}
                             style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', resize: 'none' }}
                           />
                         </div>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Notas de Seguimiento Comercial (CRM)</label>
+                        <textarea
+                          rows="3"
+                          placeholder="Registra aquí los detalles del seguimiento comercial: acuerdos, cotizaciones enviadas, solicitudes del prospecto, etc."
+                          value={newClientForm.followup_notes}
+                          onChange={(e) => setNewClientForm(prev => ({ ...prev, followup_notes: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', resize: 'none' }}
+                        />
                       </div>
 
                       <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
@@ -3028,85 +3111,140 @@ function App() {
                 {/* Listado de distribuidores en tabla */}
                 <div className="glass-panel" style={{ padding: '24px', overflowX: 'auto' }}>
                   <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
-                    Directorio de Distribuidores Autorizados
+                    Directorio y Pipeline CRM de Cuentas B2B
                   </h2>
 
-                  {clientsList.length === 0 ? (
+                  {clientsList.filter(client => {
+                    if (clientFilter === 'clients') return client.account_status === 'client';
+                    if (clientFilter === 'leads') return client.account_status !== 'client';
+                    return true;
+                  }).length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                      No hay distribuidores registrados para tu marca.
+                      No hay cuentas que coincidan con el filtro seleccionado.
                     </div>
                   ) : (
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
                       <thead>
                         <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.08)' }}>
-                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Distribuidor / Razón Social</th>
-                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>País Destino</th>
-                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Categoría</th>
-                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>MOA Asignado</th>
-                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Contacto / Email</th>
+                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Empresa / Lead</th>
+                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Destino</th>
+                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Estado CRM</th>
+                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Categoría / MOA</th>
+                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Último Contacto & Notas de CRM</th>
                           <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600', textAlign: 'center' }}>Acciones</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {clientsList.map(client => (
-                          <tr key={client.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.3s' }}>
-                            <td style={{ padding: '14px 8px' }}>
-                              <strong style={{ color: '#fff', fontSize: '14px' }}>{client.company_name}</strong>
-                              <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>ID Fiscal: {client.tax_id}</span>
-                            </td>
-                            <td style={{ padding: '14px 8px' }}>
-                              <span style={{ fontSize: '13px', color: 'var(--cyan-neon)' }}>📍 {client.destination_country}</span>
-                            </td>
-                            <td style={{ padding: '14px 8px' }}>
-                              <span className={`badge ${client.client_category === 'wholesale_distributor' ? 'badge-green' : 'badge-cyan'}`} style={{ fontSize: '10.5px' }}>
-                                {{
-                                  'wholesale_distributor': 'Mayorista (-5%)',
-                                  'retail_store': 'Tienda Física',
-                                  'dropshipper': 'Dropshipper'
-                                }[client.client_category] || client.client_category}
-                              </span>
-                            </td>
-                            <td style={{ padding: '14px 8px', fontWeight: '700', color: '#fff' }}>
-                              ${parseFloat(client.custom_moa_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
-                            </td>
-                            <td style={{ padding: '14px 8px' }}>
-                              <div>{client.name}</div>
-                              <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>{client.email}</span>
-                            </td>
-                            <td style={{ padding: '14px 8px', textAlign: 'center' }}>
-                              <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                                <button
-                                  onClick={() => {
-                                    setEditingClient(client);
-                                    setCreatingClient(false);
-                                    setNewClientForm({
-                                      name: client.name,
-                                      email: client.email,
-                                      company_name: client.company_name,
-                                      tax_id: client.tax_id,
-                                      billing_address: client.billing_address,
-                                      forwarder_address: client.forwarder_address,
-                                      custom_moa_usd: parseFloat(client.custom_moa_usd),
-                                      client_category: client.client_category,
-                                      destination_country: client.destination_country
-                                    });
-                                  }}
-                                  className="btn-glass"
-                                  style={{ padding: '6px 12px', fontSize: '12px' }}
-                                >
-                                  ✏️
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteClient(client.id)}
-                                  className="btn-glass-pink"
-                                  style={{ padding: '6px 12px', fontSize: '12px' }}
-                                >
-                                  🗑️
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
+                        {clientsList
+                          .filter(client => {
+                            if (clientFilter === 'clients') return client.account_status === 'client';
+                            if (clientFilter === 'leads') return client.account_status !== 'client';
+                            return true;
+                          })
+                          .map(client => {
+                            const isLead = client.account_status !== 'client';
+                            
+                            // Determinar badges e indicadores según el estado
+                            let statusBadgeClass = 'badge-cyan';
+                            let statusLabel = 'Lead';
+                            if (client.account_status === 'client') {
+                              statusBadgeClass = 'badge-green';
+                              statusLabel = '🟢 Cliente Activo';
+                            } else if (client.account_status === 'lead_new') {
+                              statusBadgeClass = 'badge-yellow';
+                              statusLabel = '🟡 Lead: Nuevo';
+                            } else if (client.account_status === 'lead_negotiation') {
+                              statusBadgeClass = 'badge-orange';
+                              statusLabel = '🟠 Lead: Negociación';
+                            } else if (client.account_status === 'lead_pending_moa') {
+                              statusBadgeClass = 'badge-purple';
+                              statusLabel = '🔵 Lead: Pendiente MOA';
+                            } else if (client.account_status === 'lead_rejected') {
+                              statusBadgeClass = 'badge-red';
+                              statusLabel = '🔴 Lead: Descalificado';
+                            }
+
+                            return (
+                              <tr key={client.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.3s' }}>
+                                <td style={{ padding: '14px 8px' }}>
+                                  <strong style={{ color: '#fff', fontSize: '14px' }}>
+                                    {client.company_name || <span style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>Sin Razón Social</span>}
+                                  </strong>
+                                  <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                    Contacto: {client.name} ({client.email})
+                                  </span>
+                                  {client.tax_id && (
+                                    <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-muted)' }}>
+                                      ID Fiscal: {client.tax_id}
+                                    </span>
+                                  )}
+                                </td>
+                                <td style={{ padding: '14px 8px' }}>
+                                  <span style={{ fontSize: '13px', color: 'var(--cyan-neon)' }}>📍 {client.destination_country}</span>
+                                </td>
+                                <td style={{ padding: '14px 8px' }}>
+                                  <span className={`badge ${statusBadgeClass}`} style={{ fontSize: '10.5px', whiteSpace: 'nowrap' }}>
+                                    {statusLabel}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '14px 8px' }}>
+                                  <span className="badge badge-glass" style={{ fontSize: '10px', display: 'inline-block', marginBottom: '4px' }}>
+                                    {{
+                                      'wholesale_distributor': 'Mayorista (-5%)',
+                                      'retail_store': 'Tienda Física',
+                                      'dropshipper': 'Dropshipper'
+                                    }[client.client_category] || client.client_category}
+                                  </span>
+                                  <div style={{ fontWeight: '700', color: '#fff', fontSize: '12px' }}>
+                                    MOA: ${parseFloat(client.custom_moa_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                  </div>
+                                </td>
+                                <td style={{ padding: '14px 8px', maxWidth: '350px' }}>
+                                  <div style={{ fontSize: '11px', color: 'var(--cyan-neon)', marginBottom: '4px', fontWeight: '600' }}>
+                                    📅 Último contacto: {client.last_contact_date ? new Date(client.last_contact_date).toLocaleDateString('es-ES') : 'Sin fecha'}
+                                  </div>
+                                  <p style={{ margin: '0', fontSize: '12px', color: '#ccc', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: '2', WebkitBoxOrient: 'vertical' }}>
+                                    {client.followup_notes || <span style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>Sin notas de seguimiento registradas.</span>}
+                                  </p>
+                                </td>
+                                <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+                                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                    <button
+                                      onClick={() => {
+                                        setEditingClient(client);
+                                        setCreatingClient(false);
+                                        setNewClientForm({
+                                          name: client.name,
+                                          email: client.email,
+                                          company_name: client.company_name || '',
+                                          tax_id: client.tax_id || '',
+                                          billing_address: client.billing_address || '',
+                                          forwarder_address: client.forwarder_address || '',
+                                          custom_moa_usd: parseFloat(client.custom_moa_usd),
+                                          client_category: client.client_category,
+                                          destination_country: client.destination_country,
+                                          account_status: client.account_status,
+                                          followup_notes: client.followup_notes || '',
+                                          last_contact_date: client.last_contact_date ? new Date(client.last_contact_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+                                        });
+                                      }}
+                                      className="btn-glass"
+                                      style={{ padding: '6px 12px', fontSize: '12px' }}
+                                    >
+                                      ✏️
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteClient(client.id)}
+                                      className="btn-glass-pink"
+                                      style={{ padding: '6px 12px', fontSize: '12px' }}
+                                    >
+                                      🗑️
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
                       </tbody>
                     </table>
                   )}

@@ -84,7 +84,8 @@ router.get('/clients', requireAuth, requireTenantAdmin, async (req, res) => {
       `SELECT 
          u.id, u.name, u.email, u.is_active, u.created_at,
          p.company_name, p.tax_id, p.billing_address, p.forwarder_address, 
-         p.custom_moa_usd, p.client_category, p.destination_country
+         p.custom_moa_usd, p.client_category, p.destination_country,
+         p.account_status, p.followup_notes, p.last_contact_date
        FROM users u
        JOIN b2b_client_profiles p ON p.user_id = u.id AND p.tenant_id = u.tenant_id
        WHERE u.tenant_id = $1 AND u.role = 'b2b_client'
@@ -98,17 +99,28 @@ router.get('/clients', requireAuth, requireTenantAdmin, async (req, res) => {
   }
 });
 
-// 2. POST /api/users/clients - Registra un nuevo distribuidor B2B de forma transaccional
+// 2. POST /api/users/clients - Registra un nuevo distribuidor B2B (Cliente o Lead)
 router.post('/clients', requireAuth, requireTenantAdmin, async (req, res) => {
   const { tenant_id } = req.user;
   const { 
     name, email, password, company_name, tax_id, 
     billing_address, forwarder_address, custom_moa_usd, 
-    client_category, destination_country 
+    client_category, destination_country, account_status,
+    followup_notes, last_contact_date
   } = req.body;
 
-  if (!name || !email || !password || !company_name || !tax_id || !billing_address || !forwarder_address) {
-    return res.status(400).json({ error: 'Faltan campos obligatorios para registrar al distribuidor.' });
+  // Validaciones básicas de cuenta
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: 'Nombre, correo y contraseña de acceso son requeridos.' });
+  }
+
+  const statusVal = account_status || 'lead_new';
+
+  // Si se registra como Cliente Activo, validar que cuente con todos sus datos comerciales
+  if (statusVal === 'client') {
+    if (!company_name || !tax_id || !billing_address || !forwarder_address) {
+      return res.status(400).json({ error: 'Para registrar un Cliente Activo, los campos de Razón Social, ID Fiscal, Facturación y Forwarder son obligatorios.' });
+    }
   }
 
   const client = await pool.connect();
@@ -137,15 +149,19 @@ router.post('/clients', requireAuth, requireTenantAdmin, async (req, res) => {
 
     // Insertar en b2b_client_profiles
     const moa = parseFloat(custom_moa_usd) || 1000.00;
+    const contactDate = last_contact_date ? new Date(last_contact_date) : new Date();
+
     await client.query(
       `INSERT INTO b2b_client_profiles (
          tenant_id, user_id, company_name, tax_id, billing_address, 
-         forwarder_address, custom_moa_usd, client_category, destination_country
+         forwarder_address, custom_moa_usd, client_category, destination_country,
+         account_status, followup_notes, last_contact_date
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
-        tenant_id, newUser.id, company_name, tax_id, billing_address, 
-        forwarder_address, moa, client_category || 'retail_store', destination_country || 'USA'
+        tenant_id, newUser.id, company_name || null, tax_id || null, billing_address || null, 
+        forwarder_address || null, moa, client_category || 'retail_store', destination_country || 'USA',
+        statusVal, followup_notes || null, contactDate
       ]
     );
 
@@ -153,7 +169,7 @@ router.post('/clients', requireAuth, requireTenantAdmin, async (req, res) => {
     await client.query(
       `INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, old_value, new_value)
        VALUES ($1, $2, 'CREATE_B2B_CLIENT', 'users', $3, null, $4)`,
-      [tenant_id, req.user.id, newUser.id, email.toLowerCase()]
+      [tenant_id, req.user.id, newUser.id, `${email.toLowerCase()} (${statusVal})`]
     );
 
     await client.query('COMMIT');
@@ -167,15 +183,25 @@ router.post('/clients', requireAuth, requireTenantAdmin, async (req, res) => {
   }
 });
 
-// 3. PUT /api/users/clients/:id - Edita los datos del distribuidor B2B
+// 3. PUT /api/users/clients/:id - Edita los datos del distribuidor B2B (Cliente o Lead)
 router.put('/clients/:id', requireAuth, requireTenantAdmin, async (req, res) => {
   const { tenant_id } = req.user;
   const { id } = req.params;
   const { 
     name, email, company_name, tax_id, 
     billing_address, forwarder_address, custom_moa_usd, 
-    client_category, destination_country, is_active 
+    client_category, destination_country, is_active,
+    account_status, followup_notes, last_contact_date
   } = req.body;
+
+  const statusVal = account_status || 'lead_new';
+
+  // Si se registra como Cliente Activo, validar que cuente con todos sus datos comerciales
+  if (statusVal === 'client') {
+    if (!company_name || !tax_id || !billing_address || !forwarder_address) {
+      return res.status(400).json({ error: 'Para actualizar a un Cliente Activo, los campos de Razón Social, ID Fiscal, Facturación y Forwarder son obligatorios.' });
+    }
+  }
 
   const client = await pool.connect();
   try {
@@ -199,19 +225,26 @@ router.put('/clients/:id', requireAuth, requireTenantAdmin, async (req, res) => 
 
     // Actualizar perfil
     const moa = parseFloat(custom_moa_usd) || 1000.00;
+    const contactDate = last_contact_date ? new Date(last_contact_date) : new Date();
+
     await client.query(
       `UPDATE b2b_client_profiles 
        SET company_name=$1, tax_id=$2, billing_address=$3, forwarder_address=$4, 
-           custom_moa_usd=$5, client_category=$6, destination_country=$7, updated_at=CURRENT_TIMESTAMP
-       WHERE user_id=$8 AND tenant_id=$9`,
-      [company_name, tax_id, billing_address, forwarder_address, moa, client_category, destination_country, id, tenant_id]
+           custom_moa_usd=$5, client_category=$6, destination_country=$7, 
+           account_status=$8, followup_notes=$9, last_contact_date=$10, updated_at=CURRENT_TIMESTAMP
+       WHERE user_id=$11 AND tenant_id=$12`,
+      [
+        company_name || null, tax_id || null, billing_address || null, forwarder_address || null, 
+        moa, client_category, destination_country, statusVal, followup_notes || null, contactDate,
+        id, tenant_id
+      ]
     );
 
     // Guardar auditoría
     await client.query(
       `INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, old_value, new_value)
        VALUES ($1, $2, 'UPDATE_B2B_CLIENT', 'users', $3, null, $4)`,
-      [tenant_id, req.user.id, id, email.toLowerCase()]
+      [tenant_id, req.user.id, id, `${email.toLowerCase()} (${statusVal})`]
     );
 
     await client.query('COMMIT');
