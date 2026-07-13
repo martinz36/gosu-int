@@ -28,7 +28,11 @@ router.get('/', requireAuth, requireTenantAdmin, async (req, res) => {
                'cost_per_case_usd', poi.cost_per_case_usd,
                'total_item_cost_usd', poi.total_item_cost_usd,
                'item_cbm', poi.item_cbm,
-               'production_files_url', p.production_files_url
+               'production_files_url', p.production_files_url,
+               'image_url', p.image_url,
+               'finished_measurements', p.finished_measurements,
+               'cut_measurements', p.cut_measurements,
+               'color', p.color
              ) ORDER BY p.name
            ) FILTER (WHERE poi.id IS NOT NULL), '[]'
          ) AS items

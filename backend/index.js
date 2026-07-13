@@ -21,6 +21,33 @@ if (ENV !== 'production') {
   dotenv.config({ path: `.env.${ENV}` });
 }
 
+// Auto-ejecutar migraciones en el arranque para asegurar que existan las columnas color y production_files_url
+const runAutoMigrations = async () => {
+  if (!process.env.DATABASE_URL) return;
+  try {
+    const client = await pool.connect();
+    console.log('🔄 Ejecutando migraciones automáticas de inicio...');
+    
+    // 1. Agregar columna color si no existe
+    await client.query(`
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS color VARCHAR(100);
+    `);
+    console.log('✅ Columna color verificada/agregada.');
+
+    // 2. Agregar columna production_files_url si no existe
+    await client.query(`
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS production_files_url VARCHAR(512);
+    `);
+    console.log('✅ Columna production_files_url verificada/agregada.');
+
+    client.release();
+    console.log('🎉 Migraciones automáticas completadas.');
+  } catch (err) {
+    console.error('⚠️ Advertencia en migraciones automáticas:', err.message);
+  }
+};
+runAutoMigrations();
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 

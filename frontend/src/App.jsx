@@ -948,21 +948,34 @@ function App() {
       return;
     }
 
-    const itemsRows = pOrder.items.map(item => `
-      <tr style="border-bottom: 1px solid #eee;">
-        <td style="padding: 10px; font-family: monospace; font-size: 13px;">${item.sku}</td>
-        <td style="padding: 10px; font-weight: 600;">${item.name}</td>
-        <td style="padding: 10px; text-align: center;">${item.quantity_cases}</td>
-        <td style="padding: 10px; text-align: right;">$${parseFloat(item.cost_per_case_usd).toFixed(2)}</td>
-        <td style="padding: 10px; text-align: right; font-weight: 700;">$${parseFloat(item.total_item_cost_usd).toFixed(2)}</td>
-        <td style="padding: 10px; text-align: center;">${parseFloat(item.item_cbm).toFixed(4)} CBM</td>
-        <td style="padding: 10px; text-align: center;">
-          ${item.production_files_url ? `
-            <a href="${item.production_files_url}" target="_blank" style="color: #00bcd4; font-weight: bold; text-decoration: underline;">Ver Archivos</a>
-          ` : '<span style="color: #888;">N/A</span>'}
-        </td>
-      </tr>
-    `).join('');
+    const itemsRows = pOrder.items.map(item => {
+      const imgCell = item.image_url 
+        ? `<img src="${item.image_url}" style="width: 35px; height: 35px; border-radius: 4px; object-fit: cover;" />` 
+        : '-';
+      const finishedSize = item.finished_measurements ? item.finished_measurements : '-';
+      const cutSize = item.cut_measurements ? item.cut_measurements : '-';
+      const itemColor = item.color ? item.color : '-';
+
+      return `
+        <tr style="border-bottom: 1px solid #eee;">
+          <td style="padding: 10px; text-align: center;">${imgCell}</td>
+          <td style="padding: 10px; font-family: monospace; font-size: 13px;">${item.sku}</td>
+          <td style="padding: 10px; font-weight: 600;">${item.name}</td>
+          <td style="padding: 10px; text-align: center;">${finishedSize}</td>
+          <td style="padding: 10px; text-align: center;">${cutSize}</td>
+          <td style="padding: 10px; text-align: center;">${itemColor}</td>
+          <td style="padding: 10px; text-align: center;">${item.quantity_cases}</td>
+          <td style="padding: 10px; text-align: right;">$${parseFloat(item.cost_per_case_usd).toFixed(2)}</td>
+          <td style="padding: 10px; text-align: right; font-weight: 700;">$${parseFloat(item.total_item_cost_usd).toFixed(2)}</td>
+          <td style="padding: 10px; text-align: center;">${parseFloat(item.item_cbm).toFixed(4)} CBM</td>
+          <td style="padding: 10px; text-align: center;">
+            ${item.production_files_url ? `
+              <a href="${item.production_files_url}" target="_blank" style="color: #00bcd4; font-weight: bold; text-decoration: underline;">Ver Archivos</a>
+            ` : '<span style="color: #888;">N/A</span>'}
+          </td>
+        </tr>
+      `;
+    }).join('');
 
     printWindow.document.write(`
       <html>
@@ -1020,8 +1033,12 @@ function App() {
           <table>
             <thead>
               <tr>
+                <th style="text-align: center;">Foto</th>
                 <th>SKU</th>
                 <th>Nombre del Producto</th>
+                <th style="text-align: center;">Medida</th>
+                <th style="text-align: center;">Medida Fab.</th>
+                <th style="text-align: center;">Color</th>
                 <th style="text-align: center;">Cajas Master</th>
                 <th style="text-align: right;">Costo/Caja</th>
                 <th style="text-align: right;">Subtotal</th>
