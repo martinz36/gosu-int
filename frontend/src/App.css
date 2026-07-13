@@ -287,3 +287,12 @@
     text-shadow: 0 0 10px rgba(0, 232, 255, 0.35);
   }
 }
+
+/* --- Catalog Grid Layout --- */
+.catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 28px;
+  width: 100%;
+  box-sizing: border-box;
+}

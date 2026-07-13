@@ -2139,9 +2139,9 @@ function App() {
                     <div key={product.id} className="glass-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '440px', position: 'relative', border: isExpanded ? '1px solid var(--pink-neon)' : '1px solid rgba(255,255,255,0.08)' }}>
                       <div>
                         {/* Imagen del Producto */}
-                        <div style={{ width: '100%', height: '180px', background: 'rgba(0,232,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '16px', overflow: 'hidden', position: 'relative' }}>
+                        <div style={{ width: '100%', aspectRatio: '1 / 1', background: 'rgba(0, 0, 0, 0.25)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '16px', overflow: 'hidden', position: 'relative' }}>
                           {product.image_url ? (
-                            <img src={product.image_url} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            <img src={product.image_url} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '12px', boxSizing: 'border-box' }} />
                           ) : (
                             <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="rgba(0, 232, 255, 0.3)" strokeWidth="1">
                               <rect x="4" y="2" width="16" height="20" rx="2" />
