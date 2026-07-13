@@ -71,6 +71,12 @@ router.post('/superadmin', requireAuth, requireSuperAdmin, async (req, res) => {
       message: 'Nuevo administrador de plataforma registrado con éxito.',
       user: newSuperAdmin,
     });
+  } catch (err) {
+    console.error('Error al crear superadmin:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
 // ============================================================
 // CRUD CLIENTES DISTRIBUIDORES B2B (Solo Tenant Admin)
 // ============================================================
