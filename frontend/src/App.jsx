@@ -38,6 +38,7 @@ function App() {
     return user?.role === 'super_admin' ? 'saas-tenants' : 'catalog';
   });
   const [searchQuery, setSearchQuery] = useState('');
+  const [allProducts, setAllProducts] = useState([]); // cache completo para filtrado local
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [cart, setCart] = useState({});
   const [showCart, setShowCart] = useState(false);
@@ -183,13 +184,14 @@ function App() {
     try {
       const params = {};
       if (selectedCategory !== 'all') params.category = selectedCategory;
-      if (searchQuery) params.search = searchQuery;
+      // searchQuery ya NO va al servidor – se filtra localmente
       const data = await productsApi.getAll(params);
+      setAllProducts(data);
       setProductList(data);
     } catch (err) {
       console.error('Error cargando productos:', err);
     }
-  }, [selectedCategory, searchQuery]);
+  }, [selectedCategory]);
 
   const loadOrders = useCallback(async () => {
     try {
@@ -289,12 +291,27 @@ function App() {
     loadAll();
   }, [currentUser, isSuperAdmin, loadTenants, loadProducts, loadOrders, loadProduction, loadCatalogConfig]);
 
-  // Recargar productos cuando cambian los filtros
+  // Recargar desde servidor solo cuando cambia categoría
   useEffect(() => {
     if (!currentUser || isSuperAdmin) return;
-    const timeout = setTimeout(loadProducts, 300); // debounce
-    return () => clearTimeout(timeout);
-  }, [selectedCategory, searchQuery, currentUser, isSuperAdmin, loadProducts]);
+    loadProducts();
+  }, [selectedCategory, currentUser, isSuperAdmin, loadProducts]);
+
+  // Filtrado local instantáneo cuando cambia el texto de búsqueda
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setProductList(allProducts);
+      return;
+    }
+    const q = searchQuery.toLowerCase();
+    setProductList(
+      allProducts.filter(p =>
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.sku || '').toLowerCase().includes(q) ||
+        (p.description || '').toLowerCase().includes(q)
+      )
+    );
+  }, [searchQuery, allProducts]);
 
   // Recargar según la tab activa
   useEffect(() => {
