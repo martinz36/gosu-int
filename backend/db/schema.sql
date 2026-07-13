@@ -44,6 +44,7 @@ CREATE TABLE users (
   password_hash  VARCHAR(255) NOT NULL,
   role           VARCHAR(50) NOT NULL, -- 'super_admin' | 'tenant_admin' | 'b2b_client'
   is_active      BOOLEAN NOT NULL DEFAULT TRUE,
+  must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
   created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

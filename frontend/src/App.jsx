@@ -174,6 +174,7 @@ function App() {
   const isAdmin = currentUser?.role === 'tenant_admin';
   const isSuperAdmin = currentUser?.role === 'super_admin';
   const isImpersonating = !!localStorage.getItem('gosu_superadmin_token');
+  const isTenantImpersonating = !!localStorage.getItem('gosu_admin_token');
 
   // -------------------------------------------------------
   // Carga de datos
@@ -449,6 +450,45 @@ function App() {
     setCurrentUser(parsedUser);
     setActiveTab('saas-tenants');
     alert('✓ Sesión de soporte finalizada. Volviendo a Super Admin.');
+  };
+
+  const handleTenantImpersonate = async (userId) => {
+    if (!confirm('¿Estás seguro de ingresar al portal como si fueras este cliente?')) return;
+    try {
+      localStorage.setItem('gosu_admin_token', localStorage.getItem('gosu_token'));
+      localStorage.setItem('gosu_admin_user', localStorage.getItem('gosu_user'));
+
+      const data = await auth.tenantImpersonate(userId);
+      localStorage.setItem('gosu_token', data.token);
+      localStorage.setItem('gosu_user', JSON.stringify(data.user));
+      setCurrentUser(data.user);
+      setActiveTab('catalog');
+      alert(`👁️ Navegando como cliente: ${data.user.name}`);
+      window.location.reload();
+    } catch (err) {
+      alert(`❌ Error al impersonar: ${err.message}`);
+    }
+  };
+
+  const handleStopTenantImpersonation = () => {
+    const origToken = localStorage.getItem('gosu_admin_token');
+    const origUser = localStorage.getItem('gosu_admin_user');
+
+    if (!origToken || !origUser) {
+      alert('No se encontró una sesión previa de Administrador.');
+      return;
+    }
+
+    localStorage.setItem('gosu_token', origToken);
+    localStorage.setItem('gosu_user', origUser);
+    localStorage.removeItem('gosu_admin_token');
+    localStorage.removeItem('gosu_admin_user');
+
+    const parsedUser = JSON.parse(origUser);
+    setCurrentUser(parsedUser);
+    setActiveTab('clients');
+    alert('✓ Sesión finalizada. Volviendo a cuenta Administrador.');
+    window.location.reload();
   };
 
   const handleCreateSuperAdmin = async (e) => {
@@ -1212,6 +1252,120 @@ function App() {
   }
 
   // -------------------------------------------------------
+  // Si debe cambiar su contraseña por primera vez, forzar cambio
+  // -------------------------------------------------------
+  if (currentUser && currentUser.must_change_password) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        background: '#0d0d0f',
+        padding: '20px',
+        boxSizing: 'border-box'
+      }}>
+        <div className="glass-panel" style={{
+          boxShadow: '0 0 40px rgba(0, 0, 0, 0.5), 0 0 2px var(--cyan-neon) inset',
+          borderRadius: '16px',
+          width: '100%',
+          maxWidth: '450px',
+          padding: '40px',
+          boxSizing: 'border-box',
+          textAlign: 'center'
+        }}>
+          <div style={{ fontSize: '40px', marginBottom: '16px' }}>🔒</div>
+          <h2 style={{ color: '#fff', fontSize: '24px', fontWeight: '800', margin: '0 0 10px 0', textShadow: '0 0 10px rgba(0, 188, 212, 0.3)' }}>Establece tu nueva contraseña</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', lineHeight: '1.5', marginBottom: '30px' }}>
+            Para garantizar la seguridad de tu cuenta B2B, es obligatorio que cambies tu contraseña temporal en tu primer inicio de sesión o tras un reseteo administrativo.
+          </p>
+
+          <form onSubmit={async (e) => {
+            e.preventDefault();
+            const currentPass = e.target.currentPass.value;
+            const newPass = e.target.newPass.value;
+            const confirmPass = e.target.confirmPass.value;
+
+            if (newPass.length < 6) {
+              alert('⚠️ La nueva contraseña debe tener al menos 6 caracteres.');
+              return;
+            }
+            if (newPass !== confirmPass) {
+              alert('⚠️ Las contraseñas no coinciden.');
+              return;
+            }
+
+            try {
+              await auth.changePassword(currentPass, newPass);
+              
+              // Actualizar el estado local y localStorage
+              const updatedUser = { ...currentUser, must_change_password: false };
+              localStorage.setItem('gosu_user', JSON.stringify(updatedUser));
+              setCurrentUser(updatedUser);
+              
+              alert('🎉 Contraseña establecida con éxito. Bienvenido al sistema.');
+            } catch (err) {
+              alert(`❌ Error: ${err.message}`);
+            }
+          }}>
+            <div style={{ marginBottom: '20px', textAlign: 'left' }}>
+              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase' }}>Contraseña Temporal/Actual</label>
+              <input
+                type="password"
+                name="currentPass"
+                required
+                placeholder="Contraseña con la que ingresaste"
+                style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: '12px 16px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', outline: 'none' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '20px', textAlign: 'left' }}>
+              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase' }}>Nueva Contraseña</label>
+              <input
+                type="password"
+                name="newPass"
+                required
+                placeholder="Mínimo 6 caracteres"
+                style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: '12px 16px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', outline: 'none' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '30px', textAlign: 'left' }}>
+              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase' }}>Confirmar Nueva Contraseña</label>
+              <input
+                type="password"
+                name="confirmPass"
+                required
+                placeholder="Repite la nueva contraseña"
+                style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: '12px 16px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', outline: 'none' }}
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="glow-btn glow-btn-cyan"
+              style={{ width: '100%', padding: '14px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
+            >
+              🔒 Guardar y Acceder
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                auth.logout();
+                setCurrentUser(null);
+              }}
+              style={{ background: 'transparent', border: 'none', color: 'var(--pink-neon)', marginTop: '20px', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}
+            >
+              Cancelar e iniciar sesión con otra cuenta
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------
   // Render Principal
   // -------------------------------------------------------
   return (
@@ -1229,7 +1383,20 @@ function App() {
         </div>
       )}
 
-      <div className="layout-wrapper" style={{ marginTop: isImpersonating ? '43px' : 0 }}>
+      {/* Barra de Impersonación para Tenant Admin (Ingresar como Cliente) */}
+      {isTenantImpersonating && (
+        <div style={{ background: 'var(--cyan-neon)', color: '#000', padding: '10px 24px', fontWeight: '800', textAlign: 'center', fontSize: '13px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', zIndex: 1000, position: 'fixed', top: 0, left: 0, right: 0 }}>
+          <span>👁️ Navegando como: <strong>{currentUser.name}</strong> ({currentUser.email}) | Distribuidor B2B</span>
+          <button 
+            onClick={handleStopTenantImpersonation} 
+            style={{ background: '#000', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: '700' }}
+          >
+            Volver a mi cuenta Administrador
+          </button>
+        </div>
+      )}
+
+      <div className="layout-wrapper" style={{ marginTop: (isImpersonating || isTenantImpersonating) ? '43px' : 0 }}>
         {/* Sidebar Lateral */}
         <aside className="premium-sidebar">
           <div style={{ marginBottom: '32px', textAlign: 'center' }}>
@@ -1290,6 +1457,9 @@ function App() {
                 {isSuperAdmin ? 'SUPER ADMIN' : isAdmin ? 'ADMIN' : currentUser.client_category?.replace('_', ' ')}
               </span>
             </div>
+            <button onClick={() => setActiveTab('profile')} className="btn-glass-cyan" style={{ width: '100%', padding: '8px', fontSize: '12px', marginBottom: '-4px' }}>
+              ⚙️ Mi Perfil
+            </button>
             <button onClick={handleLogout} className="btn-glass-pink" style={{ width: '100%', padding: '8px', fontSize: '12px' }}>
               Cerrar Sesión
             </button>
@@ -3590,6 +3760,125 @@ function App() {
         )}
 
         {/* ===================================================== */}
+        {/* TAB PROFILE: CONFIGURACIÓN DE PERFIL & PASSWORD      */}
+        {/* ===================================================== */}
+        {activeTab === 'profile' && !dataLoading && (
+          <div>
+            <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Configuración de Perfil</h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                Actualiza tu contraseña de acceso y revisa los detalles comerciales de tu cuenta.
+              </p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', alignItems: 'start' }}>
+              {/* Información General */}
+              <div className="glass-panel" style={{ padding: '24px' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '20px', color: 'var(--cyan-neon)' }}>
+                  👤 Información de Cuenta
+                </h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '14px' }}>
+                  <div>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>Nombre Completo</span>
+                    <strong style={{ color: '#fff', fontSize: '16px' }}>{currentUser.name}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>Correo Electrónico</span>
+                    <strong style={{ color: '#fff', fontSize: '16px' }}>{currentUser.email}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>Rol de Acceso</span>
+                    <strong style={{ color: '#fff', fontSize: '16px' }}>
+                      {currentUser.role === 'tenant_admin' ? 'Administrador' : currentUser.role === 'super_admin' ? 'Super Admin' : 'Distribuidor Cliente B2B'}
+                    </strong>
+                  </div>
+                  {!isSuperAdmin && currentUser.tenant_name && (
+                    <div>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>Inquilino / Marca</span>
+                      <strong style={{ color: '#fff', fontSize: '16px' }}>{currentUser.tenant_name}</strong>
+                    </div>
+                  )}
+                  {currentUser.role === 'b2b_client' && currentUser.tier_name && (
+                    <div>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>Nivel Tarifario B2B</span>
+                      <strong style={{ color: 'var(--pink-neon)', fontSize: '16px' }}>{currentUser.tier_name} ({currentUser.discount_percentage}% desc.)</strong>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Cambiar Contraseña */}
+              <div className="glass-panel" style={{ padding: '24px' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '20px', color: 'var(--pink-neon)' }}>
+                  🔒 Cambiar Contraseña
+                </h2>
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  const currentPassword = e.target.currentPass.value;
+                  const newPassword = e.target.newPass.value;
+                  const confirmPassword = e.target.confirmPass.value;
+
+                  if (newPassword.length < 6) {
+                    alert('⚠️ La nueva contraseña debe tener al menos 6 caracteres.');
+                    return;
+                  }
+                  if (newPassword !== confirmPassword) {
+                    alert('⚠️ Las contraseñas no coinciden.');
+                    return;
+                  }
+
+                  try {
+                    await auth.changePassword(currentPassword, newPassword);
+                    alert('🎉 Contraseña cambiada con éxito.');
+                    e.target.reset();
+                  } catch (err) {
+                    alert(`❌ Error: ${err.message}`);
+                  }
+                }} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Contraseña Actual</label>
+                    <input
+                      type="password"
+                      name="currentPass"
+                      required
+                      placeholder="Ingresa tu contraseña actual"
+                      style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Nueva Contraseña</label>
+                    <input
+                      type="password"
+                      name="newPass"
+                      required
+                      placeholder="Mínimo 6 caracteres"
+                      style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Confirmar Nueva Contraseña</label>
+                    <input
+                      type="password"
+                      name="confirmPass"
+                      required
+                      placeholder="Repite la nueva contraseña"
+                      style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="glow-btn glow-btn-cyan"
+                    style={{ width: '100%', padding: '12px', borderRadius: '8px', fontWeight: 'bold', marginTop: '10px' }}
+                  >
+                    Actualizar Contraseña
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ===================================================== */}
         {/* TAB 5: CLIENTES & LEADS B2B (Solo Admin del Tenant)  */}
         {/* ===================================================== */}
         {activeTab === 'clients' && isAdmin && !dataLoading && (
@@ -3995,6 +4284,35 @@ function App() {
                                     style={{ padding: '6px 12px', fontSize: '12px' }}
                                   >
                                     ✏️
+                                  </button>
+                                  <button
+                                    onClick={() => handleTenantImpersonate(client.id)}
+                                    className="btn-glass-cyan"
+                                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                                    title="Ingresar como este cliente"
+                                  >
+                                    👁️
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      const pass = prompt(`Establece la nueva contraseña temporal para ${client.name} (${client.email}):`);
+                                      if (!pass) return;
+                                      if (pass.length < 6) {
+                                        alert('La contraseña debe tener al menos 6 caracteres.');
+                                        return;
+                                      }
+                                      try {
+                                        await usersApi.resetClientPassword(client.id, pass);
+                                        alert('🎉 Contraseña restablecida con éxito. Se le solicitará cambiarla al iniciar sesión.');
+                                      } catch (err) {
+                                        alert(`❌ Error: ${err.message}`);
+                                      }
+                                    }}
+                                    className="btn-glass"
+                                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                                    title="Restablecer contraseña"
+                                  >
+                                    🔑
                                   </button>
                                   <button
                                     onClick={() => handleDeleteClient(client.id)}

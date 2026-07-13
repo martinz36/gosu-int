@@ -74,6 +74,7 @@ router.post('/login', async (req, res) => {
         name:                user.name,
         email:               user.email,
         role:                user.role,
+        must_change_password:user.must_change_password === true,
         tenant_id:           user.tenant_id,
         tenant_name:         user.tenant_name || null,
         tenant_slug:         user.tenant_slug || null,
@@ -213,6 +214,7 @@ router.post('/bypass-login', async (req, res) => {
         name:                user.name,
         email:               user.email,
         role:                user.role,
+        must_change_password:user.must_change_password === true,
         tenant_id:           user.tenant_id,
         tenant_name:         user.tenant_name || null,
         tenant_slug:         user.tenant_slug || null,
@@ -293,6 +295,129 @@ router.post('/impersonate/:userId', requireAuth, requireSuperAdmin, async (req, 
     });
   } catch (err) {
     console.error('Error al impersonar usuario:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ============================================================
+// POST /api/auth/tenant-impersonate/:userId (Solo Tenant Admin)
+// Permite a un administrador de tenant ingresar como uno de sus clientes B2B.
+// ============================================================
+router.post('/tenant-impersonate/:userId', requireAuth, async (req, res) => {
+  const { id: impersonatorId, tenant_id, role: impersonatorRole, name: impersonatorName } = req.user;
+  const { userId } = req.params;
+
+  if (impersonatorRole !== 'tenant_admin' && impersonatorRole !== 'super_admin') {
+    return res.status(403).json({ error: 'Acceso denegado. Se requiere rol de Administrador.' });
+  }
+
+  try {
+    // Obtener los datos del usuario destino
+    const result = await pool.query(
+      `SELECT u.*, t.slug as tenant_slug, t.name as tenant_name, t.is_active as tenant_active,
+              p.pricing_tier_id,
+              pt.tier_name, pt.discount_percentage, pt.min_order_amount, pt.only_master_cases
+       FROM users u
+       LEFT JOIN tenants t ON t.id = u.tenant_id
+       LEFT JOIN b2b_client_profiles p ON p.user_id = u.id AND p.tenant_id = u.tenant_id
+       LEFT JOIN pricing_tiers pt ON pt.id = p.pricing_tier_id
+       WHERE u.id = $1 AND u.tenant_id = $2`,
+      [userId, tenant_id]
+    );
+
+    const targetUser = result.rows[0];
+    if (!targetUser) {
+      return res.status(404).json({ error: 'Cliente B2B no encontrado en este Tenant.' });
+    }
+
+    if (targetUser.role !== 'b2b_client') {
+      return res.status(400).json({ error: 'Solo se permite impersonar a clientes distribuidores B2B.' });
+    }
+
+    const token = jwt.sign(
+      {
+        id:              targetUser.id,
+        tenant_id:       targetUser.tenant_id,
+        email:           targetUser.email,
+        role:            targetUser.role,
+        name:            targetUser.name,
+        tenant_slug:     targetUser.tenant_slug,
+        tenant_name:     targetUser.tenant_name,
+        impersonatedBy:  impersonatorId,
+        impersonatorName: impersonatorName
+      },
+      JWT_SECRET,
+      { expiresIn: '2h' }
+    );
+
+    // Auditoría
+    await logAudit(
+      impersonatorId,
+      impersonatorName,
+      tenant_id,
+      'IMPERSONATE_CLIENT',
+      { target_user_id: targetUser.id, target_user_email: targetUser.email }
+    );
+
+    res.json({
+      token,
+      user: {
+        id:                  targetUser.id,
+        name:                targetUser.name,
+        email:               targetUser.email,
+        role:                targetUser.role,
+        tenant_id:           targetUser.tenant_id,
+        tenant_name:         targetUser.tenant_name,
+        tenant_slug:         targetUser.tenant_slug,
+        pricing_tier_id:     targetUser.pricing_tier_id || null,
+        tier_name:           targetUser.tier_name || null,
+        discount_percentage: targetUser.discount_percentage ? parseFloat(targetUser.discount_percentage) : 0,
+        min_order_amount:    targetUser.min_order_amount ? parseFloat(targetUser.min_order_amount) : 1000.00,
+        only_master_cases:   targetUser.only_master_cases === true,
+        impersonatedBy:      impersonatorId,
+        impersonatorName:    impersonatorName
+      }
+    });
+  } catch (err) {
+    console.error('Error al impersonar cliente:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ============================================================
+// POST /api/auth/change-password
+// Permite a un usuario autenticado cambiar su propia contraseña.
+// ============================================================
+router.post('/change-password', requireAuth, async (req, res) => {
+  const { id } = req.user;
+  const { currentPassword, newPassword } = req.body;
+
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+  }
+
+  try {
+    const userResult = await pool.query('SELECT password_hash FROM users WHERE id = $1', [id]);
+    const user = userResult.rows[0];
+
+    if (currentPassword) {
+      const match = await bcrypt.compare(currentPassword, user.password_hash);
+      if (!match) {
+        return res.status(400).json({ error: 'La contraseña actual es incorrecta.' });
+      }
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const newHash = await bcrypt.hash(newPassword, salt);
+
+    await pool.query(
+      'UPDATE users SET password_hash = $1, must_change_password = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [newHash, id]
+    );
+
+    res.json({ message: 'Contraseña actualizada con éxito.' });
+  } catch (err) {
+    console.error('Error al cambiar contraseña:', err);
     res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });

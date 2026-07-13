@@ -40,6 +40,12 @@ const runAutoMigrations = async () => {
     `);
     console.log('✅ Columna production_files_url verificada/agregada.');
 
+    // 3. Agregar columna must_change_password si no existe
+    await client.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
+    `);
+    console.log('✅ Columna must_change_password verificada/agregada.');
+
     client.release();
     console.log('🎉 Migraciones automáticas completadas.');
   } catch (err) {

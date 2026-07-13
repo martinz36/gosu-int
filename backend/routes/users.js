@@ -146,10 +146,10 @@ router.post('/clients', requireAuth, requireTenantAdmin, async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const password_hash = await bcrypt.hash(password, salt);
 
-    // Insertar en users
+    // Insertar en users (must_change_password = TRUE por defecto cuando es creado por admin)
     const userResult = await client.query(
-      `INSERT INTO users (tenant_id, name, email, password_hash, role)
-       VALUES ($1, $2, $3, $4, 'b2b_client')
+      `INSERT INTO users (tenant_id, name, email, password_hash, role, must_change_password)
+       VALUES ($1, $2, $3, $4, 'b2b_client', TRUE)
        RETURNING id, name, email, role, created_at`,
       [tenant_id, name, email.toLowerCase(), password_hash]
     );
@@ -300,6 +300,50 @@ router.delete('/clients/:id', requireAuth, requireTenantAdmin, async (req, res) 
     res.status(500).json({ error: 'Error al eliminar distribuidor del sistema.' });
   } finally {
     client.release();
+  }
+});
+
+// ============================================================
+// POST /api/users/clients/:id/reset-password (Solo Tenant Admin)
+// Permite a un administrador resetear la contraseña de un cliente y forzar cambio al loguearse.
+// ============================================================
+router.post('/clients/:id/reset-password', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { id } = req.params;
+  const { newPassword } = req.body;
+
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+  }
+
+  try {
+    // Validar pertenencia del usuario al tenant y su rol
+    const checkResult = await pool.query('SELECT id, email FROM users WHERE id=$1 AND tenant_id=$2 AND role=\'b2b_client\'', [id, tenant_id]);
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Cliente B2B no encontrado en este Tenant.' });
+    }
+
+    const clientEmail = checkResult.rows[0].email;
+    const salt = await bcrypt.genSalt(10);
+    const password_hash = await bcrypt.hash(newPassword, salt);
+
+    // Actualizar password_hash y forzar cambio de contraseña (must_change_password = TRUE)
+    await pool.query(
+      'UPDATE users SET password_hash = $1, must_change_password = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [password_hash, id]
+    );
+
+    // Guardar auditoría
+    await pool.query(
+      `INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, old_value, new_value)
+       VALUES ($1, $2, 'RESET_B2B_CLIENT_PASSWORD', 'users', $3, $4, 'Forzado primer log in')`,
+      [tenant_id, req.user.id, id, clientEmail]
+    );
+
+    res.json({ message: 'Contraseña del cliente reseteada con éxito. Se requerirá cambio en su próximo inicio de sesión.' });
+  } catch (err) {
+    console.error('Error al resetear contraseña de cliente:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 

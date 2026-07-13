@@ -59,12 +59,20 @@ export const auth = {
   impersonate: (userId) =>
     request('POST', `/api/auth/impersonate/${userId}`),
 
+  tenantImpersonate: (userId) =>
+    request('POST', `/api/auth/tenant-impersonate/${userId}`),
+
+  changePassword: (currentPassword, newPassword) =>
+    request('POST', '/api/auth/change-password', { currentPassword, newPassword }),
+
   register: (userData) =>
     request('POST', '/api/auth/register', userData),
 
   logout: () => {
     localStorage.removeItem('gosu_token');
     localStorage.removeItem('gosu_user');
+    localStorage.removeItem('gosu_admin_token');
+    localStorage.removeItem('gosu_admin_user');
     localStorage.removeItem('gosu_superadmin_token');
     localStorage.removeItem('gosu_superadmin_user');
   },
@@ -165,6 +173,9 @@ export const users = {
 
   deleteClient: (id) =>
     request('DELETE', `/api/users/clients/${id}`),
+
+  resetClientPassword: (id, newPassword) =>
+    request('POST', `/api/users/clients/${id}/reset-password`, { newPassword }),
 };
 
 // ============================================================
