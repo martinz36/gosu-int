@@ -127,6 +127,12 @@ function App() {
   const [productionAuditLogs, setProductionAuditLogs] = useState([]);
   const [activeAuditOrderId, setActiveAuditOrderId] = useState(null);
 
+  // Estados para Módulo de Selección Rápida en Fabricación
+  const [showQuickSelect, setShowQuickSelect] = useState(false);
+  const [quickSelectSearch, setQuickSelectSearch] = useState('');
+  const [quickSelectChecked, setQuickSelectChecked] = useState({}); // { [productId]: boolean }
+  const [quickSelectQuantities, setQuickSelectQuantities] = useState({}); // { [productId]: number }
+
   // Estados para Gestión de Clientes B2B (Fase 6.5)
   // Estados para Gestión de Clientes B2B (Fase 6.5)
   const [configSubTab, setConfigSubTab] = useState('catalog');
@@ -647,6 +653,49 @@ function App() {
     } catch (err) {
       alert(`❌ Error al registrar orden de producción: ${err.message}`);
     }
+  };
+
+  const handleLoadQuickSelection = () => {
+    const selectedItems = [];
+    Object.entries(quickSelectChecked).forEach(([productId, isChecked]) => {
+      if (isChecked) {
+        const prod = productList.find(p => p.id === productId);
+        if (prod) {
+          const qty = quickSelectQuantities[productId] || 10;
+          selectedItems.push({
+            product_id: productId,
+            quantity_cases: qty,
+            cost_per_case_usd: prod.factory_cost_per_case_usd || 0
+          });
+        }
+      }
+    });
+
+    if (selectedItems.length === 0) {
+      alert('⚠️ Debes marcar al menos un producto con su check para agregarlo.');
+      return;
+    }
+
+    setProdForm(prev => {
+      const updatedItems = [...prev.items];
+      selectedItems.forEach(newItem => {
+        const existingIdx = updatedItems.findIndex(item => item.product_id === newItem.product_id);
+        if (existingIdx > -1) {
+          updatedItems[existingIdx].quantity_cases = newItem.quantity_cases;
+          updatedItems[existingIdx].cost_per_case_usd = newItem.cost_per_case_usd;
+        } else {
+          updatedItems.push(newItem);
+        }
+      });
+      return { ...prev, items: updatedItems };
+    });
+
+    // Reset & Close
+    setQuickSelectChecked({});
+    setQuickSelectQuantities({});
+    setQuickSelectSearch('');
+    setShowQuickSelect(false);
+    alert(`🎉 Se cargaron ${selectedItems.length} productos seleccionados al lote de fabricación.`);
   };
 
   const handleLoadProductionAuditLogs = async (orderId) => {
@@ -2458,25 +2507,35 @@ function App() {
                   <div style={{ background: 'rgba(255,255,255,0.01)', padding: '20px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.03)' }}>
                     <h3 style={{ fontSize: '13px', fontWeight: '700', color: 'var(--cyan-neon)', marginBottom: '14px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span>📦 Lote de Producción</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (productList.length === 0) return;
-                          const defaultProd = productList[0];
-                          setProdForm(prev => ({
-                            ...prev,
-                            items: [...prev.items, {
-                              product_id: defaultProd.id,
-                              quantity_cases: 10,
-                              cost_per_case_usd: defaultProd.factory_cost_per_case_usd || 0
-                            }]
-                          }));
-                        }}
-                        className="btn-glass"
-                        style={{ padding: '4px 10px', fontSize: '11px', fontWeight: '700' }}
-                      >
-                        ➕ Añadir Item
-                      </button>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => setShowQuickSelect(true)}
+                          className="btn-glass"
+                          style={{ padding: '4px 10px', fontSize: '11px', fontWeight: '700', color: 'var(--cyan-neon)', borderColor: 'var(--cyan-neon)' }}
+                        >
+                          ⚡ Selección Rápida
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (productList.length === 0) return;
+                            const defaultProd = productList[0];
+                            setProdForm(prev => ({
+                              ...prev,
+                              items: [...prev.items, {
+                                product_id: defaultProd.id,
+                                quantity_cases: 10,
+                                cost_per_case_usd: defaultProd.factory_cost_per_case_usd || 0
+                              }]
+                            }));
+                          }}
+                          className="btn-glass"
+                          style={{ padding: '4px 10px', fontSize: '11px', fontWeight: '700' }}
+                        >
+                          ➕ Añadir Item
+                        </button>
+                      </div>
                     </h3>
 
                     {prodForm.items.length === 0 ? (
@@ -3686,6 +3745,150 @@ function App() {
               <button className="btn-neon" style={{ padding: '10px 32px' }} onClick={() => window.print()}>
                 🖨️ Imprimir / Guardar PDF
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================== */}
+      {/* MODAL: SELECCIÓN RÁPIDA DE PRODUCTOS (FABRICACIÓN)    */}
+      {/* ===================================================== */}
+      {showQuickSelect && (
+        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.85)', zIndex: '200', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '750px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: '28px', position: 'relative', border: '1px solid var(--cyan-neon)' }}>
+            <button onClick={() => { setShowQuickSelect(false); setQuickSelectSearch(''); setQuickSelectChecked({}); setQuickSelectQuantities({}); }} style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}>×</button>
+
+            <div style={{ borderBottom: '2px solid #333', paddingBottom: '12px', marginBottom: '20px' }}>
+              <h2 style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: '18px', color: 'var(--cyan-neon)', margin: '0 0 6px 0' }}>
+                ⚡ Selección Rápida de Productos
+              </h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
+                Filtra productos, marca los checks de los que deseas producir y define la cantidad de cajas.
+              </p>
+            </div>
+
+            {/* Buscador */}
+            <div style={{ marginBottom: '16px' }}>
+              <input
+                type="text"
+                placeholder="🔍 Escribe nombre o SKU del producto para filtrar..."
+                value={quickSelectSearch}
+                onChange={(e) => setQuickSelectSearch(e.target.value)}
+                style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 16px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            {/* Listado de Productos */}
+            <div style={{ flexGrow: 1, overflowY: 'auto', marginBottom: '20px', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', background: 'rgba(0,0,0,0.2)' }}>
+              {productList.filter(p => {
+                const query = quickSelectSearch.toLowerCase();
+                return p.name.toLowerCase().includes(query) || p.sku.toLowerCase().includes(query);
+              }).length === 0 ? (
+                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  Ningún producto coincide con el filtro.
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.02)' }}>
+                      <th style={{ padding: '12px 16px', width: '40px' }}></th>
+                      <th style={{ padding: '12px 8px', width: '60px' }}>Foto</th>
+                      <th style={{ padding: '12px 8px' }}>Producto / SKU</th>
+                      <th style={{ padding: '12px 8px', width: '140px' }}>Cant. Cajas</th>
+                      <th style={{ padding: '12px 16px', width: '110px', textAlign: 'right' }}>Costo Fábrica</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {productList
+                      .filter(p => {
+                        const query = quickSelectSearch.toLowerCase();
+                        return p.name.toLowerCase().includes(query) || p.sku.toLowerCase().includes(query);
+                      })
+                      .map(p => {
+                        const isChecked = !!quickSelectChecked[p.id];
+                        const qty = quickSelectQuantities[p.id] !== undefined ? quickSelectQuantities[p.id] : 10;
+                        return (
+                          <tr key={p.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', transition: 'background 0.2s', background: isChecked ? 'rgba(0, 232, 255, 0.03)' : 'transparent' }}>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  setQuickSelectChecked(prev => ({ ...prev, [p.id]: e.target.checked }));
+                                }}
+                                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                              />
+                            </td>
+                            <td style={{ padding: '8px' }}>
+                              {p.image_url ? (
+                                <img src={p.image_url} alt={p.name} style={{ width: '40px', height: '40px', borderRadius: '6px', objectFit: 'cover' }} />
+                              ) : (
+                                <div style={{ width: '40px', height: '40px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📦</div>
+                              )}
+                            </td>
+                            <td style={{ padding: '8px' }}>
+                              <strong style={{ color: '#fff', display: 'block' }}>{p.name}</strong>
+                              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>SKU: {p.sku}</span>
+                            </td>
+                            <td style={{ padding: '8px' }}>
+                              <input
+                                type="number"
+                                min="1"
+                                value={qty}
+                                disabled={!isChecked}
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value) || 0;
+                                  setQuickSelectQuantities(prev => ({ ...prev, [p.id]: val }));
+                                }}
+                                style={{
+                                  background: isChecked ? '#121212' : 'rgba(0,0,0,0.1)',
+                                  border: '1px solid var(--border-color)',
+                                  color: isChecked ? '#fff' : '#888',
+                                  padding: '6px 10px',
+                                  borderRadius: '6px',
+                                  width: '90px'
+                                }}
+                              />
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: '700', color: 'var(--pink-neon)' }}>
+                              ${parseFloat(p.factory_cost_per_case_usd || 0).toFixed(2)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Controles de Selección */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                Seleccionados: <strong style={{ color: 'var(--cyan-neon)' }}>{Object.values(quickSelectChecked).filter(Boolean).length} productos</strong>
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowQuickSelect(false);
+                    setQuickSelectSearch('');
+                    setQuickSelectChecked({});
+                    setQuickSelectQuantities({});
+                  }}
+                  className="btn-glass"
+                  style={{ padding: '10px 24px' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLoadQuickSelection}
+                  className="btn-pink"
+                  style={{ padding: '10px 32px' }}
+                >
+                  Cargar Selección a la Orden
+                </button>
+              </div>
             </div>
           </div>
         </div>
