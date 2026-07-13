@@ -1,38 +1,55 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
-import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { requireAuth, requireTenantAdmin } from '../middleware/auth.js';
 
 const router = Router();
 
 // ============================================================
 // GET /api/products
 // Retorna todos los productos del tenant del usuario autenticado.
-// Query params: ?category=sleeves&search=black
+// Filtra campos de fábrica si el usuario es un Cliente B2B.
 // ============================================================
 router.get('/', requireAuth, async (req, res) => {
   const { category, search } = req.query;
-  const { tenant_id } = req.user;
+  const { tenant_id, role } = req.user;
+
+  // Campos comerciales base comunes a todos
+  let selectFields = `
+    p.id, p.tenant_id, p.sku, p.name, p.category, p.image_url, p.is_active,
+    p.commercial_description, p.price_per_case_usd, p.units_per_case, p.finished_measurements,
+    p.case_weight_kg, p.case_length_cm, p.case_width_cm, p.case_height_cm, p.case_cbm,
+    p.created_at, p.updated_at,
+    COALESCE(i.stock_physical_cases, 0) as stock_physical_cases,
+    COALESCE(i.stock_in_production_cases, 0) as stock_in_production_cases
+  `;
+
+  // Si el usuario es Admin o Super Admin, agregamos los campos confidenciales de producción
+  if (role === 'tenant_admin' || role === 'super_admin') {
+    selectFields += `,
+      p.factory_name, p.factory_sku, p.factory_cost_per_case_usd,
+      p.pantone_codes, p.cut_measurements, p.fabrication_notes
+    `;
+  }
 
   let query = `
-    SELECT id, name, sku, category, units_per_case, weight_per_unit_g,
-           length_cm, width_cm, height_cm, price_per_case_usd, stock_cases, image_url,
-           barcode, brand, pvp_price_usd, cost_price_usd, video_url, marketing_resources_url, created_at
-    FROM products
-    WHERE tenant_id = $1
+    SELECT ${selectFields}
+    FROM products p
+    LEFT JOIN inventory i ON i.product_id = p.id AND i.tenant_id = p.tenant_id
+    WHERE p.tenant_id = $1
   `;
   const params = [tenant_id];
 
   if (category && category !== 'all') {
     params.push(category);
-    query += ` AND category = $${params.length}`;
+    query += ` AND p.category = $${params.length}`;
   }
 
   if (search) {
     params.push(`%${search}%`);
-    query += ` AND (name ILIKE $${params.length} OR sku ILIKE $${params.length} OR brand ILIKE $${params.length} OR barcode ILIKE $${params.length})`;
+    query += ` AND (p.name ILIKE $${params.length} OR p.sku ILIKE $${params.length})`;
   }
 
-  query += ' ORDER BY category, name';
+  query += ' ORDER BY p.category, p.name';
 
   try {
     const result = await pool.query(query, params);
@@ -44,94 +61,163 @@ router.get('/', requireAuth, async (req, res) => {
 });
 
 // ============================================================
-// POST /api/products  (Solo admin)
-// Crea un nuevo producto en el catálogo del tenant.
+// POST /api/products  (Solo Tenant Admin)
+// Crea un nuevo producto en el catálogo e inicializa su inventario.
 // ============================================================
-router.post('/', requireAuth, requireAdmin, async (req, res) => {
+router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
   const { tenant_id } = req.user;
   const {
-    name, sku, category, units_per_case, weight_per_unit_g,
-    length_cm, width_cm, height_cm, price_per_case_usd, stock_cases, image_url,
-    barcode, brand, pvp_price_usd, cost_price_usd, video_url, marketing_resources_url
+    name, sku, category, image_url, is_active,
+    commercial_description, price_per_case_usd, units_per_case, finished_measurements,
+    factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
+    case_weight_kg, case_length_cm, case_width_cm, case_height_cm,
+    stock_physical_cases, stock_in_production_cases
   } = req.body;
 
-  if (!name || !sku || !category || !price_per_case_usd) {
-    return res.status(400).json({ error: 'Nombre, SKU, categoría y precio por caja son requeridos.' });
+  if (!name || !sku || !category || !price_per_case_usd || !case_weight_kg || !case_length_cm || !case_width_cm || !case_height_cm) {
+    return res.status(400).json({ error: 'Faltan campos obligatorios (nombre, sku, categoría, precio, peso o dimensiones de caja).' });
   }
 
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
+    await client.query('BEGIN');
+
+    // 1. Insertar el producto en products
+    const productResult = await client.query(
       `INSERT INTO products (
-        tenant_id, name, sku, category, units_per_case, weight_per_unit_g,
-        length_cm, width_cm, height_cm, price_per_case_usd, stock_cases, image_url,
-        barcode, brand, pvp_price_usd, cost_price_usd, video_url, marketing_resources_url
+        tenant_id, sku, name, category, image_url, is_active,
+        commercial_description, price_per_case_usd, units_per_case, finished_measurements,
+        factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
+        case_weight_kg, case_length_cm, case_width_cm, case_height_cm
        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
        RETURNING *`,
       [
-        tenant_id, name, sku, category,
-        units_per_case || 1, weight_per_unit_g || 100,
-        length_cm || 0, width_cm || 0, height_cm || 0,
-        price_per_case_usd, stock_cases || 0, image_url || null,
-        barcode || null, brand || null, pvp_price_usd || null, cost_price_usd || null,
-        video_url || null, marketing_resources_url || null
+        tenant_id, sku, name, category, image_url || null, is_active !== false,
+        commercial_description || null, price_per_case_usd, units_per_case || 1, finished_measurements || null,
+        factory_name || null, factory_sku || null, factory_cost_per_case_usd || null, pantone_codes || null,
+        cut_measurements || null, fabrication_notes || null,
+        case_weight_kg, case_length_cm, case_width_cm, case_height_cm
       ]
     );
-    res.status(201).json(result.rows[0]);
+
+    const newProduct = productResult.rows[0];
+
+    // 2. Insertar inventario correspondiente
+    const inventoryResult = await client.query(
+      `INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases)
+       VALUES ($1, $2, $3, $4)
+       RETURNING stock_physical_cases, stock_in_production_cases`,
+      [
+        tenant_id,
+        newProduct.id,
+        parseInt(stock_physical_cases) || 0,
+        parseInt(stock_in_production_cases) || 0
+      ]
+    );
+
+    await client.query('COMMIT');
+
+    res.status(201).json({
+      ...newProduct,
+      stock_physical_cases: inventoryResult.rows[0].stock_physical_cases,
+      stock_in_production_cases: inventoryResult.rows[0].stock_in_production_cases
+    });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     if (err.code === '23505') {
       return res.status(409).json({ error: 'Ya existe un producto con ese SKU en este tenant.' });
     }
     console.error('Error al crear producto:', err);
     res.status(500).json({ error: 'Error interno del servidor.' });
+  } finally {
+    client.release();
   }
 });
 
 // ============================================================
-// PUT /api/products/:id  (Solo admin)
-// Actualiza un producto del tenant.
+// PUT /api/products/:id  (Solo Tenant Admin)
+// Actualiza un producto del tenant e incrementa/modifica su inventario.
 // ============================================================
-router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
+router.put('/:id', requireAuth, requireTenantAdmin, async (req, res) => {
   const { tenant_id } = req.user;
   const { id } = req.params;
   const {
-    name, sku, category, units_per_case, weight_per_unit_g,
-    length_cm, width_cm, height_cm, price_per_case_usd, stock_cases, image_url,
-    barcode, brand, pvp_price_usd, cost_price_usd, video_url, marketing_resources_url
+    name, sku, category, image_url, is_active,
+    commercial_description, price_per_case_usd, units_per_case, finished_measurements,
+    factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
+    case_weight_kg, case_length_cm, case_width_cm, case_height_cm,
+    stock_physical_cases, stock_in_production_cases
   } = req.body;
 
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
+    await client.query('BEGIN');
+
+    // 1. Actualizar el producto en products
+    const productResult = await client.query(
       `UPDATE products
-       SET name=$1, sku=$2, category=$3, units_per_case=$4, weight_per_unit_g=$5,
-           length_cm=$6, width_cm=$7, height_cm=$8, price_per_case_usd=$9,
-           stock_cases=$10, image_url=$11, barcode=$12, brand=$13,
-           pvp_price_usd=$14, cost_price_usd=$15, video_url=$16, marketing_resources_url=$17
-       WHERE id=$18 AND tenant_id=$19
+       SET name=$1, sku=$2, category=$3, image_url=$4, is_active=$5,
+           commercial_description=$6, price_per_case_usd=$7, units_per_case=$8, finished_measurements=$9,
+           factory_name=$10, factory_sku=$11, factory_cost_per_case_usd=$12, pantone_codes=$13, cut_measurements=$14, fabrication_notes=$15,
+           case_weight_kg=$16, case_length_cm=$17, case_width_cm=$18, case_height_cm=$19,
+           updated_at=CURRENT_TIMESTAMP
+       WHERE id=$20 AND tenant_id=$21
        RETURNING *`,
       [
-        name, sku, category, units_per_case, weight_per_unit_g,
-        length_cm, width_cm, height_cm, price_per_case_usd,
-        stock_cases, image_url, barcode, brand,
-        pvp_price_usd, cost_price_usd, video_url, marketing_resources_url,
+        name, sku, category, image_url, is_active !== false,
+        commercial_description, price_per_case_usd, units_per_case, finished_measurements,
+        factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
+        case_weight_kg, case_length_cm, case_width_cm, case_height_cm,
         id, tenant_id
       ]
     );
 
-    if (result.rows.length === 0) {
+    if (productResult.rows.length === 0) {
+      client.release();
       return res.status(404).json({ error: 'Producto no encontrado.' });
     }
-    res.json(result.rows[0]);
+
+    const updatedProduct = productResult.rows[0];
+
+    // 2. Actualizar el inventario mediante un UPSERT
+    const inventoryResult = await client.query(
+      `INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (tenant_id, product_id)
+       DO UPDATE SET 
+         stock_physical_cases = EXCLUDED.stock_physical_cases,
+         stock_in_production_cases = EXCLUDED.stock_in_production_cases,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING stock_physical_cases, stock_in_production_cases`,
+      [
+        tenant_id,
+        id,
+        parseInt(stock_physical_cases) || 0,
+        parseInt(stock_in_production_cases) || 0
+      ]
+    );
+
+    await client.query('COMMIT');
+
+    res.json({
+      ...updatedProduct,
+      stock_physical_cases: inventoryResult.rows[0].stock_physical_cases,
+      stock_in_production_cases: inventoryResult.rows[0].stock_in_production_cases
+    });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('Error al actualizar producto:', err);
     res.status(500).json({ error: 'Error interno del servidor.' });
+  } finally {
+    client.release();
   }
 });
 
 // ============================================================
-// DELETE /api/products/:id  (Solo admin)
+// DELETE /api/products/:id  (Solo Tenant Admin)
 // ============================================================
-router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
+router.delete('/:id', requireAuth, requireTenantAdmin, async (req, res) => {
   const { tenant_id } = req.user;
   const { id } = req.params;
 

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
-import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { requireAuth, requireTenantAdmin } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -22,7 +22,7 @@ router.get('/categories', requireAuth, async (req, res) => {
   }
 });
 
-router.post('/categories', requireAuth, requireAdmin, async (req, res) => {
+router.post('/categories', requireAuth, requireTenantAdmin, async (req, res) => {
   const { tenant_id } = req.user;
   const { name, slug } = req.body;
 
@@ -47,7 +47,7 @@ router.post('/categories', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-router.put('/categories/:id', requireAuth, requireAdmin, async (req, res) => {
+router.put('/categories/:id', requireAuth, requireTenantAdmin, async (req, res) => {
   const { tenant_id } = req.user;
   const { id } = req.params;
   const { name, slug } = req.body;
@@ -75,7 +75,7 @@ router.put('/categories/:id', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-router.delete('/categories/:id', requireAuth, requireAdmin, async (req, res) => {
+router.delete('/categories/:id', requireAuth, requireTenantAdmin, async (req, res) => {
   const { tenant_id } = req.user;
   const { id } = req.params;
 
@@ -112,7 +112,7 @@ router.get('/brands', requireAuth, async (req, res) => {
   }
 });
 
-router.post('/brands', requireAuth, requireAdmin, async (req, res) => {
+router.post('/brands', requireAuth, requireTenantAdmin, async (req, res) => {
   const { tenant_id } = req.user;
   const { name, slug } = req.body;
 
@@ -137,7 +137,7 @@ router.post('/brands', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-router.put('/brands/:id', requireAuth, requireAdmin, async (req, res) => {
+router.put('/brands/:id', requireAuth, requireTenantAdmin, async (req, res) => {
   const { tenant_id } = req.user;
   const { id } = req.params;
   const { name, slug } = req.body;
@@ -165,7 +165,7 @@ router.put('/brands/:id', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-router.delete('/brands/:id', requireAuth, requireAdmin, async (req, res) => {
+router.delete('/brands/:id', requireAuth, requireTenantAdmin, async (req, res) => {
   const { tenant_id } = req.user;
   const { id } = req.params;
 

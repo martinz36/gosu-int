@@ -103,8 +103,8 @@ export const orders = {
   getAll: () =>
     request('GET', '/api/orders'),
 
-  create: (items, notes = null) =>
-    request('POST', '/api/orders', { items, notes }),
+  create: (items, notes = null, incoterm = 'FOB China') =>
+    request('POST', '/api/orders', { items, notes, incoterm }),
 
   updateStatus: (id, status) =>
     request('PUT', `/api/orders/${id}/status`, { status }),
@@ -122,6 +122,9 @@ export const production = {
 
   updateStatus: (id, status) =>
     request('PUT', `/api/production/${id}/status`, { status }),
+
+  getAuditLogs: (id) =>
+    request('GET', `/api/production/${id}/audit`),
 };
 
 export const tenants = {

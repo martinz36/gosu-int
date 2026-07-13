@@ -35,7 +35,7 @@ function App() {
   // -------------------------------------------------------
   const [activeTab, setActiveTab] = useState(() => {
     const user = auth.getUser();
-    return user?.role === 'superadmin' ? 'saas-tenants' : 'catalog';
+    return user?.role === 'super_admin' ? 'saas-tenants' : 'catalog';
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -84,28 +84,50 @@ function App() {
     name: '',
     sku: '',
     category: '',
-    brand: '',
-    barcode: '',
-    units_per_case: 1,
-    weight_per_unit_g: 100,
-    length_cm: 0,
-    width_cm: 0,
-    height_cm: 0,
-    price_per_case_usd: '',
-    pvp_price_usd: '',
-    cost_price_usd: '',
-    stock_cases: 0,
     image_url: '',
-    video_url: '',
-    marketing_resources_url: ''
+    commercial_description: '',
+    price_per_case_usd: '',
+    units_per_case: 100,
+    finished_measurements: '',
+    
+    // Datos de Fabricación
+    factory_name: '',
+    factory_sku: '',
+    factory_cost_per_case_usd: '',
+    pantone_codes: '',
+    cut_measurements: '',
+    fabrication_notes: '',
+    
+    // Logística de Master Case
+    case_weight_kg: 10,
+    case_length_cm: 40,
+    case_width_cm: 30,
+    case_height_cm: 20,
+    
+    // Inventarios
+    stock_physical_cases: 0,
+    stock_in_production_cases: 0
   });
   const [editingProduct, setEditingProduct] = useState(null);
   const [creatingProduct, setCreatingProduct] = useState(false);
+  const [expandedFactoryProductId, setExpandedFactoryProductId] = useState(null);
+  
+  // Formulario y Estados de Producción
+  const [showProdForm, setShowProdForm] = useState(false);
+  const [prodForm, setProdForm] = useState({
+    factory_name: 'Dongguan Card Supplies Factory',
+    estimated_completion_date: '',
+    tracking_number: '',
+    status: 'Production',
+    items: []
+  });
+  const [productionAuditLogs, setProductionAuditLogs] = useState([]);
+  const [activeAuditOrderId, setActiveAuditOrderId] = useState(null);
 
   // MOA del usuario actual
   const MOA_LIMIT = parseFloat(currentUser?.custom_moa_usd) || 1000.00;
-  const isAdmin = currentUser?.role === 'admin';
-  const isSuperAdmin = currentUser?.role === 'superadmin';
+  const isAdmin = currentUser?.role === 'tenant_admin';
+  const isSuperAdmin = currentUser?.role === 'super_admin';
   const isImpersonating = !!localStorage.getItem('gosu_superadmin_token');
 
   // -------------------------------------------------------
@@ -218,7 +240,7 @@ function App() {
 
   // Aligerar la vista del Super Admin forzando la redirección de tab
   useEffect(() => {
-    if (currentUser && currentUser.role === 'superadmin' && !['saas-tenants', 'saas-users', 'saas-billing', 'saas-audit'].includes(activeTab)) {
+    if (currentUser && currentUser.role === 'super_admin' && !['saas-tenants', 'saas-users', 'saas-billing', 'saas-audit'].includes(activeTab)) {
       setActiveTab('saas-tenants');
     }
   }, [currentUser, activeTab]);
@@ -246,7 +268,7 @@ function App() {
   // -------------------------------------------------------
   const handleLogin = (user) => {
     setCurrentUser(user);
-    setActiveTab(user.role === 'superadmin' ? 'saas-tenants' : 'catalog');
+    setActiveTab(user.role === 'super_admin' ? 'saas-tenants' : 'catalog');
   };
 
   const handleLogout = () => {
@@ -474,20 +496,23 @@ function App() {
         name: '',
         sku: '',
         category: categoriesList[0]?.slug || '',
-        brand: brandsList[0]?.name || '',
-        barcode: '',
-        units_per_case: 1,
-        weight_per_unit_g: 100,
-        length_cm: 0,
-        width_cm: 0,
-        height_cm: 0,
-        price_per_case_usd: '',
-        pvp_price_usd: '',
-        cost_price_usd: '',
-        stock_cases: 0,
         image_url: '',
-        video_url: '',
-        marketing_resources_url: ''
+        commercial_description: '',
+        price_per_case_usd: '',
+        units_per_case: 100,
+        finished_measurements: '',
+        factory_name: '',
+        factory_sku: '',
+        factory_cost_per_case_usd: '',
+        pantone_codes: '',
+        cut_measurements: '',
+        fabrication_notes: '',
+        case_weight_kg: 10,
+        case_length_cm: 40,
+        case_width_cm: 30,
+        case_height_cm: 20,
+        stock_physical_cases: 0,
+        stock_in_production_cases: 0
       });
       await loadProducts();
     } catch (err) {
@@ -505,6 +530,52 @@ function App() {
       await loadProducts();
     } catch (err) {
       alert(`❌ Error: ${err.message}`);
+    }
+  };
+
+  // ============================================================
+  // Handlers del Módulo de Fabricación y Producción (Fase 5)
+  // ============================================================
+  const handleCreateProductionOrder = async (e) => {
+    e.preventDefault();
+    if (prodForm.items.length === 0) {
+      alert('⚠️ Debes añadir al menos un producto a la orden de producción.');
+      return;
+    }
+    try {
+      await productionApi.create(prodForm);
+      alert('🎉 Orden de producción registrada con éxito en Neon.');
+      setProdForm({
+        factory_name: 'Dongguan Card Supplies Factory',
+        estimated_completion_date: '',
+        tracking_number: '',
+        status: 'Production',
+        items: []
+      });
+      setShowProdForm(false);
+      await Promise.all([loadProduction(), loadProducts()]);
+    } catch (err) {
+      alert(`❌ Error al registrar orden de producción: ${err.message}`);
+    }
+  };
+
+  const handleLoadProductionAuditLogs = async (orderId) => {
+    try {
+      const logs = await productionApi.getAuditLogs(orderId);
+      setProductionAuditLogs(logs);
+      setActiveAuditOrderId(orderId);
+    } catch (err) {
+      alert(`❌ Error al obtener bitácora de auditoría: ${err.message}`);
+    }
+  };
+
+  const handleUpdateProductionStatus = async (orderId, newStatus) => {
+    try {
+      await productionApi.updateStatus(orderId, newStatus);
+      alert(`🎉 Estado actualizado a: ${newStatus}`);
+      await Promise.all([loadProduction(), loadProducts()]);
+    } catch (err) {
+      alert(`❌ Error al cambiar estado: ${err.message}`);
     }
   };
 
@@ -541,20 +612,30 @@ function App() {
       }
     });
 
-    // Descuento por categoría
-    let categoryDiscountPercent = currentUser?.client_category === 'wholesale_distributor' ? 5 : 0;
-
     // Descuento por volumen
     let volumeDiscountPercent = 0;
     VOLUME_DISCOUNTS.forEach(d => {
       if (totalItemsCases >= d.min_cases) volumeDiscountPercent = d.discount_percentage;
     });
+    const volumeDiscountAmount = subtotal * (volumeDiscountPercent / 100);
+    const subtotalAfterVolume = subtotal - volumeDiscountAmount;
 
-    const totalDiscountPercent = categoryDiscountPercent + volumeDiscountPercent;
-    const discountAmount = subtotal * (totalDiscountPercent / 100);
-    const finalTotal = subtotal - discountAmount;
+    // Descuento por categoría (wholesale_distributor +5%)
+    let categoryDiscountPercent = currentUser?.client_category === 'wholesale_distributor' ? 5 : 0;
+    const distributorDiscountAmount = subtotalAfterVolume * (categoryDiscountPercent / 100);
 
-    return { subtotal, discountPercent: totalDiscountPercent, discountAmount, finalTotal, totalCases: totalItemsCases, items: itemsDetail };
+    const totalDiscountAmount = volumeDiscountAmount + distributorDiscountAmount;
+    const finalTotal = subtotal - totalDiscountAmount;
+    const effectiveDiscountPercent = subtotal > 0 ? ((totalDiscountAmount / subtotal) * 100) : 0;
+
+    return { 
+      subtotal, 
+      discountPercent: effectiveDiscountPercent, 
+      discountAmount: totalDiscountAmount, 
+      finalTotal, 
+      totalCases: totalItemsCases, 
+      items: itemsDetail 
+    };
   };
 
   const cartTotals = getCartTotals();
@@ -566,6 +647,9 @@ function App() {
     e.preventDefault();
     if (cartTotals.finalTotal < MOA_LIMIT) return;
     
+    const formData = new FormData(e.target);
+    const incoterm = formData.get('incoterm') || 'FOB China';
+    
     setCheckoutLoading(true);
     try {
       const items = cartTotals.items.map(i => ({
@@ -573,13 +657,13 @@ function App() {
         qty_cases: i.qty,
       }));
 
-      await ordersApi.create(items);
+      await ordersApi.create(items, null, incoterm);
       setCart({});
       setReceiptUploaded(false);
       setShowCart(false);
       await loadOrders();
       setActiveTab('orders');
-      alert('🎉 Pedido enviado con éxito. Esperando validación de pago.');
+      alert('🎉 Pedido B2B registrado con éxito en estado Proforma.');
     } catch (err) {
       alert(`❌ Error: ${err.message}`);
     } finally {
@@ -598,10 +682,10 @@ function App() {
   // Render Principal
   // -------------------------------------------------------
   return (
-    <div className="app-container" style={{ display: 'flex', minHeight: '100vh', flexDirection: 'column' }}>
+    <div className="app-container">
       {/* Barra de Impersonación para Soporte Técnico */}
       {isImpersonating && (
-        <div style={{ background: 'var(--orange-neon)', color: '#000', padding: '10px 24px', fontWeight: '800', textAlign: 'center', fontSize: '13px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', zIndex: 1000 }}>
+        <div style={{ background: 'var(--orange-neon)', color: '#000', padding: '10px 24px', fontWeight: '800', textAlign: 'center', fontSize: '13px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', zIndex: 1000, position: 'fixed', top: 0, left: 0, right: 0 }}>
           <span>🔴 Sesión de Soporte: Impersonando a <strong>{currentUser.name}</strong> ({currentUser.tenant_name})</span>
           <button 
             onClick={handleStopImpersonation} 
@@ -612,12 +696,12 @@ function App() {
         </div>
       )}
 
-      <div style={{ display: 'flex', flexGrow: 1, minHeight: 0 }}>
+      <div className="layout-wrapper" style={{ marginTop: isImpersonating ? '43px' : 0 }}>
         {/* Sidebar Lateral */}
-        <aside className="sidebar" style={{ width: '260px', background: 'rgba(10, 10, 10, 0.98)', borderRight: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', padding: '24px 16px', boxSizing: 'border-box', flexShrink: 0 }}>
+        <aside className="premium-sidebar">
           <div style={{ marginBottom: '32px', textAlign: 'center' }}>
-            <h1 className="logo-text" style={{ margin: 0, fontSize: '20px', fontWeight: '900', letterSpacing: '1px', textTransform: 'uppercase' }}>
-              {isSuperAdmin ? 'Gosu SaaS' : currentUser.tenant_name || 'Gosu B2B'}
+            <h1 className="logo-text" style={{ margin: 0, fontSize: '20px' }}>
+              {isSuperAdmin ? 'GOSU SAAS' : currentUser.tenant_name?.toUpperCase() || 'GOSU B2B'}
             </h1>
             {!isSuperAdmin && (
               <span className="badge badge-cyan" style={{ fontSize: '9px', marginTop: '6px' }}>{currentUser.tenant_slug}</span>
@@ -627,33 +711,33 @@ function App() {
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px', flexGrow: 1 }}>
             {isSuperAdmin ? (
               <>
-                <span className={`nav-link-btn ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => setActiveTab('saas-tenants')} style={{ cursor: 'pointer' }}>
+                <span className={`nav-link-btn ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => setActiveTab('saas-tenants')}>
                   🏢 Inquilinos (Tenants)
                 </span>
-                <span className={`nav-link-btn ${activeTab === 'saas-users' ? 'active' : ''}`} onClick={() => setActiveTab('saas-users')} style={{ cursor: 'pointer' }}>
+                <span className={`nav-link-btn ${activeTab === 'saas-users' ? 'active' : ''}`} onClick={() => setActiveTab('saas-users')}>
                   👥 Usuarios Globales
                 </span>
-                <span className={`nav-link-btn ${activeTab === 'saas-billing' ? 'active' : ''}`} onClick={() => setActiveTab('saas-billing')} style={{ cursor: 'pointer' }}>
+                <span className={`nav-link-btn ${activeTab === 'saas-billing' ? 'active' : ''}`} onClick={() => setActiveTab('saas-billing')}>
                   💳 Planes & Billing
                 </span>
-                <span className={`nav-link-btn ${activeTab === 'saas-audit' ? 'active' : ''}`} onClick={() => setActiveTab('saas-audit')} style={{ cursor: 'pointer' }}>
+                <span className={`nav-link-btn ${activeTab === 'saas-audit' ? 'active' : ''}`} onClick={() => setActiveTab('saas-audit')}>
                   📋 Auditoría & Logs
                 </span>
               </>
             ) : (
               <>
-                <span className={`nav-link-btn ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')} style={{ cursor: 'pointer' }}>
+                <span className={`nav-link-btn ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>
                   📂 Catálogo B2B
                 </span>
-                <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')} style={{ cursor: 'pointer' }}>
+                <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
                   📜 Mis Pedidos & Bóveda
                 </span>
                 {isAdmin && (
                   <>
-                    <span className={`nav-link-btn ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')} style={{ cursor: 'pointer' }}>
+                    <span className={`nav-link-btn ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
                       🏭 Fábrica & Producción
                     </span>
-                    <span className={`nav-link-btn ${activeTab === 'config' ? 'active' : ''}`} onClick={() => setActiveTab('config')} style={{ cursor: 'pointer' }}>
+                    <span className={`nav-link-btn ${activeTab === 'config' ? 'active' : ''}`} onClick={() => setActiveTab('config')}>
                       ⚙️ Configuración
                     </span>
                   </>
@@ -662,33 +746,41 @@ function App() {
             )}
           </nav>
 
-          <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
               <div style={{ color: '#fff', fontWeight: '700', wordBreak: 'break-all' }}>{currentUser.name}</div>
-              <div style={{ fontSize: '10px', marginTop: '2px', wordBreak: 'break-all' }}>{currentUser.email}</div>
-              <span className={`badge ${isSuperAdmin ? 'badge-pink' : isAdmin ? 'badge-pink' : 'badge-cyan'}`} style={{ fontSize: '8px', padding: '1px 4px', marginTop: '4px' }}>
+              <div style={{ fontSize: '10px', marginTop: '2px', wordBreak: 'break-all', opacity: 0.7 }}>{currentUser.email}</div>
+              <span className={`badge ${isSuperAdmin ? 'badge-pink' : isAdmin ? 'badge-pink' : 'badge-cyan'}`} style={{ fontSize: '8px', padding: '1px 4px', marginTop: '6px' }}>
                 {isSuperAdmin ? 'SUPER ADMIN' : isAdmin ? 'ADMIN' : currentUser.client_category?.replace('_', ' ')}
               </span>
             </div>
-            <button onClick={handleLogout} className="btn-neon" style={{ width: '100%', padding: '8px', fontSize: '12px' }}>
-              Salir
+            <button onClick={handleLogout} className="btn-glass-pink" style={{ width: '100%', padding: '8px', fontSize: '12px' }}>
+              Cerrar Sesión
             </button>
           </div>
         </aside>
 
         {/* Contenido Principal */}
-        <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div className="main-layout">
           {/* Header Bar */}
-          <header className="nav-header" style={{ position: 'sticky', top: 0, zIndex: 40, display: 'flex', justifyContent: 'flex-end', padding: '16px 24px', background: 'rgba(0, 0, 0, 0.95)', borderBottom: '1px solid var(--border-color)', backdropFilter: 'blur(20px)' }}>
-            {!isSuperAdmin && (
-              <button className="btn-neon" onClick={() => setShowCart(true)}>
-                🛒 Carrito ({cartTotals.totalCases} {cartTotals.totalCases === 1 ? 'Caja' : 'Cajas'})
-              </button>
-            )}
+          <header className="premium-header">
+            {/* Logo en versión mobile */}
+            <div className="mobile-only-logo" style={{ display: 'none' }}>
+              <span className="logo-text" style={{ fontSize: '16px', fontWeight: '900' }}>
+                {isSuperAdmin ? 'GOSU SAAS' : currentUser.tenant_name?.toUpperCase() || 'GOSU B2B'}
+              </span>
+            </div>
+            <div className="premium-header-content">
+              {!isSuperAdmin && (
+                <button className="btn-glass-neon" onClick={() => setShowCart(true)}>
+                  🛒 Carrito ({cartTotals.totalCases} {cartTotals.totalCases === 1 ? 'Caja' : 'Cajas'})
+                </button>
+              )}
+            </div>
           </header>
 
-          {/* Mobile Nav */}
-          <div className="mobile-bottom-nav">
+          {/* Mobile Floating Nav */}
+          <div className="floating-mobile-nav">
             {isSuperAdmin ? (
               <>
                 <span className={`mobile-nav-item ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => setActiveTab('saas-tenants')}>🏢 Tenants</span>
@@ -893,7 +985,7 @@ function App() {
                 </h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   {tenantsList.map(t => {
-                    const tenantAdmin = globalUsersList.find(u => u.tenant_slug === t.slug && u.role === 'admin');
+                    const tenantAdmin = globalUsersList.find(u => u.tenant_slug === t.slug && u.role === 'tenant_admin');
                     return (
                       <div key={t.id} className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
@@ -1047,13 +1139,13 @@ function App() {
                       <td style={{ padding: '14px', color: 'var(--text-secondary)' }}>{u.email}</td>
                       <td style={{ padding: '14px' }}>
                         <span className={`badge ${
-                          u.role === 'superadmin' ? 'badge-pink' : u.role === 'admin' ? 'badge-cyan' : 'badge-orange'
+                          u.role === 'super_admin' ? 'badge-pink' : u.role === 'tenant_admin' ? 'badge-cyan' : 'badge-orange'
                         }`} style={{ fontSize: '9px', padding: '2px 6px' }}>
                           {u.role.toUpperCase()}
                         </span>
                       </td>
                       <td style={{ padding: '14px' }}>
-                        {u.role === 'superadmin' ? (
+                        {u.role === 'super_admin' ? (
                           <span style={{ color: 'var(--cyan-neon)', fontWeight: '700' }}>Platform Suite</span>
                         ) : (
                           <span>{u.tenant_name} <strong style={{ color: 'var(--text-muted)' }}>({u.tenant_slug})</strong></span>
@@ -1310,171 +1402,279 @@ function App() {
 
             {/* Formulario de creación/edición de Producto (Solo Admin del Tenant) */}
             {isAdmin && (creatingProduct || editingProduct) && (
-              <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
-                <h2 style={{ fontSize: '20px', fontWeight: '800', marginBottom: '20px', color: editingProduct ? 'var(--cyan-neon)' : 'var(--pink-neon)' }}>
-                  {editingProduct ? `✏️ Editar Producto: ${editingProduct.name}` : '➕ Añadir Nuevo Producto'}
+              <div className="glass-panel" style={{ padding: '32px', marginBottom: '32px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <h2 style={{ fontSize: '22px', fontWeight: '800', marginBottom: '24px', color: editingProduct ? 'var(--cyan-neon)' : 'var(--pink-neon)', letterSpacing: '0.5px' }}>
+                  {editingProduct ? `✏️ Editar Producto: ${editingProduct.name}` : '➕ Registrar Nuevo Producto'}
                 </h2>
-                <form onSubmit={handleCreateOrUpdateProduct} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Nombre del Producto *</label>
-                    <input
-                      type="text"
-                      placeholder="Ej. Protectores Standard Negro"
-                      value={newProduct.name}
-                      required
-                      onChange={(e) => setNewProduct(prev => ({ ...prev, name: e.target.value }))}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
+                
+                <form onSubmit={handleCreateOrUpdateProduct} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                  
+                  {/* Seccion 1: Datos Comerciales */}
+                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.04)' }}>
+                    <h3 style={{ fontSize: '14px', fontWeight: '700', color: 'var(--cyan-neon)', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+                      🛍️ Datos de Venta Comercial
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Nombre del Producto *</label>
+                        <input
+                          type="text"
+                          placeholder="Ej. GOSU Matte Sleeves Standard - Black"
+                          value={newProduct.name}
+                          required
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, name: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>SKU Comercial *</label>
+                        <input
+                          type="text"
+                          placeholder="Ej. GSL-MAT-BK"
+                          value={newProduct.sku}
+                          required
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, sku: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Categoría *</label>
+                        <select
+                          value={newProduct.category}
+                          required
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, category: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        >
+                          {categoriesList.map(cat => (
+                            <option key={cat.id} value={cat.slug}>{cat.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Precio por Caja Master (USD) *</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="Ej. 250.00"
+                          value={newProduct.price_per_case_usd}
+                          required
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, price_per_case_usd: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Unidades por Caja Master *</label>
+                        <input
+                          type="number"
+                          placeholder="Ej. 100"
+                          value={newProduct.units_per_case}
+                          required
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, units_per_case: parseInt(e.target.value) || 1 }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Medida Final Comercial</label>
+                        <input
+                          type="text"
+                          placeholder="Ej. 66x91 mm"
+                          value={newProduct.finished_measurements}
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, finished_measurements: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div style={{ gridColumn: 'span 2' }}>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Imagen Referencial URL</label>
+                        <input
+                          type="url"
+                          placeholder="https://ejemplo.com/imagen.jpg"
+                          value={newProduct.image_url}
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, image_url: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div style={{ gridColumn: 'span 2' }}>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Descripción Comercial para Clientes B2B</label>
+                        <textarea
+                          placeholder="Introduce los detalles descriptivos del producto para el catálogo..."
+                          value={newProduct.commercial_description}
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, commercial_description: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', height: '60px', resize: 'vertical' }}
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>SKU *</label>
-                    <input
-                      type="text"
-                      placeholder="Ej. GSU-SLV-001"
-                      value={newProduct.sku}
-                      required
-                      onChange={(e) => setNewProduct(prev => ({ ...prev, sku: e.target.value }))}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
+
+                  {/* Seccion 2: Datos de Fabricacion (Confidenciales) */}
+                  <div style={{ background: 'rgba(255, 9, 187, 0.02)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255, 9, 187, 0.1)' }}>
+                    <h3 style={{ fontSize: '14px', fontWeight: '700', color: 'var(--pink-neon)', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+                      🔒 Datos de Fabricación (Confidenciales Internos)
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Fábrica Proveedora</label>
+                        <input
+                          type="text"
+                          placeholder="Ej. Dongguan Card Supplies Factory"
+                          value={newProduct.factory_name}
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, factory_name: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>SKU de Fábrica (Código del Proveedor)</label>
+                        <input
+                          type="text"
+                          placeholder="Ej. DG-SLV-M01-BK"
+                          value={newProduct.factory_sku}
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, factory_sku: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Costo de Fabricación por Caja (USD)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="Ej. 95.00"
+                          value={newProduct.factory_cost_per_case_usd}
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, factory_cost_per_case_usd: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Códigos de Color Pantone (PMS)</label>
+                        <input
+                          type="text"
+                          placeholder="Ej. Pantone Black 6C, 293C"
+                          value={newProduct.pantone_codes}
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, pantone_codes: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Medida de Corte en Producción</label>
+                        <input
+                          type="text"
+                          placeholder="Ej. 68x93 mm"
+                          value={newProduct.cut_measurements}
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, cut_measurements: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div style={{ gridColumn: 'span 2' }}>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Notas Internas de Fabricación</label>
+                        <textarea
+                          placeholder="Ej. Controlar opacidad mediante doble extrusión. Temperatura de sellado: 145C..."
+                          value={newProduct.fabrication_notes}
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, fabrication_notes: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', height: '60px', resize: 'vertical' }}
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Código de Barras (EAN / UPC)</label>
-                    <input
-                      type="text"
-                      placeholder="Ej. 7427246231221"
-                      value={newProduct.barcode}
-                      onChange={(e) => setNewProduct(prev => ({ ...prev, barcode: e.target.value }))}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
+
+                  {/* Seccion 3: Logistica e Inventarios */}
+                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.04)' }}>
+                    <h3 style={{ fontSize: '14px', fontWeight: '700', color: 'var(--cyan-neon)', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+                      📦 Logística de Master Case e Inventarios
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Peso Caja (KG) *</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="Ej. 12.50"
+                          value={newProduct.case_weight_kg}
+                          required
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, case_weight_kg: parseFloat(e.target.value) || 0 }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Largo Caja (cm) *</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          placeholder="Ej. 45.0"
+                          value={newProduct.case_length_cm}
+                          required
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, case_length_cm: parseFloat(e.target.value) || 0 }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Ancho Caja (cm) *</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          placeholder="Ej. 35.0"
+                          value={newProduct.case_width_cm}
+                          required
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, case_width_cm: parseFloat(e.target.value) || 0 }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Alto Caja (cm) *</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          placeholder="Ej. 25.0"
+                          value={newProduct.case_height_cm}
+                          required
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, case_height_cm: parseFloat(e.target.value) || 0 }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Stock Físico (Cajas) *</label>
+                        <input
+                          type="number"
+                          value={newProduct.stock_physical_cases}
+                          required
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, stock_physical_cases: parseInt(e.target.value) || 0 }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Stock En Producción *</label>
+                        <input
+                          type="number"
+                          value={newProduct.stock_in_production_cases}
+                          required
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, stock_in_production_cases: parseInt(e.target.value) || 0 }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Categoría *</label>
-                    <select
-                      value={newProduct.category}
-                      required
-                      onChange={(e) => setNewProduct(prev => ({ ...prev, category: e.target.value }))}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    >
-                      {categoriesList.map(cat => (
-                        <option key={cat.id} value={cat.slug}>{cat.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Marca *</label>
-                    <select
-                      value={newProduct.brand}
-                      required
-                      onChange={(e) => setNewProduct(prev => ({ ...prev, brand: e.target.value }))}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    >
-                      {brandsList.map(b => (
-                        <option key={b.id} value={b.name}>{b.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Costo de Caja B2B ($ USD) *</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="Ej. 45.00"
-                      value={newProduct.price_per_case_usd}
-                      required
-                      onChange={(e) => setNewProduct(prev => ({ ...prev, price_per_case_usd: e.target.value }))}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>PVP Sugerido ($ USD)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="Ej. 5.99"
-                      value={newProduct.pvp_price_usd}
-                      onChange={(e) => setNewProduct(prev => ({ ...prev, pvp_price_usd: e.target.value }))}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Costo Unitario Interno ($ USD)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="Ej. 1.20"
-                      value={newProduct.cost_price_usd}
-                      onChange={(e) => setNewProduct(prev => ({ ...prev, cost_price_usd: e.target.value }))}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Unidades por Caja Master</label>
-                    <input
-                      type="number"
-                      value={newProduct.units_per_case}
-                      onChange={(e) => setNewProduct(prev => ({ ...prev, units_per_case: parseInt(e.target.value) || 1 }))}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Stock Cajas Master *</label>
-                    <input
-                      type="number"
-                      value={newProduct.stock_cases}
-                      required
-                      onChange={(e) => setNewProduct(prev => ({ ...prev, stock_cases: parseInt(e.target.value) || 0 }))}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                  <div style={{ gridColumn: 'span 2' }}>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Imagen URL</label>
-                    <input
-                      type="url"
-                      placeholder="https://ejemplo.com/imagen.jpg"
-                      value={newProduct.image_url}
-                      onChange={(e) => setNewProduct(prev => ({ ...prev, image_url: e.target.value }))}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                  <div style={{ gridColumn: 'span 2' }}>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Video URL</label>
-                    <input
-                      type="url"
-                      placeholder="https://youtube.com/watch?v=..."
-                      value={newProduct.video_url}
-                      onChange={(e) => setNewProduct(prev => ({ ...prev, video_url: e.target.value }))}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                  <div style={{ gridColumn: 'span 2' }}>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Carpeta Recursos de Marketing (Google Drive / Dropbox)</label>
-                    <input
-                      type="url"
-                      placeholder="https://drive.google.com/drive/folders/..."
-                      value={newProduct.marketing_resources_url}
-                      onChange={(e) => setNewProduct(prev => ({ ...prev, marketing_resources_url: e.target.value }))}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                  <div style={{ gridColumn: 'span 2', display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
-                    <button type="submit" className="btn-neon" style={{ flexGrow: 1, padding: '12px' }}>
-                      {editingProduct ? 'Guardar Cambios' : 'Registrar Producto'}
-                    </button>
+
+                  {/* Acciones */}
+                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '12px' }}>
                     <button
                       type="button"
                       onClick={() => {
                         setEditingProduct(null);
                         setCreatingProduct(false);
                         setNewProduct({
-                          name: '', sku: '', category: categoriesList[0]?.slug || '', brand: brandsList[0]?.name || '',
-                          barcode: '', units_per_case: 1, weight_per_unit_g: 100, length_cm: 0, width_cm: 0, height_cm: 0,
-                          price_per_case_usd: '', pvp_price_usd: '', cost_price_usd: '', stock_cases: 0, image_url: '',
-                          video_url: '', marketing_resources_url: ''
+                          name: '', sku: '', category: categoriesList[0]?.slug || '',
+                          image_url: '', commercial_description: '', price_per_case_usd: '',
+                          units_per_case: 100, finished_measurements: '',
+                          factory_name: '', factory_sku: '', factory_cost_per_case_usd: '',
+                          pantone_codes: '', cut_measurements: '', fabrication_notes: '',
+                          case_weight_kg: 10, case_length_cm: 40, case_width_cm: 30, case_height_cm: 20,
+                          stock_physical_cases: 0, stock_in_production_cases: 0
                         });
                       }}
-                      style={{ background: 'transparent', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 20px', borderRadius: '8px', cursor: 'pointer' }}
+                      className="btn-glass"
+                      style={{ padding: '12px 24px', fontSize: '14px' }}
                     >
                       Cancelar
+                    </button>
+                    <button type="submit" className="btn-glass-neon" style={{ padding: '12px 32px', fontSize: '14px' }}>
+                      {editingProduct ? '💾 Guardar Cambios' : '🚀 Registrar Producto'}
                     </button>
                   </div>
                 </form>
@@ -1525,106 +1725,157 @@ function App() {
                 {productList.map(product => {
                   const inCartQty = cart[product.id] || 0;
                   const priceNum = parseFloat(product.price_per_case_usd);
+                  const isExpanded = expandedFactoryProductId === product.id;
+                  
                   return (
-                    <div key={product.id} className="glass-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '420px' }}>
+                    <div key={product.id} className="glass-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '440px', position: 'relative', border: isExpanded ? '1px solid var(--pink-neon)' : '1px solid rgba(255,255,255,0.08)' }}>
                       <div>
                         {/* Imagen del Producto */}
-                        <div style={{ width: '100%', height: '160px', background: 'rgba(0,232,255,0.02)', border: '1px solid rgba(255,255,255,0.03)', borderRadius: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '16px', overflow: 'hidden' }}>
+                        <div style={{ width: '100%', height: '180px', background: 'rgba(0,232,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '16px', overflow: 'hidden', position: 'relative' }}>
                           {product.image_url ? (
                             <img src={product.image_url} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                           ) : (
-                            <svg width="80" height="80" viewBox="0 0 24 24" fill="none"
-                              stroke="var(--cyan-neon)"
-                              strokeWidth="1">
+                            <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="rgba(0, 232, 255, 0.3)" strokeWidth="1">
                               <rect x="4" y="2" width="16" height="20" rx="2" />
+                              <line x1="8" y1="6" x2="16" y2="6" />
+                              <line x1="8" y1="10" x2="16" y2="10" />
                             </svg>
                           )}
+                          <span className="badge badge-pink" style={{ position: 'absolute', top: '10px', right: '10px', fontSize: '9px' }}>
+                            {product.category}
+                          </span>
                         </div>
-                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                          <span className="badge badge-cyan" style={{ fontSize: '9px' }}>{product.brand || 'Gosu'}</span>
-                          <span className="badge badge-pink" style={{ fontSize: '9px' }}>{product.category}</span>
-                        </div>
-                        <h3 style={{ fontSize: '18px', margin: '0 0 4px', fontWeight: '700', lineHeight: '1.2' }}>{product.name}</h3>
-                        <p style={{ color: 'var(--text-secondary)', fontSize: '12px', fontFamily: 'monospace' }}>SKU: {product.sku}</p>
-                        {product.barcode && <p style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>EAN: {product.barcode}</p>}
-                        <p style={{ color: 'var(--text-muted)', fontSize: '11px', marginTop: '4px' }}>
-                          Stock: <strong style={{ color: product.stock_cases > 10 ? 'var(--green-neon)' : 'var(--orange-neon)' }}>{product.stock_cases} cajas</strong>
-                        </p>
 
-                        {/* Recursos de Marketing */}
-                        {(product.video_url || product.marketing_resources_url) && (
-                          <div style={{ marginTop: '8px', display: 'flex', gap: '10px', fontSize: '11px' }}>
-                            {product.video_url && (
-                              <a href={product.video_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--cyan-neon)', textDecoration: 'none' }}>
-                                🎥 Video Demo
-                              </a>
-                            )}
-                            {product.marketing_resources_url && (
-                              <a href={product.marketing_resources_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--pink-neon)', textDecoration: 'none' }}>
-                                📂 Assets Drive
-                              </a>
+                        <h3 style={{ fontSize: '18px', margin: '0 0 6px', fontWeight: '800', color: '#fff', lineHeight: '1.2' }}>{product.name}</h3>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '12px', fontFamily: 'monospace', marginBottom: '6px' }}>SKU: {product.sku}</p>
+                        
+                        {/* Descripción Comercial */}
+                        {product.commercial_description && (
+                          <p style={{ color: 'var(--text-secondary)', fontSize: '12.5px', lineHeights: '1.4', marginBottom: '12px', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                            {product.commercial_description}
+                          </p>
+                        )}
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px', fontSize: '12px' }}>
+                          {product.finished_measurements && (
+                            <span style={{ color: 'var(--text-secondary)' }}>
+                              📏 Medida Final: <strong>{product.finished_measurements}</strong>
+                            </span>
+                          )}
+                          <span style={{ color: 'var(--text-secondary)' }}>
+                            📦 Contenido: <strong>{product.units_per_case} unidades / caja</strong>
+                          </span>
+                          <span style={{ color: 'var(--text-secondary)' }}>
+                            Disponible: <strong style={{ color: product.stock_physical_cases > 10 ? 'var(--green-neon)' : 'var(--orange-neon)' }}>{product.stock_physical_cases} cajas</strong>
+                          </span>
+                        </div>
+
+                        {/* Ficha de Fabricación Expandible (Solo para Administradores) */}
+                        {isAdmin && (
+                          <div style={{ marginTop: '12px', marginBottom: '12px' }}>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedFactoryProductId(isExpanded ? null : product.id)}
+                              className="btn-glass"
+                              style={{ width: '100%', padding: '6px 12px', fontSize: '11px', fontWeight: '700', color: isExpanded ? 'var(--pink-neon)' : '#fff', border: isExpanded ? '1px solid var(--pink-neon)' : '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', cursor: 'pointer' }}
+                            >
+                              {isExpanded ? '🔒 Ocultar Ficha de Fábrica' : '🔒 Ver Ficha de Fábrica (Confidencial)'}
+                            </button>
+
+                            {isExpanded && (
+                              <div className="glass-panel" style={{ marginTop: '10px', padding: '14px', background: 'rgba(255,9,187,0.02)', border: '1px solid rgba(255,9,187,0.15)', borderRadius: '8px', fontSize: '11.5px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                <div style={{ color: 'var(--pink-neon)', fontWeight: '700', textTransform: 'uppercase', fontSize: '10px', letterSpacing: '0.5px' }}>Detalles de Producción en China</div>
+                                <div>🏭 Fábrica: <strong style={{ color: '#fff' }}>{product.factory_name || 'Sin asignar'}</strong></div>
+                                <div>🔖 SKU Proveedor: <strong style={{ color: '#fff' }}>{product.factory_sku || 'N/A'}</strong></div>
+                                <div>💰 Costo Fábrica: <strong style={{ color: 'var(--green-neon)' }}>${parseFloat(product.factory_cost_per_case_usd || 0).toFixed(2)} USD / caja</strong></div>
+                                <div>🎨 Pantone: <strong style={{ color: '#fff' }}>{product.pantone_codes || 'N/A'}</strong></div>
+                                <div>📐 Corte Fábrica: <strong style={{ color: '#fff' }}>{product.cut_measurements || 'N/A'}</strong></div>
+                                <div>⚙️ Stock en Producción: <strong style={{ color: 'var(--cyan-neon)' }}>{product.stock_in_production_cases || 0} cajas</strong></div>
+                                <div style={{ borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '6px', color: 'var(--cyan-neon)' }}>Logística de Despacho (CBM)</div>
+                                <div>⚖️ Peso Master Case: <strong>{product.case_weight_kg} kg</strong></div>
+                                <div>📏 Dimensiones Caja: <strong>{product.case_length_cm}x{product.case_width_cm}x{product.case_height_cm} cm</strong></div>
+                                <div>🚢 Volumen Calculado: <strong style={{ color: 'var(--cyan-neon)' }}>{parseFloat(product.case_cbm).toFixed(5)} CBM</strong></div>
+                                {product.fabrication_notes && (
+                                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '6px' }}>
+                                    📝 <em style={{ fontStyle: 'normal', color: 'var(--text-muted)' }}>Notas: {product.fabrication_notes}</em>
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </div>
                         )}
                       </div>
 
-                      <div style={{ marginTop: '20px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <div style={{ marginTop: '16px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                           <div>
-                            <span style={{ fontSize: '20px', fontWeight: '900', color: 'var(--cyan-neon)' }}>${priceNum.toFixed(2)}</span>
+                            <span style={{ fontSize: '22px', fontWeight: '900', color: 'var(--cyan-neon)' }}>${priceNum.toFixed(2)}</span>
                             <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}> / caja</span>
-                            {product.pvp_price_usd && (
-                              <div style={{ fontSize: '10px', color: 'var(--orange-neon)', marginTop: '2px' }}>PVP Sugerido: ${parseFloat(product.pvp_price_usd).toFixed(2)}</div>
-                            )}
                           </div>
-                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>({product.units_per_case} packs/caja)</span>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>(FOB China)</span>
                         </div>
 
-                        {/* Controles de Carrito para Clientes */}
+                        {/* Controles de Carrito para Clientes B2B */}
                         {!isAdmin && (
                           inCartQty > 0 ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'center' }}>
-                              <button onClick={() => handleRemoveFromCart(product.id)} style={{ padding: '6px 12px', background: '#222', border: '1px solid #444', color: '#fff', borderRadius: '6px', cursor: 'pointer' }}>-</button>
-                              <span style={{ fontWeight: '700', fontSize: '16px' }}>{inCartQty} {inCartQty === 1 ? 'Caja' : 'Cajas'}</span>
-                              <button onClick={() => handleAddToCart(product.id)} style={{ padding: '6px 12px', background: '#222', border: '1px solid #444', color: '#fff', borderRadius: '6px', cursor: 'pointer' }}>+</button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'center' }}>
+                              <button onClick={() => handleRemoveFromCart(product.id)} className="btn-glass" style={{ padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>-</button>
+                              <span style={{ fontWeight: '700', fontSize: '15px', color: '#fff' }}>{inCartQty} {inCartQty === 1 ? 'Caja' : 'Cajas'}</span>
+                              <button onClick={() => handleAddToCart(product.id)} className="btn-glass" style={{ padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>+</button>
                             </div>
                           ) : (
                             <button
                               id={`add-to-cart-${product.id}`}
-                              className="btn-neon"
-                              style={{ width: '100%' }}
+                              className="btn-glass-neon"
+                              style={{ width: '100%', padding: '10px 16px', fontSize: '13px' }}
                               onClick={() => handleAddToCart(product.id)}
-                              disabled={product.stock_cases === 0}
+                              disabled={product.stock_physical_cases === 0}
                             >
-                              {product.stock_cases === 0 ? 'Sin Stock' : 'Añadir al Carrito B2B'}
+                              {product.stock_physical_cases === 0 ? 'Sin Stock' : 'Añadir al Pedido B2B'}
                             </button>
                           )
                         )}
 
                         {/* Botones de Administración (Solo Admin) */}
                         {isAdmin && (
-                          <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                          <div style={{ display: 'flex', gap: '8px' }}>
                             <button 
                               onClick={() => {
                                 setEditingProduct(product);
                                 setCreatingProduct(false);
                                 setNewProduct({
-                                  name: product.name, sku: product.sku, category: product.category, brand: product.brand || brandsList[0]?.name || '',
-                                  barcode: product.barcode || '', units_per_case: product.units_per_case, weight_per_unit_g: product.weight_per_unit_g,
-                                  length_cm: product.length_cm, width_cm: product.width_cm, height_cm: product.height_cm,
-                                  price_per_case_usd: product.price_per_case_usd, pvp_price_usd: product.pvp_price_usd || '',
-                                  cost_price_usd: product.cost_price_usd || '', stock_cases: product.stock_cases, image_url: product.image_url || '',
-                                  video_url: product.video_url || '', marketing_resources_url: product.marketing_resources_url || ''
+                                  name: product.name,
+                                  sku: product.sku,
+                                  category: product.category,
+                                  image_url: product.image_url || '',
+                                  commercial_description: product.commercial_description || '',
+                                  price_per_case_usd: product.price_per_case_usd,
+                                  units_per_case: product.units_per_case,
+                                  finished_measurements: product.finished_measurements || '',
+                                  factory_name: product.factory_name || '',
+                                  factory_sku: product.factory_sku || '',
+                                  factory_cost_per_case_usd: product.factory_cost_per_case_usd || '',
+                                  pantone_codes: product.pantone_codes || '',
+                                  cut_measurements: product.cut_measurements || '',
+                                  fabrication_notes: product.fabrication_notes || '',
+                                  case_weight_kg: product.case_weight_kg,
+                                  case_length_cm: product.case_length_cm,
+                                  case_width_cm: product.case_width_cm,
+                                  case_height_cm: product.case_height_cm,
+                                  stock_physical_cases: product.stock_physical_cases || 0,
+                                  stock_in_production_cases: product.stock_in_production_cases || 0
                                 });
                                 window.scrollTo({ top: 0, behavior: 'smooth' });
                               }}
-                              style={{ flexGrow: 1, padding: '8px', background: 'rgba(0, 232, 255, 0.1)', border: '1px solid var(--cyan-neon)', color: 'var(--cyan-neon)', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}
+                              className="btn-glass-neon"
+                              style={{ flexGrow: 1, padding: '8px', fontSize: '12px' }}
                             >
                               ✏️ Editar
                             </button>
                             <button 
                               onClick={() => handleDeleteProduct(product.id)}
-                              style={{ padding: '8px 14px', background: 'rgba(255, 0, 127, 0.1)', border: '1px solid var(--pink-neon)', color: 'var(--pink-neon)', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}
+                              className="btn-glass-pink"
+                              style={{ padding: '8px 14px', fontSize: '12px' }}
                             >
                               🗑️
                             </button>
@@ -1638,18 +1889,28 @@ function App() {
             ) : (
               /* Vista Lista ( spreadsheet / tabla de alta densidad) */
               <div className="glass-panel" style={{ overflowX: 'auto', padding: '10px' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '950px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '1100px' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '700' }}>
                       <th style={{ padding: '12px' }}>Miniatura</th>
                       <th style={{ padding: '12px' }}>Producto</th>
-                      <th style={{ padding: '12px' }}>SKU / EAN</th>
-                      <th style={{ padding: '12px' }}>Marca / Categoría</th>
-                      <th style={{ padding: '12px' }}>Costo Caja B2B</th>
-                      <th style={{ padding: '12px' }}>PVP Sugerido</th>
-                      <th style={{ padding: '12px' }}>Stock</th>
-                      <th style={{ padding: '12px' }}>Recursos Marketing</th>
-                      <th style={{ padding: '12px', textAlign: 'center' }}>Acciones B2B</th>
+                      <th style={{ padding: '12px' }}>SKU Comercial</th>
+                      <th style={{ padding: '12px' }}>Categoría</th>
+                      <th style={{ padding: '12px' }}>Precio Caja (B2B)</th>
+                      
+                      {/* Columnas Adicionales solo para Administradores */}
+                      {isAdmin && (
+                        <>
+                          <th style={{ padding: '12px' }}>Fábrica Origen</th>
+                          <th style={{ padding: '12px' }}>Costo Fábrica</th>
+                          <th style={{ padding: '12px' }}>Logística (CBM)</th>
+                          <th style={{ padding: '12px' }}>Inventario Físico / Prod</th>
+                        </>
+                      )}
+                      
+                      {!isAdmin && <th style={{ padding: '12px' }}>Stock Disponible</th>}
+                      
+                      <th style={{ padding: '12px', textAlign: 'center' }}>Acciones</th>
                     </tr>
                   </thead>
                   <tbody style={{ fontSize: '13px' }}>
@@ -1665,44 +1926,49 @@ function App() {
                             )}
                           </td>
                           <td style={{ padding: '10px 12px', fontWeight: '700', color: '#fff' }}>{product.name}</td>
+                          <td style={{ padding: '10px 12px', fontFamily: 'monospace' }}>{product.sku}</td>
                           <td style={{ padding: '10px 12px' }}>
-                            <div>SKU: <strong style={{ fontFamily: 'monospace' }}>{product.sku}</strong></div>
-                            {product.barcode && <div style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>EAN: {product.barcode}</div>}
-                          </td>
-                          <td style={{ padding: '10px 12px' }}>
-                            <span className="badge badge-cyan" style={{ fontSize: '9px', marginRight: '4px' }}>{product.brand || 'Gosu'}</span>
                             <span className="badge badge-pink" style={{ fontSize: '9px' }}>{product.category}</span>
                           </td>
                           <td style={{ padding: '10px 12px', fontWeight: '700', color: 'var(--cyan-neon)' }}>
                             ${parseFloat(product.price_per_case_usd).toFixed(2)} USD
                             <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>({product.units_per_case} uds/caja)</div>
                           </td>
-                          <td style={{ padding: '10px 12px', color: 'var(--orange-neon)', fontWeight: '600' }}>
-                            {product.pvp_price_usd ? `$${parseFloat(product.pvp_price_usd).toFixed(2)} USD` : 'N/A'}
-                          </td>
-                          <td style={{ padding: '10px 12px' }}>
-                            <span className={product.stock_cases > 0 ? 'badge badge-green' : 'badge-pink'} style={{ fontSize: '9px' }}>
-                              {product.stock_cases > 0 ? `${product.stock_cases} Cajas` : 'Sin Stock'}
-                            </span>
-                          </td>
-                          <td style={{ padding: '10px 12px' }}>
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                              {product.video_url && (
-                                <a href={product.video_url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: 'var(--cyan-neon)' }} title="Ver Video Demostrativo">
-                                  🎥 Video
-                                </a>
-                              )}
-                              {product.marketing_resources_url && (
-                                <a href={product.marketing_resources_url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: 'var(--pink-neon)' }} title="Recursos de Marketing (Fotos, Banners)">
-                                  📂 Assets
-                                </a>
-                              )}
-                            </div>
-                          </td>
-                          <td style={{ padding: '10px 12px' }}>
+                          
+                          {/* Datos Confidenciales solo para Admin */}
+                          {isAdmin && (
+                            <>
+                              <td style={{ padding: '10px 12px' }}>
+                                <div style={{ fontWeight: '600', color: '#fff' }}>{product.factory_name || 'N/A'}</div>
+                                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>SKU Proveedor: {product.factory_sku || 'N/A'}</div>
+                              </td>
+                              <td style={{ padding: '10px 12px', fontWeight: '700', color: 'var(--pink-neon)' }}>
+                                ${parseFloat(product.factory_cost_per_case_usd || 0).toFixed(2)} USD
+                              </td>
+                              <td style={{ padding: '10px 12px', fontSize: '11.5px' }}>
+                                <div>{product.case_weight_kg} kg | {parseFloat(product.case_cbm).toFixed(5)} CBM</div>
+                                <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>{product.case_length_cm}x{product.case_width_cm}x{product.case_height_cm} cm</div>
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <div style={{ fontWeight: '600', color: 'var(--green-neon)' }}>{product.stock_physical_cases} cajas (Físico)</div>
+                                <div style={{ fontSize: '11px', color: 'var(--cyan-neon)' }}>{product.stock_in_production_cases} cajas (En Prod.)</div>
+                              </td>
+                            </>
+                          )}
+                          
+                          {/* Stock para Cliente */}
+                          {!isAdmin && (
+                            <td style={{ padding: '10px 12px' }}>
+                              <span className={product.stock_physical_cases > 0 ? 'badge badge-green' : 'badge-pink'} style={{ fontSize: '9px' }}>
+                                {product.stock_physical_cases > 0 ? `${product.stock_physical_cases} Cajas` : 'Sin Stock'}
+                              </span>
+                            </td>
+                          )}
+                          
+                          <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                             {/* Vista Cliente: Controles de compra */}
                             {!isAdmin && (
-                              product.stock_cases > 0 ? (
+                              product.stock_physical_cases > 0 ? (
                                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center' }}>
                                   {inCartQty > 0 && (
                                     <>
@@ -1715,35 +1981,51 @@ function App() {
                                   </button>
                                 </div>
                               ) : (
-                                <span style={{ color: 'var(--text-muted)', display: 'block', textAlign: 'center' }}>Agotado</span>
+                                <span style={{ color: 'var(--text-muted)' }}>Agotado</span>
                               )
                             )}
 
                             {/* Vista Admin: Controles de edición */}
                             {isAdmin && (
-                              <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                              <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
                                 <button 
                                   onClick={() => {
                                     setEditingProduct(product);
                                     setCreatingProduct(false);
                                     setNewProduct({
-                                      name: product.name, sku: product.sku, category: product.category, brand: product.brand || brandsList[0]?.name || '',
-                                      barcode: product.barcode || '', units_per_case: product.units_per_case, weight_per_unit_g: product.weight_per_unit_g,
-                                      length_cm: product.length_cm, width_cm: product.width_cm, height_cm: product.height_cm,
-                                      price_per_case_usd: product.price_per_case_usd, pvp_price_usd: product.pvp_price_usd || '',
-                                      cost_price_usd: product.cost_price_usd || '', stock_cases: product.stock_cases, image_url: product.image_url || '',
-                                      video_url: product.video_url || '', marketing_resources_url: product.marketing_resources_url || ''
+                                      name: product.name,
+                                      sku: product.sku,
+                                      category: product.category,
+                                      image_url: product.image_url || '',
+                                      commercial_description: product.commercial_description || '',
+                                      price_per_case_usd: product.price_per_case_usd,
+                                      units_per_case: product.units_per_case,
+                                      finished_measurements: product.finished_measurements || '',
+                                      factory_name: product.factory_name || '',
+                                      factory_sku: product.factory_sku || '',
+                                      factory_cost_per_case_usd: product.factory_cost_per_case_usd || '',
+                                      pantone_codes: product.pantone_codes || '',
+                                      cut_measurements: product.cut_measurements || '',
+                                      fabrication_notes: product.fabrication_notes || '',
+                                      case_weight_kg: product.case_weight_kg,
+                                      case_length_cm: product.case_length_cm,
+                                      case_width_cm: product.case_width_cm,
+                                      case_height_cm: product.case_height_cm,
+                                      stock_physical_cases: product.stock_physical_cases || 0,
+                                      stock_in_production_cases: product.stock_in_production_cases || 0
                                     });
                                     window.scrollTo({ top: 0, behavior: 'smooth' });
                                   }}
-                                  style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', cursor: 'pointer', fontSize: '14px' }}
+                                  className="btn-glass-neon"
+                                  style={{ padding: '6px 10px', fontSize: '12px' }}
                                   title="Editar Producto"
                                 >
-                                  ✏️
+                                  ✏️ Editar
                                 </button>
                                 <button 
                                   onClick={() => handleDeleteProduct(product.id)}
-                                  style={{ background: 'transparent', border: 'none', color: 'var(--pink-neon)', cursor: 'pointer', fontSize: '14px' }}
+                                  className="btn-glass-pink"
+                                  style={{ padding: '6px 10px', fontSize: '12px' }}
                                   title="Eliminar Producto"
                                 >
                                   🗑️
@@ -1775,90 +2057,134 @@ function App() {
 
             {clientOrders.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
-                <p style={{ fontSize: '18px', marginBottom: '8px' }}>No tienes pedidos aún.</p>
-                <button className="btn-neon" onClick={() => setActiveTab('catalog')}>Ir al Catálogo</button>
+                <p style={{ fontSize: '18px', marginBottom: '8px' }}>No tienes pedidos aún en el sistema.</p>
+                <button className="btn-neon" onClick={() => setActiveTab('catalog')}>Ir al Catálogo Comercial</button>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                {clientOrders.map(order => (
-                  <div key={order.id} className="glass-panel" style={{ padding: '24px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
-                      <div>
-                        <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Pedido</span>
-                        <h3 style={{ fontSize: '20px', fontWeight: '800', color: '#fff', fontFamily: 'monospace' }}>#{order.id.split('-')[0].toUpperCase()}</h3>
-                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{new Date(order.created_at).toLocaleDateString('es-ES')}</span>
-                        {isAdmin && <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Cliente: <strong>{order.client_name}</strong></div>}
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <span style={{ fontSize: '14px', color: 'var(--text-secondary)', display: 'block' }}>Total Pedido</span>
-                        <strong style={{ fontSize: '20px', color: 'var(--cyan-neon)' }}>${parseFloat(order.total_amount_usd).toFixed(2)} USD</strong>
-                        {parseFloat(order.discount_percent) > 0 && (
-                          <div style={{ fontSize: '11px', color: 'var(--pink-neon)' }}>-{order.discount_percent}% descuento aplicado</div>
-                        )}
-                      </div>
-                      <span className={`badge ${
-                        order.status === 'in_production' ? 'badge-orange' :
-                        order.status === 'ready' || order.status === 'payment_confirmed' ? 'badge-cyan' :
-                        order.status === 'delivered' ? 'badge-green' : 'badge-pink'
-                      }`}>
-                        {{
-                          'pending_payment':   '⏳ Pendiente de Pago',
-                          'payment_confirmed': '✅ Pago Confirmado',
-                          'in_production':     '⚙️ En Fabricación',
-                          'ready':             '📦 Listo para Despacho',
-                          'in_dispatch':       '🚢 En Tránsito',
-                          'delivered':         '✓ Entregado',
-                        }[order.status] || order.status}
-                      </span>
+                {clientOrders.map(order => {
+                  const token = localStorage.getItem('gosu_token');
+                  
+                  return (
+                    <div key={order.id} className="glass-panel" style={{ padding: '24px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Pedido</span>
+                            <h3 style={{ fontSize: '20px', fontWeight: '800', color: '#fff', fontFamily: 'monospace', margin: 0 }}>
+                              #{order.id.split('-')[0].toUpperCase()}
+                            </h3>
+                          </div>
+                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                            Fecha: {new Date(order.created_at).toLocaleString('es-ES')}
+                          </span>
+                          {isAdmin && (
+                            <div style={{ fontSize: '11.5px', color: 'var(--cyan-neon)', marginTop: '4px' }}>
+                              Cliente B2B: <strong>{order.company_name}</strong> ({order.client_name})
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div style={{ textAlign: 'right' }}>
+                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block' }}>Total FOB</span>
+                          <strong style={{ fontSize: '20px', color: 'var(--green-neon)' }}>
+                            ${parseFloat(order.total_usd || order.total_amount_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                          </strong>
+                          {parseFloat(order.discount_usd) > 0 && (
+                            <div style={{ fontSize: '10.5px', color: 'var(--pink-neon)' }}>
+                              Descuento aplicado: ${parseFloat(order.discount_usd).toFixed(2)} USD
+                            </div>
+                          )}
+                        </div>
 
-                      {/* Admin: cambiar estado */}
-                      {isAdmin && (
-                        <select
-                          value={order.status}
-                          onChange={async (e) => {
-                            try {
-                              await ordersApi.updateStatus(order.id, e.target.value);
-                              await loadOrders();
-                            } catch(err) {
-                              alert(`Error: ${err.message}`);
-                            }
-                          }}
-                          style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 12px', borderRadius: '6px', fontSize: '12px' }}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <span className={`badge ${
+                            order.status === 'Draft' ? 'badge-pink' :
+                            order.status === 'Proforma' ? 'badge-cyan' :
+                            order.status === 'Production' ? 'badge-orange' :
+                            order.status === 'QC Inspection' ? 'badge-orange' :
+                            order.status === 'Port' ? 'badge-cyan' :
+                            order.status === 'Transit' ? 'badge-orange' :
+                            'badge-green'
+                          }`} style={{ fontSize: '11.5px', padding: '6px 12px' }}>
+                            {order.status}
+                          </span>
+
+                          {/* Admin: cambiar estado del pedido */}
+                          {isAdmin && (
+                            <select
+                              value={order.status}
+                              onChange={async (e) => {
+                                try {
+                                  await ordersApi.updateStatus(order.id, e.target.value);
+                                  await loadOrders();
+                                } catch(err) {
+                                  alert(`❌ Error al cambiar estado: ${err.message}`);
+                                }
+                              }}
+                              style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600' }}
+                            >
+                              <option value="Draft">Draft (Borrador)</option>
+                              <option value="Proforma">Proforma Invoice</option>
+                              <option value="Production">Production (Fabricación)</option>
+                              <option value="QC Inspection">QC Inspection (Calidad)</option>
+                              <option value="Port">Port (FOB/CIF)</option>
+                              <option value="Transit">Transit (En Tránsito)</option>
+                              <option value="Delivered">Delivered (Entregado)</option>
+                            </select>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Logística y Detalle del Pedido */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)', fontSize: '13px' }}>
+                          <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px' }}>Incoterm</span>
+                          <strong style={{ color: '#fff' }}>{order.incoterm || 'FOB China'}</strong>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)', fontSize: '13px' }}>
+                          <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px' }}>Volumen Cubierto</span>
+                          <strong style={{ color: 'var(--cyan-neon)' }}>{parseFloat(order.total_cbm || 0).toFixed(4)} CBM</strong>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)', fontSize: '13px' }}>
+                          <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px' }}>Cajas Totales</span>
+                          <strong style={{ color: '#fff' }}>{order.total_cases || 0} master cases</strong>
+                        </div>
+                      </div>
+
+                      {/* Items del pedido */}
+                      <div style={{ marginBottom: '20px', background: 'rgba(0,0,0,0.15)', padding: '14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.02)' }}>
+                        <h4 style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Productos del Lote Comercial:</h4>
+                        <ul style={{ listStyle: 'none', paddingLeft: '0', margin: 0 }}>
+                          {order.items?.map((item, idx) => (
+                            <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.02)', fontSize: '13px' }}>
+                              <span>{item.name} <em style={{ fontSize: '11px', color: 'var(--text-secondary)', fontStyle: 'normal' }}>(SKU: {item.sku})</em></span>
+                              <strong>{item.qty_cases} {item.qty_cases === 1 ? 'Caja master' : 'Cajas master'}</strong>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* Descarga Directa de Documentos en Nueva Pestaña */}
+                      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                        <button 
+                          className="btn-glass" 
+                          onClick={() => window.open(`/api/orders/${order.id}/invoice?token=${token}`, '_blank')}
+                          style={{ padding: '8px 16px', fontSize: '12.5px', fontWeight: '700' }}
                         >
-                          <option value="pending_payment">Pendiente de Pago</option>
-                          <option value="payment_confirmed">Pago Confirmado</option>
-                          <option value="in_production">En Fabricación</option>
-                          <option value="ready">Listo</option>
-                          <option value="in_dispatch">En Tránsito</option>
-                          <option value="delivered">Entregado</option>
-                        </select>
-                      )}
+                          📄 Commercial Invoice / Proforma (PDF)
+                        </button>
+                        <button 
+                          className="btn-glass-pink" 
+                          onClick={() => window.open(`/api/orders/${order.id}/packing-list?token=${token}`, '_blank')}
+                          style={{ padding: '8px 16px', fontSize: '12.5px', fontWeight: '700' }}
+                        >
+                          📦 Packing List Oficial (PDF)
+                        </button>
+                      </div>
                     </div>
-
-                    {/* Items del pedido */}
-                    <div style={{ marginBottom: '20px' }}>
-                      <h4 style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Detalle de cajas:</h4>
-                      <ul style={{ listStyle: 'none', paddingLeft: '0' }}>
-                        {order.items?.map((item, idx) => (
-                          <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px dotted rgba(255,255,255,0.05)', fontSize: '14px' }}>
-                            <span>{item.name}</span>
-                            <strong>{item.qty_cases} {item.qty_cases === 1 ? 'Caja master' : 'Cajas master'}</strong>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    {/* Botones de Documentos */}
-                    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                      <button className="btn-neon" onClick={() => { setSelectedOrderForDoc(order); setDocType('invoice'); }}>
-                        📄 Commercial Invoice
-                      </button>
-                      <button className="btn-pink" onClick={() => { setSelectedOrderForDoc(order); setDocType('packing_list'); }}>
-                        📦 Packing List
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1869,105 +2195,432 @@ function App() {
         {/* ===================================================== */}
         {activeTab === 'admin' && isAdmin && !dataLoading && (
           <div>
-            <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
-              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Control Interno de Fabricación</h1>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                Monitoreo de costos de insumos, pagos adelantados y saldos pendientes con la fábrica.
-              </p>
+            <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+              <div>
+                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Control Interno de Fabricación</h1>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                  Supervisa la cadena de suministro en China: cubicaje de embarques, estados de producción y logs de auditoría.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowProdForm(!showProdForm);
+                  if (!showProdForm) {
+                    setProdForm({
+                      factory_name: 'Dongguan Card Supplies Factory',
+                      estimated_completion_date: '',
+                      tracking_number: '',
+                      status: 'Production',
+                      items: []
+                    });
+                  }
+                }}
+                className="btn-pink"
+                style={{ padding: '10px 20px', fontSize: '13px' }}
+              >
+                {showProdForm ? 'Cerrar Formulario' : '➕ Crear Orden de Producción'}
+              </button>
             </div>
 
-            {/* KPIs financieros */}
+            {/* KPIs logísticos y financieros */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '32px' }}>
               {(() => {
                 const totalCost = productionOrders.reduce((a, o) => a + parseFloat(o.total_cost_usd || 0), 0);
-                const totalAdvance = productionOrders.reduce((a, o) => a + parseFloat(o.advance_payment_usd || 0), 0);
-                const totalPending = productionOrders.reduce((a, o) => a + parseFloat(o.pending_balance_usd || 0), 0);
+                const totalCbm = productionOrders.reduce((a, o) => a + parseFloat(o.total_cbm || 0), 0);
+                const activeOrders = productionOrders.filter(o => o.status !== 'Delivered').length;
                 return (
                   <>
-                    <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--cyan-neon)' }}>
-                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Costo Total de Fabricación</span>
-                      <h2 style={{ fontSize: '28px', fontWeight: '900', color: '#fff', marginTop: '8px' }}>${totalCost.toFixed(2)}</h2>
+                    <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--pink-neon)' }}>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Inversión Total Lotes</span>
+                      <h2 style={{ fontSize: '28px', fontWeight: '900', color: '#fff', marginTop: '8px' }}>${totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h2>
                     </div>
-                    <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--green-neon)' }}>
-                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Pagos Realizados</span>
-                      <h2 style={{ fontSize: '28px', fontWeight: '900', color: 'var(--green-neon)', marginTop: '8px' }}>${totalAdvance.toFixed(2)}</h2>
+                    <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--cyan-neon)' }}>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Volumen Acumulado de Carga</span>
+                      <h2 style={{ fontSize: '28px', fontWeight: '900', color: 'var(--cyan-neon)', marginTop: '8px' }}>{totalCbm.toFixed(4)} CBM</h2>
                     </div>
                     <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--orange-neon)' }}>
-                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Saldo Pendiente con Planta</span>
-                      <h2 style={{ fontSize: '28px', fontWeight: '900', color: 'var(--orange-neon)', marginTop: '8px' }}>${totalPending.toFixed(2)}</h2>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Órdenes en Tránsito / Prod.</span>
+                      <h2 style={{ fontSize: '28px', fontWeight: '900', color: 'var(--orange-neon)', marginTop: '8px' }}>{activeOrders} Activas</h2>
                     </div>
                   </>
                 );
               })()}
             </div>
 
-            <h2 style={{ fontSize: '20px', marginBottom: '16px', fontWeight: '700' }}>Órdenes de Producción</h2>
-            {productionOrders.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
-                No hay órdenes de producción activas.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                {productionOrders.map(pOrder => (
-                  <div key={pOrder.id} className="glass-panel" style={{ padding: '24px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '16px' }}>
-                      <div>
-                        <h3 style={{ fontSize: '18px', fontWeight: '800' }}>Orden #{pOrder.id.split('-')[0].toUpperCase()}</h3>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{new Date(pOrder.created_at).toLocaleDateString('es-ES')}</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <span className={`badge ${pOrder.status === 'sent' ? 'badge-cyan' : pOrder.status === 'production_started' ? 'badge-orange' : 'badge-green'}`}>
-                          {{ 'sent': 'Enviada', 'production_started': 'En Fabricación', 'production_completed': 'Completada' }[pOrder.status]}
-                        </span>
-                        <select
-                          value={pOrder.status}
-                          onChange={async (e) => {
-                            try {
-                              await productionApi.updateStatus(pOrder.id, e.target.value);
-                              await loadProduction();
-                            } catch(err) {
-                              alert(`Error: ${err.message}`);
-                            }
-                          }}
-                          style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 12px', borderRadius: '6px', fontSize: '12px' }}
-                        >
-                          <option value="sent">Enviada</option>
-                          <option value="production_started">En Fabricación</option>
-                          <option value="production_completed">Completada</option>
-                        </select>
-                      </div>
+            {/* Formulario de Registro de Orden de Producción */}
+            {showProdForm && (
+              <div className="glass-panel" style={{ padding: '28px', marginBottom: '32px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <h2 style={{ fontSize: '20px', fontWeight: '800', marginBottom: '20px', color: 'var(--pink-neon)' }}>
+                  🚀 Nueva Orden de Producción (FOB China)
+                </h2>
+                
+                <form onSubmit={handleCreateProductionOrder} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Fábrica Proveedora *</label>
+                      <input
+                        type="text"
+                        required
+                        value={prodForm.factory_name}
+                        onChange={(e) => setProdForm(prev => ({ ...prev, factory_name: e.target.value }))}
+                        style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
                     </div>
-
-                    {/* Financial summary */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px', fontSize: '13px' }}>
-                      <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '8px' }}>
-                        <div style={{ color: 'var(--text-secondary)' }}>Costo Total</div>
-                        <strong style={{ color: '#fff', fontSize: '15px' }}>${parseFloat(pOrder.total_cost_usd).toFixed(2)}</strong>
-                      </div>
-                      <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '8px' }}>
-                        <div style={{ color: 'var(--text-secondary)' }}>Adelanto</div>
-                        <strong style={{ color: 'var(--green-neon)', fontSize: '15px' }}>${parseFloat(pOrder.advance_payment_usd).toFixed(2)}</strong>
-                      </div>
-                      <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '8px' }}>
-                        <div style={{ color: 'var(--text-secondary)' }}>Pendiente</div>
-                        <strong style={{ color: 'var(--orange-neon)', fontSize: '15px' }}>${parseFloat(pOrder.pending_balance_usd).toFixed(2)}</strong>
-                      </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Fecha Estimada de Finalización</label>
+                      <input
+                        type="date"
+                        value={prodForm.estimated_completion_date}
+                        onChange={(e) => setProdForm(prev => ({ ...prev, estimated_completion_date: e.target.value }))}
+                        style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
                     </div>
-
-                    {/* Items */}
-                    <h4 style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Productos del Lote:</h4>
-                    <ul style={{ listStyle: 'none', paddingLeft: '0' }}>
-                      {pOrder.items?.map((item, idx) => (
-                        <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.02)', fontSize: '13px' }}>
-                          <span>{item.name}</span>
-                          <strong>{item.qty_cases} Cajas master</strong>
-                        </li>
-                      ))}
-                    </ul>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Código / Tracking de Contenedor</label>
+                      <input
+                        type="text"
+                        placeholder="Ej. MSCU9231223"
+                        value={prodForm.tracking_number}
+                        onChange={(e) => setProdForm(prev => ({ ...prev, tracking_number: e.target.value }))}
+                        style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Estado Inicial *</label>
+                      <select
+                        value={prodForm.status}
+                        onChange={(e) => setProdForm(prev => ({ ...prev, status: e.target.value }))}
+                        style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      >
+                        <option value="Draft">Draft (Borrador)</option>
+                        <option value="Proforma">Proforma Invoice</option>
+                        <option value="Production">Production (En Fabricación)</option>
+                      </select>
+                    </div>
                   </div>
-                ))}
+
+                  {/* Detalle de Productos a Fabricar */}
+                  <div style={{ background: 'rgba(255,255,255,0.01)', padding: '20px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                    <h3 style={{ fontSize: '13px', fontWeight: '700', color: 'var(--cyan-neon)', marginBottom: '14px', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>📦 Lote de Producción</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (productList.length === 0) return;
+                          const defaultProd = productList[0];
+                          setProdForm(prev => ({
+                            ...prev,
+                            items: [...prev.items, {
+                              product_id: defaultProd.id,
+                              quantity_cases: 10,
+                              cost_per_case_usd: defaultProd.factory_cost_per_case_usd || 0
+                            }]
+                          }));
+                        }}
+                        className="btn-glass"
+                        style={{ padding: '4px 10px', fontSize: '11px', fontWeight: '700' }}
+                      >
+                        ➕ Añadir Item
+                      </button>
+                    </h3>
+
+                    {prodForm.items.length === 0 ? (
+                      <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+                        No hay productos en el lote. Haz clic en "Añadir Item".
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {prodForm.items.map((item, idx) => (
+                          <div key={idx} style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                            <select
+                              value={item.product_id}
+                              onChange={(e) => {
+                                const selectedId = e.target.value;
+                                const prodObj = productList.find(p => p.id === selectedId);
+                                const updatedItems = [...prodForm.items];
+                                updatedItems[idx].product_id = selectedId;
+                                updatedItems[idx].cost_per_case_usd = prodObj?.factory_cost_per_case_usd || 0;
+                                setProdForm(prev => ({ ...prev, items: updatedItems }));
+                              }}
+                              style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '6px', flexGrow: 2 }}
+                            >
+                              {productList.map(p => (
+                                <option key={p.id} value={p.id}>{p.name} (SKU: {p.sku})</option>
+                              ))}
+                            </select>
+                            
+                            <input
+                              type="number"
+                              min="1"
+                              placeholder="Cant. Cajas"
+                              value={item.quantity_cases}
+                              onChange={(e) => {
+                                const updatedItems = [...prodForm.items];
+                                updatedItems[idx].quantity_cases = parseInt(e.target.value) || 0;
+                                setProdForm(prev => ({ ...prev, items: updatedItems }));
+                              }}
+                              style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '6px', width: '110px' }}
+                            />
+                            
+                            <input
+                              type="number"
+                              step="0.01"
+                              placeholder="Costo Caja ($)"
+                              value={item.cost_per_case_usd}
+                              onChange={(e) => {
+                                const updatedItems = [...prodForm.items];
+                                updatedItems[idx].cost_per_case_usd = parseFloat(e.target.value) || 0;
+                                setProdForm(prev => ({ ...prev, items: updatedItems }));
+                              }}
+                              style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '6px', width: '120px' }}
+                            />
+                            
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updatedItems = prodForm.items.filter((_, i) => i !== idx);
+                                setProdForm(prev => ({ ...prev, items: updatedItems }));
+                              }}
+                              className="btn-glass-pink"
+                              style={{ padding: '8px 12px', borderRadius: '6px' }}
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Resumen del Lote Proyectado en Caliente */}
+                  {prodForm.items.length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', background: 'rgba(0, 232, 255, 0.02)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(0, 232, 255, 0.1)', fontSize: '13px' }}>
+                      {(() => {
+                        let totalCost = 0;
+                        let totalCbm = 0;
+                        let totalCases = 0;
+                        
+                        prodForm.items.forEach(item => {
+                          const prodObj = productList.find(p => p.id === item.product_id);
+                          const qty = item.quantity_cases || 0;
+                          const cost = item.cost_per_case_usd || 0;
+                          const cbm = parseFloat(prodObj?.case_cbm) || 0;
+                          
+                          totalCost += qty * cost;
+                          totalCbm += qty * cbm;
+                          totalCases += qty;
+                        });
+                        
+                        return (
+                          <>
+                            <div>📦 Cajas Proyectadas: <strong style={{ color: '#fff' }}>{totalCases} master</strong></div>
+                            <div>💰 Presupuesto FOB: <strong style={{ color: 'var(--green-neon)' }}>${totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</strong></div>
+                            <div>🚢 Volumen Total: <strong style={{ color: 'var(--cyan-neon)' }}>{totalCbm.toFixed(4)} CBM</strong></div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowProdForm(false)}
+                      className="btn-glass"
+                      style={{ padding: '10px 20px', fontSize: '13px' }}
+                    >
+                      Cancelar
+                    </button>
+                    <button type="submit" className="btn-glass-pink" style={{ padding: '10px 30px', fontSize: '13px' }}>
+                      🚀 Registrar Lote en Neon
+                    </button>
+                  </div>
+                </form>
               </div>
             )}
+
+            {/* Listado de Órdenes con Timeline */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              {productionOrders.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
+                  No hay órdenes de producción activas.
+                </div>
+              ) : (
+                productionOrders.map(pOrder => {
+                  const stepNames = ['Draft', 'Proforma', 'Production', 'QC Inspection', 'Port', 'Transit', 'Delivered'];
+                  const currentStepIdx = stepNames.indexOf(pOrder.status);
+                  const isAuditOpen = activeAuditOrderId === pOrder.id;
+
+                  return (
+                    <div key={pOrder.id} className="glass-panel" style={{ padding: '24px', position: 'relative', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      
+                      {/* Encabezado de la Tarjeta */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '14px', marginBottom: '18px' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#fff', margin: 0 }}>
+                              {pOrder.order_number}
+                            </h3>
+                            <span className="badge badge-cyan" style={{ fontSize: '10px' }}>🏭 {pOrder.factory_name}</span>
+                          </div>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', display: 'block' }}>
+                            Registrado el: <strong>{new Date(pOrder.created_at).toLocaleString('es-ES')}</strong>
+                          </span>
+                        </div>
+                        
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>Avanzar Estado:</span>
+                          <select
+                            value={pOrder.status}
+                            onChange={(e) => handleUpdateProductionStatus(pOrder.id, e.target.value)}
+                            style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 12px', borderRadius: '6px', fontSize: '12.5px', fontWeight: '600' }}
+                          >
+                            <option value="Draft">Draft</option>
+                            <option value="Proforma">Proforma</option>
+                            <option value="Production">Production</option>
+                            <option value="QC Inspection">QC Inspection</option>
+                            <option value="Port">Port (FOB/CIF)</option>
+                            <option value="Transit">Transit</option>
+                            <option value="Delivered">Delivered (Entregado)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Timeline Gráfico de Estados */}
+                      <div style={{ padding: '10px 0 20px', position: 'relative' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', width: '100%' }}>
+                          {/* Línea de fondo del timeline */}
+                          <div style={{ position: 'absolute', top: '15px', left: '4%', right: '4%', height: '3px', background: 'rgba(255,255,255,0.06)', zIndex: 1 }} />
+                          {/* Línea de progreso activa */}
+                          <div style={{ position: 'absolute', top: '15px', left: '4%', width: `${(currentStepIdx / (stepNames.length - 1)) * 92}%`, height: '3px', background: 'var(--cyan-neon)', zIndex: 2, transition: 'all 0.4s ease' }} />
+
+                          {stepNames.map((step, idx) => {
+                            const isActive = idx <= currentStepIdx;
+                            const isCurrent = idx === currentStepIdx;
+                            return (
+                              <div key={step} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 3, position: 'relative', width: '12%' }}>
+                                <div style={{
+                                  width: '32px',
+                                  height: '32px',
+                                  borderRadius: '50%',
+                                  background: isCurrent ? 'var(--pink-neon)' : isActive ? 'var(--cyan-neon)' : 'rgba(20, 20, 20, 0.9)',
+                                  border: isActive ? '2px solid transparent' : '2px solid rgba(255,255,255,0.1)',
+                                  boxShadow: isCurrent ? '0 0 10px var(--pink-neon)' : isActive ? '0 0 8px var(--cyan-neon)' : 'none',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '12px',
+                                  color: isActive ? '#000' : 'rgba(255,255,255,0.4)',
+                                  fontWeight: '900',
+                                  transition: 'all 0.3s'
+                                }}>
+                                  {idx + 1}
+                                </div>
+                                <span style={{ fontSize: '10px', marginTop: '6px', textAlign: 'center', fontWeight: isCurrent ? '700' : '500', color: isCurrent ? 'var(--pink-neon)' : isActive ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>
+                                  {step}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Resumen Financiero y Logístico */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginBottom: '20px', marginTop: '10px' }}>
+                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Costo Total Lote</div>
+                          <strong style={{ fontSize: '15px', color: '#fff', marginTop: '2px', display: 'block' }}>
+                            ${parseFloat(pOrder.total_cost_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                          </strong>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Cubicaje de Embarque</div>
+                          <strong style={{ fontSize: '15px', color: 'var(--cyan-neon)', marginTop: '2px', display: 'block' }}>
+                            {parseFloat(pOrder.total_cbm).toFixed(4)} CBM
+                          </strong>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Tracking Contenedor</div>
+                          <strong style={{ fontSize: '14px', color: '#fff', marginTop: '2px', display: 'block', textTransform: 'uppercase' }}>
+                            {pOrder.tracking_number || 'N/A'}
+                          </strong>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Entrega Estimada / Real</div>
+                          <strong style={{ fontSize: '13px', color: '#fff', marginTop: '2px', display: 'block' }}>
+                            {pOrder.status === 'Delivered' 
+                              ? `Entregado: ${new Date(pOrder.actual_completion_date).toLocaleDateString('es-ES')}` 
+                              : pOrder.estimated_completion_date 
+                                ? new Date(pOrder.estimated_completion_date).toLocaleDateString('es-ES') 
+                                : 'Sin estimar'}
+                          </strong>
+                        </div>
+                      </div>
+
+                      {/* Detalle de Productos */}
+                      <div style={{ background: 'rgba(0,0,0,0.1)', padding: '14px 18px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.02)', marginBottom: '16px' }}>
+                        <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', margin: '0 0 10px', letterSpacing: '0.5px' }}>Productos a Producir:</h4>
+                        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {pOrder.items?.map((item, idx) => (
+                            <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', borderBottom: '1px solid rgba(255,255,255,0.01)', paddingBottom: '4px' }}>
+                              <span style={{ color: '#fff' }}>{item.name} <em style={{ fontSize: '11px', color: 'var(--text-secondary)', fontStyle: 'normal' }}>(SKU: {item.sku})</em></span>
+                              <span style={{ color: 'var(--cyan-neon)' }}>
+                                <strong>{item.quantity_cases} Cajas master</strong> ({parseFloat(item.item_cbm).toFixed(4)} CBM)
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* Control de Auditoría Expandible */}
+                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isAuditOpen) {
+                              setActiveAuditOrderId(null);
+                            } else {
+                              handleLoadProductionAuditLogs(pOrder.id);
+                            }
+                          }}
+                          className="btn-glass"
+                          style={{ padding: '6px 14px', fontSize: '11.5px', fontWeight: '600' }}
+                        >
+                          {isAuditOpen ? '📋 Ocultar Bitácora' : '📋 Ver Bitácora de Auditoría'}
+                        </button>
+                      </div>
+
+                      {/* Contenido de Bitácora de Auditoría */}
+                      {isAuditOpen && (
+                        <div className="glass-panel" style={{ marginTop: '16px', padding: '16px', background: 'rgba(0,232,255,0.01)', border: '1px solid rgba(0,232,255,0.15)', borderRadius: '8px' }}>
+                          <h4 style={{ fontSize: '12.5px', color: 'var(--cyan-neon)', margin: '0 0 12px', fontWeight: '700', textTransform: 'uppercase' }}>
+                            📜 Registro de Auditoría de Estados
+                          </h4>
+                          {productionAuditLogs.length === 0 ? (
+                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Cargando logs o sin cambios de estado aún...</div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto' }}>
+                              {productionAuditLogs.map((log) => (
+                                <div key={log.id} style={{ fontSize: '11.5px', borderBottom: '1px solid rgba(255,255,255,0.02)', paddingBottom: '6px' }}>
+                                  <span style={{ color: 'var(--cyan-neon)' }}>{new Date(log.created_at).toLocaleString('es-ES')}</span>
+                                  <span style={{ color: '#fff' }}> — <strong>{log.user_name}</strong> {log.action === 'CREATE_PRODUCTION_ORDER' ? 'creó la orden' : 'cambió el estado'}</span>
+                                  {log.old_value && (
+                                    <>
+                                      <span> de <strong style={{ color: 'var(--orange-neon)' }}>{log.old_value}</strong></span>
+                                    </>
+                                  )}
+                                  <span> a <strong style={{ color: 'var(--green-neon)' }}>{log.new_value}</strong></span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         )}
 
@@ -2172,8 +2825,20 @@ function App() {
 
                 {cartTotals.finalTotal >= MOA_LIMIT && (
                   <form onSubmit={handleCheckoutSubmit}>
+                    <div style={{ marginBottom: '14px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Incoterm de Exportación (FOB/CIF):</label>
+                      <select
+                        name="incoterm"
+                        defaultValue="FOB China"
+                        style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '6px', width: '100%', fontSize: '12px' }}
+                      >
+                        <option value="FOB China">FOB China (Free On Board - Puerto Origen)</option>
+                        <option value="CIF Puerto">CIF Puerto (Cost, Insurance & Freight - Puerto Destino)</option>
+                        <option value="EXW Planta">EXW Planta (Ex Works - Salida de Fábrica)</option>
+                      </select>
+                    </div>
                     <div style={{ marginBottom: '16px' }}>
-                      <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '6px' }}>Adjuntar comprobante (Opcional):</label>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Adjuntar comprobante de depósito (Opcional):</label>
                       <input
                         type="file"
                         onChange={() => setReceiptUploaded(true)}

@@ -44,7 +44,7 @@ async function migrate() {
       SELECT 'tenants' as tabla, count(*) FROM tenants
       UNION ALL SELECT 'users', count(*) FROM users
       UNION ALL SELECT 'products', count(*) FROM products
-      UNION ALL SELECT 'volume_discounts', count(*) FROM volume_discounts
+      UNION ALL SELECT 'volume_discount_rules', count(*) FROM volume_discount_rules
     `);
     console.log('\n📊 Registros semilla:');
     counts.rows.forEach(r => console.log(`  - ${r.tabla}: ${r.count}`));

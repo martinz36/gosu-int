@@ -1,10 +1,10 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
 :root {
-  --bg-dark: #000000;
-  --bg-card: rgba(18, 18, 18, 0.75);
-  --bg-card-hover: rgba(28, 28, 28, 0.85);
-  --border-color: rgba(255, 255, 255, 0.08);
+  --bg-dark: #020204;
+  --bg-card: rgba(10, 10, 12, 0.55);
+  --bg-card-hover: rgba(20, 20, 25, 0.75);
+  --border-color: rgba(255, 255, 255, 0.07);
   
   --cyan-neon: #00e8ff;
   --orange-neon: #ff5c00;
@@ -13,13 +13,19 @@
   --yellow-neon: #e4e800;
   
   --text-primary: #ffffff;
-  --text-secondary: #8e8e93;
-  --text-muted: #4e4e52;
+  --text-secondary: #a1a1aa;
+  --text-muted: #52525b;
   
   --font-family: 'Inter', sans-serif;
-  --shadow-neon-cyan: 0 0 15px rgba(0, 232, 255, 0.25);
-  --shadow-neon-pink: 0 0 15px rgba(255, 9, 187, 0.25);
-  --shadow-neon-orange: 0 0 15px rgba(255, 92, 0, 0.25);
+  --shadow-neon-cyan: 0 0 20px rgba(0, 232, 255, 0.2);
+  --shadow-neon-pink: 0 0 20px rgba(255, 9, 187, 0.2);
+  --shadow-neon-orange: 0 0 20px rgba(255, 92, 0, 0.2);
+  
+  --glass-bg: rgba(8, 8, 10, 0.55);
+  --glass-bg-hover: rgba(18, 18, 22, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-border-hover: rgba(255, 255, 255, 0.12);
+  --glass-blur: 20px;
   
   font-family: var(--font-family);
   color-scheme: dark;

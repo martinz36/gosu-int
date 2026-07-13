@@ -162,27 +162,92 @@ export default function LoginPage({ onLogin }) {
 
           {/* Quick Access Section (Bypass Auth for Dev/Test) */}
           <div style={{ marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
-            <h3 style={{ fontSize: '12px', fontWeight: '700', color: 'var(--cyan-neon)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', textAlign: 'center' }}>
-              ⚡ Acceso Rápido (Desarrollo)
+            <h3 style={{ fontSize: '11px', fontWeight: '700', color: 'var(--cyan-neon)', marginBottom: '14px', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'center' }}>
+              ⚡ Ingresar como (Bypass de Pruebas)
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <button
                 type="button"
                 className="btn-pink"
                 onClick={() => handleBypassLogin('superadmin@gosu.gg')}
-                style={{ padding: '10px', fontSize: '12px', fontWeight: '600' }}
+                style={{
+                  padding: '10px 14px',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  borderRadius: '6px',
+                  backdropFilter: 'blur(5px)',
+                  background: 'rgba(255, 0, 127, 0.15)',
+                  border: '1px solid rgba(255, 0, 127, 0.3)',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
                 disabled={loading}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'rgba(255, 0, 127, 0.3)';
+                  e.target.style.borderColor = 'rgba(255, 0, 127, 0.6)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'rgba(255, 0, 127, 0.15)';
+                  e.target.style.borderColor = 'rgba(255, 0, 127, 0.3)';
+                }}
               >
-                🛠️ Entrar como Super Admin (SaaS)
+                🛠️ Super Admin (SaaS Global)
               </button>
               <button
                 type="button"
                 className="btn-neon"
                 onClick={() => handleBypassLogin('admin@gosu.gg')}
-                style={{ padding: '10px', fontSize: '12px', fontWeight: '600', color: '#000' }}
+                style={{
+                  padding: '10px 14px',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  borderRadius: '6px',
+                  backdropFilter: 'blur(5px)',
+                  background: 'rgba(0, 243, 255, 0.15)',
+                  border: '1px solid rgba(0, 243, 255, 0.3)',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
                 disabled={loading}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'rgba(0, 243, 255, 0.3)';
+                  e.target.style.borderColor = 'rgba(0, 243, 255, 0.6)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'rgba(0, 243, 255, 0.15)';
+                  e.target.style.borderColor = 'rgba(0, 243, 255, 0.3)';
+                }}
               >
-                🏢 Entrar como Gosu Admin (Tenant)
+                🏢 Tenant Admin (Marca Gosu)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleBypassLogin('client@gosu.gg')}
+                style={{
+                  padding: '10px 14px',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  borderRadius: '6px',
+                  backdropFilter: 'blur(5px)',
+                  background: 'rgba(255, 170, 0, 0.15)',
+                  border: '1px solid rgba(255, 170, 0, 0.3)',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                disabled={loading}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'rgba(255, 170, 0, 0.3)';
+                  e.target.style.borderColor = 'rgba(255, 170, 0, 0.6)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'rgba(255, 170, 0, 0.15)';
+                  e.target.style.borderColor = 'rgba(255, 170, 0, 0.3)';
+                }}
+              >
+                🛍️ Cliente B2B (Card Shop)
               </button>
             </div>
           </div>
