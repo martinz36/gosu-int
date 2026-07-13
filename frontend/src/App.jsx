@@ -124,6 +124,24 @@ function App() {
   const [productionAuditLogs, setProductionAuditLogs] = useState([]);
   const [activeAuditOrderId, setActiveAuditOrderId] = useState(null);
 
+  // Estados para Gestión de Clientes B2B (Fase 6.5)
+  const [configSubTab, setConfigSubTab] = useState('catalog');
+  const [clientsList, setClientsList] = useState([]);
+  const [editingClient, setEditingClient] = useState(null);
+  const [creatingClient, setCreatingClient] = useState(false);
+  const [newClientForm, setNewClientForm] = useState({
+    name: '',
+    email: '',
+    password: '',
+    company_name: '',
+    tax_id: '',
+    billing_address: '',
+    forwarder_address: '',
+    custom_moa_usd: 1000,
+    client_category: 'retail_store',
+    destination_country: 'USA'
+  });
+
   // MOA del usuario actual
   const MOA_LIMIT = parseFloat(currentUser?.custom_moa_usd) || 1000.00;
   const isAdmin = currentUser?.role === 'tenant_admin';
@@ -164,6 +182,16 @@ function App() {
     }
   }, [isAdmin]);
 
+  const loadClients = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const data = await usersApi.getClients();
+      setClientsList(data);
+    } catch (err) {
+      console.error('Error cargando clientes distribuidores:', err);
+    }
+  }, [isAdmin]);
+
   const loadTenants = useCallback(async () => {
     if (!isSuperAdmin) return;
     try {
@@ -193,10 +221,13 @@ function App() {
       ]);
       setCategoriesList(catData);
       setBrandsList(brandData);
+      if (isAdmin) {
+        await loadClients();
+      }
     } catch (err) {
       console.error('Error cargando marcas/categorías:', err);
     }
-  }, [currentUser, isSuperAdmin]);
+  }, [currentUser, isSuperAdmin, isAdmin, loadClients]);
 
   // Carga inicial cuando el usuario se autentifica
   useEffect(() => {
@@ -576,6 +607,50 @@ function App() {
       await Promise.all([loadProduction(), loadProducts()]);
     } catch (err) {
       alert(`❌ Error al cambiar estado: ${err.message}`);
+    }
+  };
+
+  // ============================================================
+  // Handlers de Gestión de Clientes Distribuidores B2B (Fase 6.5)
+  // ============================================================
+  const handleCreateOrUpdateClient = async (e) => {
+    e.preventDefault();
+    try {
+      if (editingClient) {
+        await usersApi.updateClient(editingClient.id, newClientForm);
+        alert('🎉 Datos del distribuidor B2B actualizados con éxito.');
+      } else {
+        await usersApi.createClient(newClientForm);
+        alert('🎉 Distribuidor B2B registrado con éxito en el sistema.');
+      }
+      setNewClientForm({
+        name: '',
+        email: '',
+        password: '',
+        company_name: '',
+        tax_id: '',
+        billing_address: '',
+        forwarder_address: '',
+        custom_moa_usd: 1000,
+        client_category: 'retail_store',
+        destination_country: 'USA'
+      });
+      setEditingClient(null);
+      setCreatingClient(false);
+      await loadClients();
+    } catch (err) {
+      alert(`❌ Error al guardar distribuidor: ${err.message}`);
+    }
+  };
+
+  const handleDeleteClient = async (id) => {
+    if (!confirm('⚠️ ¿Estás seguro de eliminar este distribuidor del sistema B2B?')) return;
+    try {
+      await usersApi.deleteClient(id);
+      alert('🎉 Distribuidor eliminado con éxito.');
+      await loadClients();
+    } catch (err) {
+      alert(`❌ Error al eliminar distribuidor: ${err.message}`);
     }
   };
 
@@ -2629,126 +2704,415 @@ function App() {
         {/* ===================================================== */}
         {activeTab === 'config' && isAdmin && !dataLoading && (
           <div>
-            <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
-              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Configuración de Marca</h1>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                Administra las marcas y categorías de productos disponibles para tu catálogo mayorista.
-              </p>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', alignItems: 'start' }}>
-              {/* CRUD CATEGORIAS */}
-              <div className="glass-panel" style={{ padding: '24px' }}>
-                <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--pink-neon)' }}>
-                  {editingCategory ? '✏️ Editar Categoría' : '📁 Nueva Categoría'}
-                </h2>
-                <form onSubmit={handleCreateOrUpdateCategory} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Nombre</label>
-                    <input
-                      type="text"
-                      placeholder="Ej. Protectores"
-                      value={newCategory.name}
-                      required
-                      onChange={(e) => setNewCategory({ name: e.target.value, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Slug</label>
-                    <input
-                      type="text"
-                      placeholder="ej. protectores"
-                      value={newCategory.slug}
-                      required
-                      onChange={(e) => setNewCategory(prev => ({ ...prev, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') }))}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button type="submit" className="btn-pink" style={{ flexGrow: 1, padding: '10px' }}>
-                      {editingCategory ? 'Guardar' : 'Crear'}
-                    </button>
-                    {editingCategory && (
-                      <button type="button" onClick={() => { setEditingCategory(null); setNewCategory({ name: '', slug: '' }); }} style={{ background: 'transparent', border: '1px solid var(--border-color)', color: '#fff', borderRadius: '8px', padding: '10px', cursor: 'pointer' }}>
-                        Cancelar
-                      </button>
-                    )}
-                  </div>
-                </form>
-
-                <h3 style={{ fontSize: '15px', fontWeight: '800', marginBottom: '12px' }}>Categorías ({categoriesList.length})</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {categoriesList.map(cat => (
-                    <div key={cat.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', padding: '10px 14px', borderRadius: '8px' }}>
-                      <div>
-                        <strong>{cat.name}</strong> <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>({cat.slug})</span>
-                      </div>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <button onClick={() => { setEditingCategory(cat); setNewCategory({ name: cat.name, slug: cat.slug }); }} style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', cursor: 'pointer', fontSize: '12px' }}>✏️</button>
-                        <button onClick={() => handleDeleteCategory(cat.id)} style={{ background: 'transparent', border: 'none', color: 'var(--pink-neon)', cursor: 'pointer', fontSize: '12px' }}>🗑️</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+            <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+              <div>
+                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Configuración de Empresa</h1>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                  Administra las marcas del catálogo y los perfiles logísticos de tus distribuidores B2B.
+                </p>
               </div>
-
-              {/* CRUD BRANDS */}
-              <div className="glass-panel" style={{ padding: '24px' }}>
-                <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
-                  {editingBrand ? '✏️ Editar Marca' : '🏷️ Nueva Marca'}
-                </h2>
-                <form onSubmit={handleCreateOrUpdateBrand} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Nombre</label>
-                    <input
-                      type="text"
-                      placeholder="Ej. Gosu Sleeves"
-                      value={newBrand.name}
-                      required
-                      onChange={(e) => setNewBrand({ name: e.target.value, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Slug</label>
-                    <input
-                      type="text"
-                      placeholder="ej. gosu-sleeves"
-                      value={newBrand.slug}
-                      required
-                      onChange={(e) => setNewBrand(prev => ({ ...prev, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') }))}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button type="submit" className="btn-neon" style={{ flexGrow: 1, padding: '10px' }}>
-                      {editingBrand ? 'Guardar' : 'Crear'}
-                    </button>
-                    {editingBrand && (
-                      <button type="button" onClick={() => { setEditingBrand(null); setNewBrand({ name: '', slug: '' }); }} style={{ background: 'transparent', border: '1px solid var(--border-color)', color: '#fff', borderRadius: '8px', padding: '10px', cursor: 'pointer' }}>
-                        Cancelar
-                      </button>
-                    )}
-                  </div>
-                </form>
-
-                <h3 style={{ fontSize: '15px', fontWeight: '800', marginBottom: '12px' }}>Marcas ({brandsList.length})</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {brandsList.map(b => (
-                    <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', padding: '10px 14px', borderRadius: '8px' }}>
-                      <div>
-                        <strong>{b.name}</strong> <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>({b.slug})</span>
-                      </div>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <button onClick={() => { setEditingBrand(b); setNewBrand({ name: b.name, slug: b.slug }); }} style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', cursor: 'pointer', fontSize: '12px' }}>✏️</button>
-                        <button onClick={() => handleDeleteBrand(b.id)} style={{ background: 'transparent', border: 'none', color: 'var(--pink-neon)', cursor: 'pointer', fontSize: '12px' }}>🗑️</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              
+              {/* Selector de Sub-tab */}
+              <div style={{ display: 'flex', gap: '8px', background: 'rgba(0,0,0,0.2)', padding: '4px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <button
+                  onClick={() => setConfigSubTab('catalog')}
+                  className={configSubTab === 'catalog' ? 'btn-pink' : 'btn-glass'}
+                  style={{ padding: '8px 16px', fontSize: '12px' }}
+                >
+                  📁 Marcas & Categorías
+                </button>
+                <button
+                  onClick={() => setConfigSubTab('clients')}
+                  className={configSubTab === 'clients' ? 'btn-pink' : 'btn-glass'}
+                  style={{ padding: '8px 16px', fontSize: '12px' }}
+                >
+                  👥 Distribuidores B2B ({clientsList.length})
+                </button>
               </div>
             </div>
+
+            {/* SECCIÓN A: CONFIGURACIÓN DEL CATÁLOGO */}
+            {configSubTab === 'catalog' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', alignItems: 'start' }}>
+                {/* CRUD CATEGORIAS */}
+                <div className="glass-panel" style={{ padding: '24px' }}>
+                  <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--pink-neon)' }}>
+                    {editingCategory ? '✏️ Editar Categoría' : '📁 Nueva Categoría'}
+                  </h2>
+                  <form onSubmit={handleCreateOrUpdateCategory} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Nombre</label>
+                      <input
+                        type="text"
+                        placeholder="Ej. Protectores"
+                        value={newCategory.name}
+                        required
+                        onChange={(e) => setNewCategory({ name: e.target.value, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Slug</label>
+                      <input
+                        type="text"
+                        placeholder="ej. protectores"
+                        value={newCategory.slug}
+                        required
+                        onChange={(e) => setNewCategory(prev => ({ ...prev, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button type="submit" className="btn-pink" style={{ flexGrow: 1, padding: '10px' }}>
+                        {editingCategory ? 'Guardar' : 'Crear'}
+                      </button>
+                      {editingCategory && (
+                        <button type="button" onClick={() => { setEditingCategory(null); setNewCategory({ name: '', slug: '' }); }} style={{ background: 'transparent', border: '1px solid var(--border-color)', color: '#fff', borderRadius: '8px', padding: '10px', cursor: 'pointer' }}>
+                          Cancelar
+                        </button>
+                      )}
+                    </div>
+                  </form>
+
+                  <h3 style={{ fontSize: '15px', fontWeight: '800', marginBottom: '12px' }}>Categorías ({categoriesList.length})</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {categoriesList.map(cat => (
+                      <div key={cat.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', padding: '10px 14px', borderRadius: '8px' }}>
+                        <div>
+                          <strong>{cat.name}</strong> <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>({cat.slug})</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button onClick={() => { setEditingCategory(cat); setNewCategory({ name: cat.name, slug: cat.slug }); }} style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', cursor: 'pointer', fontSize: '12px' }}>✏️</button>
+                          <button onClick={() => handleDeleteCategory(cat.id)} style={{ background: 'transparent', border: 'none', color: 'var(--pink-neon)', cursor: 'pointer', fontSize: '12px' }}>🗑️</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* CRUD BRANDS */}
+                <div className="glass-panel" style={{ padding: '24px' }}>
+                  <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
+                    {editingBrand ? '✏️ Editar Marca' : '🏷️ Nueva Marca'}
+                  </h2>
+                  <form onSubmit={handleCreateOrUpdateBrand} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Nombre</label>
+                      <input
+                        type="text"
+                        placeholder="Ej. Gosu Sleeves"
+                        value={newBrand.name}
+                        required
+                        onChange={(e) => setNewBrand({ name: e.target.value, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Slug</label>
+                      <input
+                        type="text"
+                        placeholder="ej. gosu-sleeves"
+                        value={newBrand.slug}
+                        required
+                        onChange={(e) => setNewBrand(prev => ({ ...prev, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button type="submit" className="btn-neon" style={{ flexGrow: 1, padding: '10px' }}>
+                        {editingBrand ? 'Guardar' : 'Crear'}
+                      </button>
+                      {editingBrand && (
+                        <button type="button" onClick={() => { setEditingBrand(null); setNewBrand({ name: '', slug: '' }); }} style={{ background: 'transparent', border: '1px solid var(--border-color)', color: '#fff', borderRadius: '8px', padding: '10px', cursor: 'pointer' }}>
+                          Cancelar
+                        </button>
+                      )}
+                    </div>
+                  </form>
+
+                  <h3 style={{ fontSize: '15px', fontWeight: '800', marginBottom: '12px' }}>Marcas ({brandsList.length})</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {brandsList.map(b => (
+                      <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', padding: '10px 14px', borderRadius: '8px' }}>
+                        <div>
+                          <strong>{b.name}</strong> <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>({b.slug})</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button onClick={() => { setEditingBrand(b); setNewBrand({ name: b.name, slug: b.slug }); }} style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', cursor: 'pointer', fontSize: '12px' }}>✏️</button>
+                          <button onClick={() => handleDeleteBrand(b.id)} style={{ background: 'transparent', border: 'none', color: 'var(--pink-neon)', cursor: 'pointer', fontSize: '12px' }}>🗑️</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SECCIÓN B: GESTIÓN DE DISTRIBUIDORES B2B (Fase 6.5) */}
+            {configSubTab === 'clients' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => {
+                      setCreatingClient(!creatingClient);
+                      setEditingClient(null);
+                      setNewClientForm({
+                        name: '',
+                        email: '',
+                        password: '',
+                        company_name: '',
+                        tax_id: '',
+                        billing_address: '',
+                        forwarder_address: '',
+                        custom_moa_usd: 1000,
+                        client_category: 'retail_store',
+                        destination_country: 'USA'
+                      });
+                    }}
+                    className="btn-pink"
+                    style={{ padding: '10px 20px', fontSize: '12.5px' }}
+                  >
+                    {creatingClient ? 'Cancelar Registro' : '➕ Añadir Distribuidor B2B'}
+                  </button>
+                </div>
+
+                {/* Formulario de creación/edición de cliente */}
+                {(creatingClient || editingClient) && (
+                  <div className="glass-panel" style={{ padding: '24px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '20px', color: 'var(--pink-neon)' }}>
+                      {editingClient ? `✏️ Editar Distribuidor: ${editingClient.company_name}` : '🚀 Registrar Nuevo Distribuidor B2B'}
+                    </h2>
+                    
+                    <form onSubmit={handleCreateOrUpdateClient} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Nombre del Contacto *</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Ej. Yugi Muto"
+                            value={newClientForm.name}
+                            onChange={(e) => setNewClientForm(prev => ({ ...prev, name: e.target.value }))}
+                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Correo Electrónico *</label>
+                          <input
+                            type="email"
+                            required
+                            placeholder="ejemplo@tienda.com"
+                            value={newClientForm.email}
+                            onChange={(e) => setNewClientForm(prev => ({ ...prev, email: e.target.value }))}
+                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                        </div>
+                        
+                        {!editingClient && (
+                          <div>
+                            <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Contraseña de Acceso *</label>
+                            <input
+                              type="password"
+                              required
+                              placeholder="Min. 6 caracteres"
+                              value={newClientForm.password}
+                              onChange={(e) => setNewClientForm(prev => ({ ...prev, password: e.target.value }))}
+                              style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                            />
+                          </div>
+                        )}
+                        
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Razón Social / Empresa *</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Ej. Kame Game Shop Inc"
+                            value={newClientForm.company_name}
+                            onChange={(e) => setNewClientForm(prev => ({ ...prev, company_name: e.target.value }))}
+                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>ID Fiscal / Tax ID *</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Ej. JP-9876543"
+                            value={newClientForm.tax_id}
+                            onChange={(e) => setNewClientForm(prev => ({ ...prev, tax_id: e.target.value }))}
+                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>País de Destino (Aduana) *</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Ej. Japón, España, México"
+                            value={newClientForm.destination_country}
+                            onChange={(e) => setNewClientForm(prev => ({ ...prev, destination_country: e.target.value }))}
+                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Monto Mínimo de Compra (MOA) *</label>
+                          <input
+                            type="number"
+                            required
+                            placeholder="Mínimo de orden ($)"
+                            value={newClientForm.custom_moa_usd}
+                            onChange={(e) => setNewClientForm(prev => ({ ...prev, custom_moa_usd: parseFloat(e.target.value) || 0 }))}
+                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Categoría de Distribuidor B2B *</label>
+                          <select
+                            value={newClientForm.client_category}
+                            onChange={(e) => setNewClientForm(prev => ({ ...prev, client_category: e.target.value }))}
+                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          >
+                            <option value="wholesale_distributor">Wholesale Distributor (Distribuidor Mayorista -5% extra)</option>
+                            <option value="retail_store">Retail Store (Tienda Física Minorista)</option>
+                            <option value="dropshipper">Dropshipper (Despacho sin inventario)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Dirección Fiscal / Facturación *</label>
+                          <textarea
+                            required
+                            rows="2"
+                            placeholder="Dirección fiscal registrada"
+                            value={newClientForm.billing_address}
+                            onChange={(e) => setNewClientForm(prev => ({ ...prev, billing_address: e.target.value }))}
+                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', resize: 'none' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Dirección de Forwarder (Bodega en China) *</label>
+                          <textarea
+                            required
+                            rows="2"
+                            placeholder="Instrucciones de entrega para aduana de exportación china"
+                            value={newClientForm.forwarder_address}
+                            onChange={(e) => setNewClientForm(prev => ({ ...prev, forwarder_address: e.target.value }))}
+                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', resize: 'none' }}
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                        <button
+                          type="button"
+                          onClick={() => { setCreatingClient(false); setEditingClient(null); }}
+                          className="btn-glass"
+                          style={{ padding: '8px 20px', fontSize: '12.5px' }}
+                        >
+                          Cancelar
+                        </button>
+                        <button type="submit" className="btn-pink" style={{ padding: '8px 30px', fontSize: '12.5px' }}>
+                          {editingClient ? 'Guardar Cambios' : 'Registrar en Neon'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+
+                {/* Listado de distribuidores en tabla */}
+                <div className="glass-panel" style={{ padding: '24px', overflowX: 'auto' }}>
+                  <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
+                    Directorio de Distribuidores Autorizados
+                  </h2>
+
+                  {clientsList.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                      No hay distribuidores registrados para tu marca.
+                    </div>
+                  ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.08)' }}>
+                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Distribuidor / Razón Social</th>
+                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>País Destino</th>
+                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Categoría</th>
+                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>MOA Asignado</th>
+                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Contacto / Email</th>
+                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600', textAlign: 'center' }}>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {clientsList.map(client => (
+                          <tr key={client.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.3s' }}>
+                            <td style={{ padding: '14px 8px' }}>
+                              <strong style={{ color: '#fff', fontSize: '14px' }}>{client.company_name}</strong>
+                              <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>ID Fiscal: {client.tax_id}</span>
+                            </td>
+                            <td style={{ padding: '14px 8px' }}>
+                              <span style={{ fontSize: '13px', color: 'var(--cyan-neon)' }}>📍 {client.destination_country}</span>
+                            </td>
+                            <td style={{ padding: '14px 8px' }}>
+                              <span className={`badge ${client.client_category === 'wholesale_distributor' ? 'badge-green' : 'badge-cyan'}`} style={{ fontSize: '10.5px' }}>
+                                {{
+                                  'wholesale_distributor': 'Mayorista (-5%)',
+                                  'retail_store': 'Tienda Física',
+                                  'dropshipper': 'Dropshipper'
+                                }[client.client_category] || client.client_category}
+                              </span>
+                            </td>
+                            <td style={{ padding: '14px 8px', fontWeight: '700', color: '#fff' }}>
+                              ${parseFloat(client.custom_moa_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                            </td>
+                            <td style={{ padding: '14px 8px' }}>
+                              <div>{client.name}</div>
+                              <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>{client.email}</span>
+                            </td>
+                            <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+                              <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                <button
+                                  onClick={() => {
+                                    setEditingClient(client);
+                                    setCreatingClient(false);
+                                    setNewClientForm({
+                                      name: client.name,
+                                      email: client.email,
+                                      company_name: client.company_name,
+                                      tax_id: client.tax_id,
+                                      billing_address: client.billing_address,
+                                      forwarder_address: client.forwarder_address,
+                                      custom_moa_usd: parseFloat(client.custom_moa_usd),
+                                      client_category: client.client_category,
+                                      destination_country: client.destination_country
+                                    });
+                                  }}
+                                  className="btn-glass"
+                                  style={{ padding: '6px 12px', fontSize: '12px' }}
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteClient(client.id)}
+                                  className="btn-glass-pink"
+                                  style={{ padding: '6px 12px', fontSize: '12px' }}
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>

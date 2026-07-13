@@ -150,6 +150,18 @@ export const users = {
 
   createSuperAdmin: (userData) =>
     request('POST', '/api/users/superadmin', userData),
+
+  getClients: () =>
+    request('GET', '/api/users/clients'),
+
+  createClient: (clientData) =>
+    request('POST', '/api/users/clients', clientData),
+
+  updateClient: (id, clientData) =>
+    request('PUT', `/api/users/clients/${id}`, clientData),
+
+  deleteClient: (id) =>
+    request('DELETE', `/api/users/clients/${id}`),
 };
 
 // ============================================================

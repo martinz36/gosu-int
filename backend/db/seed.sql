@@ -50,7 +50,7 @@ VALUES (
 ON CONFLICT (email) DO NOTHING;
 
 -- 3. Crear Perfil B2B para el Cliente
-INSERT INTO b2b_client_profiles (id, tenant_id, user_id, company_name, tax_id, billing_address, forwarder_address, custom_moa_usd)
+INSERT INTO b2b_client_profiles (id, tenant_id, user_id, company_name, tax_id, billing_address, forwarder_address, custom_moa_usd, client_category, destination_country)
 VALUES (
   '00000000-0000-0000-0000-000000000100',
   '00000000-0000-0000-0000-000000000001',
@@ -59,7 +59,9 @@ VALUES (
   'US-987654321-TX',
   '123 Gaming Street, Austin, TX 78701, USA',
   'Warehouse A, Lane 88, Yiwu Trade City, Zhejiang, China (Forwarder ID: FW-GOSU-99)',
-  1500.00
+  1500.00,
+  'wholesale_distributor',
+  'USA'
 )
 ON CONFLICT (tenant_id, user_id) DO NOTHING;
 
