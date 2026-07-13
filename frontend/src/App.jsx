@@ -2138,18 +2138,45 @@ function App() {
                   return (
                     <div key={product.id} className="glass-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '440px', position: 'relative', border: isExpanded ? '1px solid var(--pink-neon)' : '1px solid rgba(255,255,255,0.08)' }}>
                       <div>
-                        {/* Imagen del Producto */}
-                        <div style={{ width: '100%', aspectRatio: '1 / 1', background: 'rgba(0, 0, 0, 0.25)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', display: 'flex', justifyContent: 'center', alignItems: 'center', marginBottom: '16px', overflow: 'hidden', position: 'relative' }}>
+                        {/* Imagen del Producto con Glow Halo Dinámico Adaptable */}
+                        <div style={{ 
+                          width: '100%', 
+                          aspectRatio: '1 / 1', 
+                          background: 'linear-gradient(135deg, rgba(10,12,18,0.6) 0%, rgba(20,24,36,0.8) 100%)', 
+                          border: '1px solid rgba(255,255,255,0.06)', 
+                          borderRadius: '12px', 
+                          display: 'flex', 
+                          justifyContent: 'center', 
+                          alignItems: 'center', 
+                          marginBottom: '16px', 
+                          overflow: 'hidden', 
+                          position: 'relative',
+                          boxShadow: 'inset 0 0 20px rgba(0,0,0,0.6)'
+                        }}>
+                          {/* Halo de luz neon difuso detrás de la foto */}
+                          <div style={{
+                            position: 'absolute',
+                            width: '65%',
+                            height: '65%',
+                            borderRadius: '50%',
+                            background: product.category === 'sleeves' ? 'radial-gradient(circle, rgba(0,232,255,0.18) 0%, transparent 70%)' :
+                                        product.category === 'binders' ? 'radial-gradient(circle, rgba(255,9,187,0.18) 0%, transparent 70%)' :
+                                        'radial-gradient(circle, rgba(255,92,0,0.18) 0%, transparent 70%)',
+                            filter: 'blur(30px)',
+                            zIndex: 1,
+                            pointerEvents: 'none'
+                          }} />
+
                           {product.image_url ? (
-                            <img src={product.image_url} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '12px', boxSizing: 'border-box' }} />
+                            <img src={product.image_url} alt={product.name} style={{ width: '85%', height: '85%', objectFit: 'contain', zIndex: 2, position: 'relative', filter: 'drop-shadow(0 8px 16px rgba(0,0,0,0.6))' }} />
                           ) : (
-                            <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="rgba(0, 232, 255, 0.3)" strokeWidth="1">
+                            <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="rgba(0, 232, 255, 0.3)" strokeWidth="1" style={{ zIndex: 2 }}>
                               <rect x="4" y="2" width="16" height="20" rx="2" />
                               <line x1="8" y1="6" x2="16" y2="6" />
                               <line x1="8" y1="10" x2="16" y2="10" />
                             </svg>
                           )}
-                          <span className="badge badge-pink" style={{ position: 'absolute', top: '10px', right: '10px', fontSize: '9px' }}>
+                          <span className="badge badge-pink" style={{ position: 'absolute', top: '10px', right: '10px', fontSize: '9px', zIndex: 3 }}>
                             {product.category}
                           </span>
                         </div>
