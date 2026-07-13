@@ -677,6 +677,7 @@ function App() {
       }
     };
     reader.readAsText(file, 'UTF-8');
+    e.target.value = '';
   };
 
   const handleBulkUploadSubmit = async () => {
@@ -3251,15 +3252,29 @@ function App() {
                 <div>
                   <h3 style={{ fontSize: '14px', fontWeight: '800', marginBottom: '12px', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>👀 Vista Previa de Carga ({bulkPreview.length} filas detectadas)</span>
-                    <button
-                      type="button"
-                      disabled={bulkUploading}
-                      onClick={handleBulkUploadSubmit}
-                      className="btn-pink"
-                      style={{ padding: '8px 24px', fontSize: '12.5px' }}
-                    >
-                      {bulkUploading ? 'Subiendo a Neon...' : '🚀 Subir e Importar a Neon'}
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBulkPreview([]);
+                          const fileInput = document.getElementById('csv-file-selector');
+                          if (fileInput) fileInput.value = '';
+                        }}
+                        className="btn-glass"
+                        style={{ padding: '8px 16px', fontSize: '12px' }}
+                      >
+                        🗑️ Limpiar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={bulkUploading}
+                        onClick={handleBulkUploadSubmit}
+                        className="btn-pink"
+                        style={{ padding: '8px 24px', fontSize: '12.5px' }}
+                      >
+                        {bulkUploading ? 'Subiendo a Neon...' : '🚀 Subir e Importar a Neon'}
+                      </button>
+                    </div>
                   </h3>
 
                   <div style={{ overflowX: 'auto', maxHeight: '300px', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', background: 'rgba(0,0,0,0.2)' }}>
