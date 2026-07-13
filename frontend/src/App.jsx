@@ -540,13 +540,31 @@ function App() {
   // Handlers para Carga Masiva de Catálogo (Fase 7)
   // ============================================================
   const parseCSV = (text) => {
+    let delimiter = ',';
+    let content = text;
+
+    if (text.startsWith('sep=')) {
+      const lineEnd = text.indexOf('\n');
+      if (lineEnd !== -1) {
+        delimiter = text.substring(4, lineEnd).trim();
+        content = text.substring(lineEnd + 1);
+      }
+    } else {
+      const firstLine = text.split('\n')[0] || '';
+      const commaCount = (firstLine.match(/,/g) || []).length;
+      const semicolonCount = (firstLine.match(/;/g) || []).length;
+      if (semicolonCount > commaCount) {
+        delimiter = ';';
+      }
+    }
+
     const lines = [];
     let row = [""];
     let inQuotes = false;
 
-    for (let i = 0; i < text.length; i++) {
-      const c = text[i];
-      const next = text[i + 1];
+    for (let i = 0; i < content.length; i++) {
+      const c = content[i];
+      const next = content[i + 1];
 
       if (c === '"') {
         if (inQuotes && next === '"') {
@@ -555,7 +573,7 @@ function App() {
         } else {
           inQuotes = !inQuotes;
         }
-      } else if (c === ',' && !inQuotes) {
+      } else if (c === delimiter && !inQuotes) {
         row.push('');
       } else if ((c === '\r' || c === '\n') && !inQuotes) {
         if (c === '\r' && next === '\n') {
@@ -701,9 +719,10 @@ function App() {
 
   const handleDownloadCSVTemplate = () => {
     const csvContent = 
-      "sku,name,category,price_per_case_usd,units_per_case,case_weight_kg,case_length_cm,case_width_cm,case_height_cm,stock_physical_cases,stock_in_production_cases,image_url,commercial_description,factory_name,factory_sku,factory_cost_per_case_usd,pantone_codes,cut_measurements,fabrication_notes\n" +
-      "GOSU-SLV-001,Protectores de Cartas Mate - Black,Protectores,35.00,100,12.5,42,32,22,250,50,https://ejemplo.com/black.jpg,Protectores premium mate tamaño Standard.,Fábrica Dongguan,FAC-SKU-99,18.00,Pantone 426C,32x32cm,Embalado especial anti-humedad\n" +
-      "GOSU-SLV-002,Protectores de Cartas Mate - Red,Protectores,35.00,100,12.5,42,32,22,180,0,https://ejemplo.com/red.jpg,Protectores premium mate color rojo.,Fábrica Dongguan,FAC-SKU-100,18.00,Pantone 186C,32x32cm,Sin notas\n";
+      "sep=;\n" +
+      "sku;name;category;price_per_case_usd;units_per_case;case_weight_kg;case_length_cm;case_width_cm;case_height_cm;stock_physical_cases;stock_in_production_cases;image_url;commercial_description;factory_name;factory_sku;factory_cost_per_case_usd;pantone_codes;cut_measurements;fabrication_notes\n" +
+      "GOSU-SLV-001;Protectores de Cartas Mate - Black;Protectores;35.00;100;12.5;42;32;22;250;50;https://ejemplo.com/black.jpg;Protectores premium mate tamaño Standard.;Fábrica Dongguan;FAC-SKU-99;18.00;Pantone 426C;32x32cm;Embalado especial anti-humedad\n" +
+      "GOSU-SLV-002;Protectores de Cartas Mate - Red;Protectores;35.00;100;12.5;42;32;22;180;0;https://ejemplo.com/red.jpg;Protectores premium mate color rojo.;Fábrica Dongguan;FAC-SKU-100;18.00;Pantone 186C;32x32cm;Sin notas\n";
     
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
