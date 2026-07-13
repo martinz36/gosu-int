@@ -267,11 +267,12 @@ function App() {
     if (!currentUser) return;
     if (activeTab === 'orders') loadOrders();
     if (activeTab === 'admin') loadProduction();
+    if (activeTab === 'clients') loadClients();
     if (activeTab === 'catalog' || activeTab === 'config') loadCatalogConfig();
     if (['saas-tenants', 'saas-users', 'saas-billing', 'saas-audit'].includes(activeTab)) {
       loadTenants();
     }
-  }, [activeTab, currentUser, loadOrders, loadProduction, loadTenants, loadCatalogConfig]);
+  }, [activeTab, currentUser, loadOrders, loadProduction, loadClients, loadTenants, loadCatalogConfig]);
 
   // Aligerar la vista del Super Admin forzando la redirección de tab
   useEffect(() => {
@@ -819,6 +820,9 @@ function App() {
                     <span className={`nav-link-btn ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
                       🏭 Fábrica & Producción
                     </span>
+                    <span className={`nav-link-btn ${activeTab === 'clients' ? 'active' : ''}`} onClick={() => setActiveTab('clients')}>
+                      👥 Clientes & Leads
+                    </span>
                     <span className={`nav-link-btn ${activeTab === 'config' ? 'active' : ''}`} onClick={() => setActiveTab('config')}>
                       ⚙️ Configuración
                     </span>
@@ -877,6 +881,7 @@ function App() {
                 {isAdmin && (
                   <>
                     <span className={`mobile-nav-item ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>🏭 Fábrica</span>
+                    <span className={`mobile-nav-item ${activeTab === 'clients' ? 'active' : ''}`} onClick={() => setActiveTab('clients')}>👥 Clientes</span>
                     <span className={`mobile-nav-item ${activeTab === 'config' ? 'active' : ''}`} onClick={() => setActiveTab('config')}>⚙️ Config</span>
                   </>
                 )}
@@ -2711,546 +2716,535 @@ function App() {
         {/* ===================================================== */}
         {activeTab === 'config' && isAdmin && !dataLoading && (
           <div>
+            <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Configuración de Catálogo</h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                Administra las marcas y categorías de productos disponibles para tu catálogo mayorista.
+              </p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', alignItems: 'start' }}>
+              {/* CRUD CATEGORIAS */}
+              <div className="glass-panel" style={{ padding: '24px' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--pink-neon)' }}>
+                  {editingCategory ? '✏️ Editar Categoría' : '📁 Nueva Categoría'}
+                </h2>
+                <form onSubmit={handleCreateOrUpdateCategory} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Nombre</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Protectores"
+                      value={newCategory.name}
+                      required
+                      onChange={(e) => setNewCategory({ name: e.target.value, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Slug</label>
+                    <input
+                      type="text"
+                      placeholder="ej. protectores"
+                      value={newCategory.slug}
+                      required
+                      onChange={(e) => setNewCategory(prev => ({ ...prev, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button type="submit" className="btn-pink" style={{ flexGrow: 1, padding: '10px' }}>
+                      {editingCategory ? 'Guardar' : 'Crear'}
+                    </button>
+                    {editingCategory && (
+                      <button type="button" onClick={() => { setEditingCategory(null); setNewCategory({ name: '', slug: '' }); }} style={{ background: 'transparent', border: '1px solid var(--border-color)', color: '#fff', borderRadius: '8px', padding: '10px', cursor: 'pointer' }}>
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </form>
+
+                <h3 style={{ fontSize: '15px', fontWeight: '800', marginBottom: '12px' }}>Categorías ({categoriesList.length})</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {categoriesList.map(cat => (
+                    <div key={cat.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', padding: '10px 14px', borderRadius: '8px' }}>
+                      <div>
+                        <strong>{cat.name}</strong> <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>({cat.slug})</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button onClick={() => { setEditingCategory(cat); setNewCategory({ name: cat.name, slug: cat.slug }); }} style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', cursor: 'pointer', fontSize: '12px' }}>✏️</button>
+                        <button onClick={() => handleDeleteCategory(cat.id)} style={{ background: 'transparent', border: 'none', color: 'var(--pink-neon)', cursor: 'pointer', fontSize: '12px' }}>🗑️</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* CRUD BRANDS */}
+              <div className="glass-panel" style={{ padding: '24px' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
+                  {editingBrand ? '✏️ Editar Marca' : '🏷️ Nueva Marca'}
+                </h2>
+                <form onSubmit={handleCreateOrUpdateBrand} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Nombre</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Gosu Sleeves"
+                      value={newBrand.name}
+                      required
+                      onChange={(e) => setNewBrand({ name: e.target.value, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Slug</label>
+                    <input
+                      type="text"
+                      placeholder="ej. gosu-sleeves"
+                      value={newBrand.slug}
+                      required
+                      onChange={(e) => setNewBrand(prev => ({ ...prev, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button type="submit" className="btn-neon" style={{ flexGrow: 1, padding: '10px' }}>
+                      {editingBrand ? 'Guardar' : 'Crear'}
+                    </button>
+                    {editingBrand && (
+                      <button type="button" onClick={() => { setEditingBrand(null); setNewBrand({ name: '', slug: '' }); }} style={{ background: 'transparent', border: '1px solid var(--border-color)', color: '#fff', borderRadius: '8px', padding: '10px', cursor: 'pointer' }}>
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </form>
+
+                <h3 style={{ fontSize: '15px', fontWeight: '800', marginBottom: '12px' }}>Marcas ({brandsList.length})</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {brandsList.map(b => (
+                    <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', padding: '10px 14px', borderRadius: '8px' }}>
+                      <div>
+                        <strong>{b.name}</strong> <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>({b.slug})</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button onClick={() => { setEditingBrand(b); setNewBrand({ name: b.name, slug: b.slug }); }} style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', cursor: 'pointer', fontSize: '12px' }}>✏️</button>
+                        <button onClick={() => handleDeleteBrand(b.id)} style={{ background: 'transparent', border: 'none', color: 'var(--pink-neon)', cursor: 'pointer', fontSize: '12px' }}>🗑️</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ===================================================== */}
+        {/* TAB 5: CLIENTES & LEADS B2B (Solo Admin del Tenant)  */}
+        {/* ===================================================== */}
+        {activeTab === 'clients' && isAdmin && !dataLoading && (
+          <div>
             <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
               <div>
-                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Configuración de Empresa</h1>
+                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Directorio y CRM de Clientes B2B</h1>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                  Administra las marcas del catálogo y los perfiles logísticos de tus distribuidores B2B.
+                  Administra las cuentas de tus distribuidores activos y realiza el seguimiento a tus leads comerciales.
                 </p>
               </div>
-              
-              {/* Selector de Sub-tab */}
-              <div style={{ display: 'flex', gap: '8px', background: 'rgba(0,0,0,0.2)', padding: '4px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+
+              <div style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.15)', padding: '4px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
                 <button
-                  onClick={() => setConfigSubTab('catalog')}
-                  className={configSubTab === 'catalog' ? 'btn-pink' : 'btn-glass'}
-                  style={{ padding: '8px 16px', fontSize: '12px' }}
+                  onClick={() => setClientFilter('all')}
+                  className={clientFilter === 'all' ? 'btn-pink' : 'btn-glass'}
+                  style={{ padding: '6px 12px', fontSize: '11.5px' }}
                 >
-                  📁 Marcas & Categorías
+                  Todos ({clientsList.length})
                 </button>
                 <button
-                  onClick={() => setConfigSubTab('clients')}
-                  className={configSubTab === 'clients' ? 'btn-pink' : 'btn-glass'}
-                  style={{ padding: '8px 16px', fontSize: '12px' }}
+                  onClick={() => setClientFilter('clients')}
+                  className={clientFilter === 'clients' ? 'btn-pink' : 'btn-glass'}
+                  style={{ padding: '6px 12px', fontSize: '11.5px' }}
                 >
-                  👥 Distribuidores B2B ({clientsList.length})
+                  👥 Clientes Activos ({clientsList.filter(c => c.account_status === 'client').length})
+                </button>
+                <button
+                  onClick={() => setClientFilter('leads')}
+                  className={clientFilter === 'leads' ? 'btn-pink' : 'btn-glass'}
+                  style={{ padding: '6px 12px', fontSize: '11.5px' }}
+                >
+                  ⚡ Leads / Prospectos ({clientsList.filter(c => c.account_status !== 'client').length})
                 </button>
               </div>
             </div>
 
-            {/* SECCIÓN A: CONFIGURACIÓN DEL CATÁLOGO */}
-            {configSubTab === 'catalog' && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', alignItems: 'start' }}>
-                {/* CRUD CATEGORIAS */}
-                <div className="glass-panel" style={{ padding: '24px' }}>
-                  <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--pink-neon)' }}>
-                    {editingCategory ? '✏️ Editar Categoría' : '📁 Nueva Categoría'}
-                  </h2>
-                  <form onSubmit={handleCreateOrUpdateCategory} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Nombre</label>
-                      <input
-                        type="text"
-                        placeholder="Ej. Protectores"
-                        value={newCategory.name}
-                        required
-                        onChange={(e) => setNewCategory({ name: e.target.value, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Slug</label>
-                      <input
-                        type="text"
-                        placeholder="ej. protectores"
-                        value={newCategory.slug}
-                        required
-                        onChange={(e) => setNewCategory(prev => ({ ...prev, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button type="submit" className="btn-pink" style={{ flexGrow: 1, padding: '10px' }}>
-                        {editingCategory ? 'Guardar' : 'Crear'}
-                      </button>
-                      {editingCategory && (
-                        <button type="button" onClick={() => { setEditingCategory(null); setNewCategory({ name: '', slug: '' }); }} style={{ background: 'transparent', border: '1px solid var(--border-color)', color: '#fff', borderRadius: '8px', padding: '10px', cursor: 'pointer' }}>
-                          Cancelar
-                        </button>
-                      )}
-                    </div>
-                  </form>
-
-                  <h3 style={{ fontSize: '15px', fontWeight: '800', marginBottom: '12px' }}>Categorías ({categoriesList.length})</h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {categoriesList.map(cat => (
-                      <div key={cat.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', padding: '10px 14px', borderRadius: '8px' }}>
-                        <div>
-                          <strong>{cat.name}</strong> <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>({cat.slug})</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <button onClick={() => { setEditingCategory(cat); setNewCategory({ name: cat.name, slug: cat.slug }); }} style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', cursor: 'pointer', fontSize: '12px' }}>✏️</button>
-                          <button onClick={() => handleDeleteCategory(cat.id)} style={{ background: 'transparent', border: 'none', color: 'var(--pink-neon)', cursor: 'pointer', fontSize: '12px' }}>🗑️</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* CRUD BRANDS */}
-                <div className="glass-panel" style={{ padding: '24px' }}>
-                  <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
-                    {editingBrand ? '✏️ Editar Marca' : '🏷️ Nueva Marca'}
-                  </h2>
-                  <form onSubmit={handleCreateOrUpdateBrand} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Nombre</label>
-                      <input
-                        type="text"
-                        placeholder="Ej. Gosu Sleeves"
-                        value={newBrand.name}
-                        required
-                        onChange={(e) => setNewBrand({ name: e.target.value, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Slug</label>
-                      <input
-                        type="text"
-                        placeholder="ej. gosu-sleeves"
-                        value={newBrand.slug}
-                        required
-                        onChange={(e) => setNewBrand(prev => ({ ...prev, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button type="submit" className="btn-neon" style={{ flexGrow: 1, padding: '10px' }}>
-                        {editingBrand ? 'Guardar' : 'Crear'}
-                      </button>
-                      {editingBrand && (
-                        <button type="button" onClick={() => { setEditingBrand(null); setNewBrand({ name: '', slug: '' }); }} style={{ background: 'transparent', border: '1px solid var(--border-color)', color: '#fff', borderRadius: '8px', padding: '10px', cursor: 'pointer' }}>
-                          Cancelar
-                        </button>
-                      )}
-                    </div>
-                  </form>
-
-                  <h3 style={{ fontSize: '15px', fontWeight: '800', marginBottom: '12px' }}>Marcas ({brandsList.length})</h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {brandsList.map(b => (
-                      <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)', padding: '10px 14px', borderRadius: '8px' }}>
-                        <div>
-                          <strong>{b.name}</strong> <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>({b.slug})</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <button onClick={() => { setEditingBrand(b); setNewBrand({ name: b.name, slug: b.slug }); }} style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', cursor: 'pointer', fontSize: '12px' }}>✏️</button>
-                          <button onClick={() => handleDeleteBrand(b.id)} style={{ background: 'transparent', border: 'none', color: 'var(--pink-neon)', cursor: 'pointer', fontSize: '12px' }}>🗑️</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => {
+                    setCreatingClient(!creatingClient);
+                    setEditingClient(null);
+                    setNewClientForm({
+                      name: '',
+                      email: '',
+                      password: '',
+                      company_name: '',
+                      tax_id: '',
+                      billing_address: '',
+                      forwarder_address: '',
+                      custom_moa_usd: 1000,
+                      client_category: 'retail_store',
+                      destination_country: 'USA',
+                      account_status: 'lead_new',
+                      followup_notes: '',
+                      last_contact_date: new Date().toISOString().split('T')[0]
+                    });
+                  }}
+                  className="btn-pink"
+                  style={{ padding: '10px 20px', fontSize: '12.5px' }}
+                >
+                  {creatingClient ? 'Cancelar Registro' : '➕ Registrar Cliente / Lead'}
+                </button>
               </div>
-            )}
 
-            {/* SECCIÓN B: GESTIÓN DE DISTRIBUIDORES B2B (Fase 6.5) */}
-            {configSubTab === 'clients' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-                  {/* Filtros rápidos de Leads vs Clientes */}
-                  <div style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.15)', padding: '4px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
-                    <button
-                      onClick={() => setClientFilter('all')}
-                      className={clientFilter === 'all' ? 'btn-pink' : 'btn-glass'}
-                      style={{ padding: '6px 12px', fontSize: '11.5px' }}
-                    >
-                      Todos ({clientsList.length})
-                    </button>
-                    <button
-                      onClick={() => setClientFilter('clients')}
-                      className={clientFilter === 'clients' ? 'btn-pink' : 'btn-glass'}
-                      style={{ padding: '6px 12px', fontSize: '11.5px' }}
-                    >
-                      👥 Clientes Activos ({clientsList.filter(c => c.account_status === 'client').length})
-                    </button>
-                    <button
-                      onClick={() => setClientFilter('leads')}
-                      className={clientFilter === 'leads' ? 'btn-pink' : 'btn-glass'}
-                      style={{ padding: '6px 12px', fontSize: '11.5px' }}
-                    >
-                      ⚡ Leads / Prospectos ({clientsList.filter(c => c.account_status !== 'client').length})
-                    </button>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      setCreatingClient(!creatingClient);
-                      setEditingClient(null);
-                      setNewClientForm({
-                        name: '',
-                        email: '',
-                        password: '',
-                        company_name: '',
-                        tax_id: '',
-                        billing_address: '',
-                        forwarder_address: '',
-                        custom_moa_usd: 1000,
-                        client_category: 'retail_store',
-                        destination_country: 'USA',
-                        account_status: 'lead_new',
-                        followup_notes: '',
-                        last_contact_date: new Date().toISOString().split('T')[0]
-                      });
-                    }}
-                    className="btn-pink"
-                    style={{ padding: '10px 20px', fontSize: '12.5px' }}
-                  >
-                    {creatingClient ? 'Cancelar Registro' : '➕ Registrar Cliente / Lead'}
-                  </button>
-                </div>
-
-                {/* Formulario de creación/edición de cliente */}
-                {(creatingClient || editingClient) && (
-                  <div className="glass-panel" style={{ padding: '24px', border: '1px solid rgba(255,255,255,0.08)' }}>
-                    <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '20px', color: 'var(--pink-neon)' }}>
-                      {editingClient ? `✏️ Editar Cuenta: ${editingClient.company_name || editingClient.name}` : '🚀 Registrar Nuevo Cliente o Lead B2B'}
-                    </h2>
-                    
-                    <form onSubmit={handleCreateOrUpdateClient} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Nombre del Contacto *</label>
-                          <input
-                            type="text"
-                            required
-                            placeholder="Ej. Yugi Muto"
-                            value={newClientForm.name}
-                            onChange={(e) => setNewClientForm(prev => ({ ...prev, name: e.target.value }))}
-                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                          />
-                        </div>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Correo Electrónico *</label>
-                          <input
-                            type="email"
-                            required
-                            placeholder="ejemplo@tienda.com"
-                            value={newClientForm.email}
-                            onChange={(e) => setNewClientForm(prev => ({ ...prev, email: e.target.value }))}
-                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                          />
-                        </div>
-                        
-                        {!editingClient && (
-                          <div>
-                            <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Contraseña de Acceso *</label>
-                            <input
-                              type="password"
-                              required
-                              placeholder="Min. 6 caracteres"
-                              value={newClientForm.password}
-                              onChange={(e) => setNewClientForm(prev => ({ ...prev, password: e.target.value }))}
-                              style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                            />
-                          </div>
-                        )}
-                        
-                        <div>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>
-                            Estado de la Cuenta *
-                          </label>
-                          <select
-                            value={newClientForm.account_status}
-                            onChange={(e) => setNewClientForm(prev => ({ ...prev, account_status: e.target.value }))}
-                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                          >
-                            <option value="client">🟢 Cliente Activo (Validado comercialmente)</option>
-                            <option value="lead_new">🟡 Lead: Nuevo Prospecto</option>
-                            <option value="lead_negotiation">🟠 Lead: En Negociación</option>
-                            <option value="lead_pending_moa">🔵 Lead: Pendiente de MOA / Propuesta</option>
-                            <option value="lead_rejected">🔴 Lead: Descalificado</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>
-                            Razón Social / Empresa {newClientForm.account_status === 'client' && '*'}
-                          </label>
-                          <input
-                            type="text"
-                            required={newClientForm.account_status === 'client'}
-                            placeholder="Ej. Kame Game Shop Inc"
-                            value={newClientForm.company_name}
-                            onChange={(e) => setNewClientForm(prev => ({ ...prev, company_name: e.target.value }))}
-                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                          />
-                        </div>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>
-                            ID Fiscal / Tax ID {newClientForm.account_status === 'client' && '*'}
-                          </label>
-                          <input
-                            type="text"
-                            required={newClientForm.account_status === 'client'}
-                            placeholder="Ej. JP-9876543"
-                            value={newClientForm.tax_id}
-                            onChange={(e) => setNewClientForm(prev => ({ ...prev, tax_id: e.target.value }))}
-                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                          />
-                        </div>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>País de Destino (Aduana) *</label>
-                          <input
-                            type="text"
-                            required
-                            placeholder="Ej. Japón, España, México"
-                            value={newClientForm.destination_country}
-                            onChange={(e) => setNewClientForm(prev => ({ ...prev, destination_country: e.target.value }))}
-                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                          />
-                        </div>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Monto Mínimo de Compra (MOA) *</label>
-                          <input
-                            type="number"
-                            required
-                            placeholder="Mínimo de orden ($)"
-                            value={newClientForm.custom_moa_usd}
-                            onChange={(e) => setNewClientForm(prev => ({ ...prev, custom_moa_usd: parseFloat(e.target.value) || 0 }))}
-                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                          />
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Categoría de Distribuidor B2B *</label>
-                          <select
-                            value={newClientForm.client_category}
-                            onChange={(e) => setNewClientForm(prev => ({ ...prev, client_category: e.target.value }))}
-                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                          >
-                            <option value="wholesale_distributor">Wholesale Distributor (Distribuidor Mayorista -5% extra)</option>
-                            <option value="retail_store">Retail Store (Tienda Física Minorista)</option>
-                            <option value="dropshipper">Dropshipper (Despacho sin inventario)</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Fecha de Último Contacto *</label>
-                          <input
-                            type="date"
-                            required
-                            value={newClientForm.last_contact_date}
-                            onChange={(e) => setNewClientForm(prev => ({ ...prev, last_contact_date: e.target.value }))}
-                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                          />
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>
-                            Dirección Fiscal / Facturación {newClientForm.account_status === 'client' && '*'}
-                          </label>
-                          <textarea
-                            required={newClientForm.account_status === 'client'}
-                            rows="2"
-                            placeholder="Dirección fiscal registrada (Opcional para Leads)"
-                            value={newClientForm.billing_address}
-                            onChange={(e) => setNewClientForm(prev => ({ ...prev, billing_address: e.target.value }))}
-                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', resize: 'none' }}
-                          />
-                        </div>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>
-                            Dirección de Forwarder (Bodega en China) {newClientForm.account_status === 'client' && '*'}
-                          </label>
-                          <textarea
-                            required={newClientForm.account_status === 'client'}
-                            rows="2"
-                            placeholder="Instrucciones de entrega para aduana de exportación china (Opcional para Leads)"
-                            value={newClientForm.forwarder_address}
-                            onChange={(e) => setNewClientForm(prev => ({ ...prev, forwarder_address: e.target.value }))}
-                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', resize: 'none' }}
-                          />
-                        </div>
-                      </div>
-
+              {/* Formulario de creación/edición de cliente */}
+              {(creatingClient || editingClient) && (
+                <div className="glass-panel" style={{ padding: '24px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '20px', color: 'var(--pink-neon)' }}>
+                    {editingClient ? `✏️ Editar Cuenta: ${editingClient.company_name || editingClient.name}` : '🚀 Registrar Nuevo Cliente o Lead B2B'}
+                  </h2>
+                  
+                  <form onSubmit={handleCreateOrUpdateClient} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
                       <div>
-                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Notas de Seguimiento Comercial (CRM)</label>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Nombre del Contacto *</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Ej. Yugi Muto"
+                          value={newClientForm.name}
+                          onChange={(e) => setNewClientForm(prev => ({ ...prev, name: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Correo Electrónico *</label>
+                        <input
+                          type="email"
+                          required
+                          placeholder="ejemplo@tienda.com"
+                          value={newClientForm.email}
+                          onChange={(e) => setNewClientForm(prev => ({ ...prev, email: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      
+                      {!editingClient && (
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Contraseña de Acceso *</label>
+                          <input
+                            type="password"
+                            required
+                            placeholder="Min. 6 caracteres"
+                            value={newClientForm.password}
+                            onChange={(e) => setNewClientForm(prev => ({ ...prev, password: e.target.value }))}
+                            style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                        </div>
+                      )}
+                      
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>
+                          Estado de la Cuenta *
+                        </label>
+                        <select
+                          value={newClientForm.account_status}
+                          onChange={(e) => setNewClientForm(prev => ({ ...prev, account_status: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        >
+                          <option value="client">🟢 Cliente Activo (Validado comercialmente)</option>
+                          <option value="lead_new">🟡 Lead: Nuevo Prospecto</option>
+                          <option value="lead_negotiation">🟠 Lead: En Negociación</option>
+                          <option value="lead_pending_moa">🔵 Lead: Pendiente de MOA / Propuesta</option>
+                          <option value="lead_rejected">🔴 Lead: Descalificado</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>
+                          Razón Social / Empresa {newClientForm.account_status === 'client' && '*'}
+                        </label>
+                        <input
+                          type="text"
+                          required={newClientForm.account_status === 'client'}
+                          placeholder="Ej. Kame Game Shop Inc"
+                          value={newClientForm.company_name}
+                          onChange={(e) => setNewClientForm(prev => ({ ...prev, company_name: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>
+                          ID Fiscal / Tax ID {newClientForm.account_status === 'client' && '*'}
+                        </label>
+                        <input
+                          type="text"
+                          required={newClientForm.account_status === 'client'}
+                          placeholder="Ej. JP-9876543"
+                          value={newClientForm.tax_id}
+                          onChange={(e) => setNewClientForm(prev => ({ ...prev, tax_id: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>País de Destino (Aduana) *</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Ej. Japón, España, México"
+                          value={newClientForm.destination_country}
+                          onChange={(e) => setNewClientForm(prev => ({ ...prev, destination_country: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Monto Mínimo de Compra (MOA) *</label>
+                        <input
+                          type="number"
+                          required
+                          placeholder="Mínimo de orden ($)"
+                          value={newClientForm.custom_moa_usd}
+                          onChange={(e) => setNewClientForm(prev => ({ ...prev, custom_moa_usd: parseFloat(e.target.value) || 0 }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Categoría de Distribuidor B2B *</label>
+                        <select
+                          value={newClientForm.client_category}
+                          onChange={(e) => setNewClientForm(prev => ({ ...prev, client_category: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        >
+                          <option value="wholesale_distributor">Wholesale Distributor (Distribuidor Mayorista -5% extra)</option>
+                          <option value="retail_store">Retail Store (Tienda Física Minorista)</option>
+                          <option value="dropshipper">Dropshipper (Despacho sin inventario)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Fecha de Último Contacto *</label>
+                        <input
+                          type="date"
+                          required
+                          value={newClientForm.last_contact_date}
+                          onChange={(e) => setNewClientForm(prev => ({ ...prev, last_contact_date: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>
+                          Dirección Fiscal / Facturación {newClientForm.account_status === 'client' && '*'}
+                        </label>
                         <textarea
-                          rows="3"
-                          placeholder="Registra aquí los detalles del seguimiento comercial: acuerdos, cotizaciones enviadas, solicitudes del prospecto, etc."
-                          value={newClientForm.followup_notes}
-                          onChange={(e) => setNewClientForm(prev => ({ ...prev, followup_notes: e.target.value }))}
+                          required={newClientForm.account_status === 'client'}
+                          rows="2"
+                          placeholder="Dirección fiscal registrada (Opcional para Leads)"
+                          value={newClientForm.billing_address}
+                          onChange={(e) => setNewClientForm(prev => ({ ...prev, billing_address: e.target.value }))}
                           style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', resize: 'none' }}
                         />
                       </div>
-
-                      <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
-                        <button
-                          type="button"
-                          onClick={() => { setCreatingClient(false); setEditingClient(null); }}
-                          className="btn-glass"
-                          style={{ padding: '8px 20px', fontSize: '12.5px' }}
-                        >
-                          Cancelar
-                        </button>
-                        <button type="submit" className="btn-pink" style={{ padding: '8px 30px', fontSize: '12.5px' }}>
-                          {editingClient ? 'Guardar Cambios' : 'Registrar en Neon'}
-                        </button>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>
+                          Dirección de Forwarder (Bodega en China) {newClientForm.account_status === 'client' && '*'}
+                        </label>
+                        <textarea
+                          required={newClientForm.account_status === 'client'}
+                          rows="2"
+                          placeholder="Instrucciones de entrega para aduana de exportación china (Opcional para Leads)"
+                          value={newClientForm.forwarder_address}
+                          onChange={(e) => setNewClientForm(prev => ({ ...prev, forwarder_address: e.target.value }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', resize: 'none' }}
+                        />
                       </div>
-                    </form>
-                  </div>
-                )}
-
-                {/* Listado de distribuidores en tabla */}
-                <div className="glass-panel" style={{ padding: '24px', overflowX: 'auto' }}>
-                  <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
-                    Directorio y Pipeline CRM de Cuentas B2B
-                  </h2>
-
-                  {clientsList.filter(client => {
-                    if (clientFilter === 'clients') return client.account_status === 'client';
-                    if (clientFilter === 'leads') return client.account_status !== 'client';
-                    return true;
-                  }).length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                      No hay cuentas que coincidan con el filtro seleccionado.
                     </div>
-                  ) : (
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
-                      <thead>
-                        <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.08)' }}>
-                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Empresa / Lead</th>
-                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Destino</th>
-                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Estado CRM</th>
-                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Categoría / MOA</th>
-                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Último Contacto & Notas de CRM</th>
-                          <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600', textAlign: 'center' }}>Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {clientsList
-                          .filter(client => {
-                            if (clientFilter === 'clients') return client.account_status === 'client';
-                            if (clientFilter === 'leads') return client.account_status !== 'client';
-                            return true;
-                          })
-                          .map(client => {
-                            const isLead = client.account_status !== 'client';
-                            
-                            // Determinar badges e indicadores según el estado
-                            let statusBadgeClass = 'badge-cyan';
-                            let statusLabel = 'Lead';
-                            if (client.account_status === 'client') {
-                              statusBadgeClass = 'badge-green';
-                              statusLabel = '🟢 Cliente Activo';
-                            } else if (client.account_status === 'lead_new') {
-                              statusBadgeClass = 'badge-yellow';
-                              statusLabel = '🟡 Lead: Nuevo';
-                            } else if (client.account_status === 'lead_negotiation') {
-                              statusBadgeClass = 'badge-orange';
-                              statusLabel = '🟠 Lead: Negociación';
-                            } else if (client.account_status === 'lead_pending_moa') {
-                              statusBadgeClass = 'badge-purple';
-                              statusLabel = '🔵 Lead: Pendiente MOA';
-                            } else if (client.account_status === 'lead_rejected') {
-                              statusBadgeClass = 'badge-red';
-                              statusLabel = '🔴 Lead: Descalificado';
-                            }
 
-                            return (
-                              <tr key={client.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.3s' }}>
-                                <td style={{ padding: '14px 8px' }}>
-                                  <strong style={{ color: '#fff', fontSize: '14px' }}>
-                                    {client.company_name || <span style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>Sin Razón Social</span>}
-                                  </strong>
-                                  <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                    Contacto: {client.name} ({client.email})
-                                  </span>
-                                  {client.tax_id && (
-                                    <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-muted)' }}>
-                                      ID Fiscal: {client.tax_id}
-                                    </span>
-                                  )}
-                                </td>
-                                <td style={{ padding: '14px 8px' }}>
-                                  <span style={{ fontSize: '13px', color: 'var(--cyan-neon)' }}>📍 {client.destination_country}</span>
-                                </td>
-                                <td style={{ padding: '14px 8px' }}>
-                                  <span className={`badge ${statusBadgeClass}`} style={{ fontSize: '10.5px', whiteSpace: 'nowrap' }}>
-                                    {statusLabel}
-                                  </span>
-                                </td>
-                                <td style={{ padding: '14px 8px' }}>
-                                  <span className="badge badge-glass" style={{ fontSize: '10px', display: 'inline-block', marginBottom: '4px' }}>
-                                    {{
-                                      'wholesale_distributor': 'Mayorista (-5%)',
-                                      'retail_store': 'Tienda Física',
-                                      'dropshipper': 'Dropshipper'
-                                    }[client.client_category] || client.client_category}
-                                  </span>
-                                  <div style={{ fontWeight: '700', color: '#fff', fontSize: '12px' }}>
-                                    MOA: ${parseFloat(client.custom_moa_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                  </div>
-                                </td>
-                                <td style={{ padding: '14px 8px', maxWidth: '350px' }}>
-                                  <div style={{ fontSize: '11px', color: 'var(--cyan-neon)', marginBottom: '4px', fontWeight: '600' }}>
-                                    📅 Último contacto: {client.last_contact_date ? new Date(client.last_contact_date).toLocaleDateString('es-ES') : 'Sin fecha'}
-                                  </div>
-                                  <p style={{ margin: '0', fontSize: '12px', color: '#ccc', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: '2', WebkitBoxOrient: 'vertical' }}>
-                                    {client.followup_notes || <span style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>Sin notas de seguimiento registradas.</span>}
-                                  </p>
-                                </td>
-                                <td style={{ padding: '14px 8px', textAlign: 'center' }}>
-                                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                                    <button
-                                      onClick={() => {
-                                        setEditingClient(client);
-                                        setCreatingClient(false);
-                                        setNewClientForm({
-                                          name: client.name,
-                                          email: client.email,
-                                          company_name: client.company_name || '',
-                                          tax_id: client.tax_id || '',
-                                          billing_address: client.billing_address || '',
-                                          forwarder_address: client.forwarder_address || '',
-                                          custom_moa_usd: parseFloat(client.custom_moa_usd),
-                                          client_category: client.client_category,
-                                          destination_country: client.destination_country,
-                                          account_status: client.account_status,
-                                          followup_notes: client.followup_notes || '',
-                                          last_contact_date: client.last_contact_date ? new Date(client.last_contact_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
-                                        });
-                                      }}
-                                      className="btn-glass"
-                                      style={{ padding: '6px 12px', fontSize: '12px' }}
-                                    >
-                                      ✏️
-                                    </button>
-                                    <button
-                                      onClick={() => handleDeleteClient(client.id)}
-                                      className="btn-glass-pink"
-                                      style={{ padding: '6px 12px', fontSize: '12px' }}
-                                    >
-                                      🗑️
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
-                  )}
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Notas de Seguimiento Comercial (CRM)</label>
+                      <textarea
+                        rows="3"
+                        placeholder="Registra aquí los detalles del seguimiento comercial: acuerdos, cotizaciones enviadas, solicitudes del prospecto, etc."
+                        value={newClientForm.followup_notes}
+                        onChange={(e) => setNewClientForm(prev => ({ ...prev, followup_notes: e.target.value }))}
+                        style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', resize: 'none' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                      <button
+                        type="button"
+                        onClick={() => { setCreatingClient(false); setEditingClient(null); }}
+                        className="btn-glass"
+                        style={{ padding: '8px 20px', fontSize: '12.5px' }}
+                      >
+                        Cancelar
+                      </button>
+                      <button type="submit" className="btn-pink" style={{ padding: '8px 30px', fontSize: '12.5px' }}>
+                        {editingClient ? 'Guardar Cambios' : 'Registrar en Neon'}
+                      </button>
+                    </div>
+                  </form>
                 </div>
+              )}
+
+              {/* Listado de distribuidores en tabla */}
+              <div className="glass-panel" style={{ padding: '24px', overflowX: 'auto' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
+                  Directorio y Pipeline CRM de Cuentas B2B
+                </h2>
+
+                {clientsList.filter(client => {
+                  if (clientFilter === 'clients') return client.account_status === 'client';
+                  if (clientFilter === 'leads') return client.account_status !== 'client';
+                  return true;
+                }).length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                    No hay cuentas que coincidan con el filtro seleccionado.
+                  </div>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.08)' }}>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Empresa / Lead</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Destino</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Estado CRM</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Categoría / MOA</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Último Contacto & Notas de CRM</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600', textAlign: 'center' }}>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {clientsList
+                        .filter(client => {
+                          if (clientFilter === 'clients') return client.account_status === 'client';
+                          if (clientFilter === 'leads') return client.account_status !== 'client';
+                          return true;
+                        })
+                        .map(client => {
+                          const isLead = client.account_status !== 'client';
+                          
+                          // Determinar badges e indicadores según el estado
+                          let statusBadgeClass = 'badge-cyan';
+                          let statusLabel = 'Lead';
+                          if (client.account_status === 'client') {
+                            statusBadgeClass = 'badge-green';
+                            statusLabel = '🟢 Cliente Activo';
+                          } else if (client.account_status === 'lead_new') {
+                            statusBadgeClass = 'badge-yellow';
+                            statusLabel = '🟡 Lead: Nuevo';
+                          } else if (client.account_status === 'lead_negotiation') {
+                            statusBadgeClass = 'badge-orange';
+                            statusLabel = '🟠 Lead: Negociación';
+                          } else if (client.account_status === 'lead_pending_moa') {
+                            statusBadgeClass = 'badge-purple';
+                            statusLabel = '🔵 Lead: Pendiente MOA';
+                          } else if (client.account_status === 'lead_rejected') {
+                            statusBadgeClass = 'badge-red';
+                            statusLabel = '🔴 Lead: Descalificado';
+                          }
+
+                          return (
+                            <tr key={client.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.3s' }}>
+                              <td style={{ padding: '14px 8px' }}>
+                                <strong style={{ color: '#fff', fontSize: '14px' }}>
+                                  {client.company_name || <span style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>Sin Razón Social</span>}
+                                </strong>
+                                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                  Contacto: {client.name} ({client.email})
+                                </span>
+                                {client.tax_id && (
+                                  <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-muted)' }}>
+                                    ID Fiscal: {client.tax_id}
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ padding: '14px 8px' }}>
+                                <span style={{ fontSize: '13px', color: 'var(--cyan-neon)' }}>📍 {client.destination_country}</span>
+                              </td>
+                              <td style={{ padding: '14px 8px' }}>
+                                <span className={`badge ${statusBadgeClass}`} style={{ fontSize: '10.5px', whiteSpace: 'nowrap' }}>
+                                  {statusLabel}
+                                </span>
+                              </td>
+                              <td style={{ padding: '14px 8px' }}>
+                                <span className="badge badge-glass" style={{ fontSize: '10px', display: 'inline-block', marginBottom: '4px' }}>
+                                  {{
+                                    'wholesale_distributor': 'Mayorista (-5%)',
+                                    'retail_store': 'Tienda Física',
+                                    'dropshipper': 'Dropshipper'
+                                  }[client.client_category] || client.client_category}
+                                </span>
+                                <div style={{ fontWeight: '700', color: '#fff', fontSize: '12px' }}>
+                                  MOA: ${parseFloat(client.custom_moa_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                </div>
+                              </td>
+                              <td style={{ padding: '14px 8px', maxWidth: '350px' }}>
+                                <div style={{ fontSize: '11px', color: 'var(--cyan-neon)', marginBottom: '4px', fontWeight: '600' }}>
+                                  📅 Último contacto: {client.last_contact_date ? new Date(client.last_contact_date).toLocaleDateString('es-ES') : 'Sin fecha'}
+                                </div>
+                                <p style={{ margin: '0', fontSize: '12px', color: '#ccc', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: '2', WebkitBoxOrient: 'vertical' }}>
+                                  {client.followup_notes || <span style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>Sin notas de seguimiento registradas.</span>}
+                                </p>
+                              </td>
+                              <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+                                <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                  <button
+                                    onClick={() => {
+                                      setEditingClient(client);
+                                      setCreatingClient(false);
+                                      setNewClientForm({
+                                        name: client.name,
+                                        email: client.email,
+                                        company_name: client.company_name || '',
+                                        tax_id: client.tax_id || '',
+                                        billing_address: client.billing_address || '',
+                                        forwarder_address: client.forwarder_address || '',
+                                        custom_moa_usd: parseFloat(client.custom_moa_usd),
+                                        client_category: client.client_category,
+                                        destination_country: client.destination_country,
+                                        account_status: client.account_status,
+                                        followup_notes: client.followup_notes || '',
+                                        last_contact_date: client.last_contact_date ? new Date(client.last_contact_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+                                      });
+                                    }}
+                                    className="btn-glass"
+                                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                                  >
+                                    ✏️
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteClient(client.id)}
+                                    className="btn-glass-pink"
+                                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                                  >
+                                    🗑️
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                )}
               </div>
-            )}
+            </div>
           </div>
         )}
       </main>
