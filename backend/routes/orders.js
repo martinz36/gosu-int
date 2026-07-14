@@ -19,7 +19,7 @@ router.get('/', requireAuth, async (req, res) => {
       so.discount_usd, so.shipping_cost_usd, so.total_usd,
       so.advance_payment_pct, so.deposit_paid_usd, so.deposit_receipt_url,
       so.balance_paid_usd, so.balance_receipt_url, so.bl_number, so.bl_document_url,
-      so.notes, so.created_at,
+      so.notes, so.created_at, so.payment_status, so.payment_method,
       u.name as client_name, u.email as client_email,
       SUM(soi.qty_cases * p.case_cbm) as total_cbm,
       SUM(soi.qty_cases) as total_cases,
@@ -905,10 +905,10 @@ router.post('/:id/verify-stripe-payment', requireAuth, async (req, res) => {
 
     const { stripe_secret_key } = tenantRes.rows[0];
 
-    // 3. Consultar estado en Stripe
+    // 3. Consultar estado en Stripe (expandiendo payment_intent y latest_charge para obtener la URL del recibo)
     const authHeader = 'Basic ' + Buffer.from(stripe_secret_key + ':').toString('base64');
     console.log(`Verificando Stripe Checkout Session: ${sessionId}...`);
-    const stripeResponse = await fetch(`https://api.stripe.com/v1/checkout/sessions/${sessionId}`, {
+    const stripeResponse = await fetch(`https://api.stripe.com/v1/checkout/sessions/${sessionId}?expand[]=payment_intent.latest_charge`, {
       method: 'GET',
       headers: {
         'Authorization': authHeader
@@ -923,12 +923,13 @@ router.post('/:id/verify-stripe-payment', requireAuth, async (req, res) => {
 
     // 4. Si el pago es exitoso, actualizar Neon
     if (sessionData.payment_status === 'paid') {
+      const receiptUrl = sessionData.payment_intent?.latest_charge?.receipt_url || null;
       const updateResult = await pool.query(
         `UPDATE sales_orders 
-         SET payment_status = 'Pagado', payment_method = 'stripe', updated_at = CURRENT_TIMESTAMP 
-         WHERE id = $1 AND tenant_id = $2
+         SET payment_status = 'Pagado', payment_method = 'stripe', balance_receipt_url = $1, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $2 AND tenant_id = $3
          RETURNING *`,
-        [orderId, tenant_id]
+        [receiptUrl, orderId, tenant_id]
       );
 
       // Guardar auditoría
@@ -954,6 +955,98 @@ router.post('/:id/verify-stripe-payment', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Error al verificar pago con Stripe:', err);
     res.status(500).json({ error: 'Error interno del servidor al verificar el pago con Stripe.' });
+  }
+});
+
+// ============================================================
+// GET /api/orders/:id/stripe-receipt (Autenticado, para Admins y Clientes distribuidores)
+// Busca y recupera la URL del recibo oficial de Stripe para un pedido B2B.
+// ============================================================
+router.get('/:id/stripe-receipt', requireAuth, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { id: orderId } = req.params;
+
+  try {
+    // 1. Obtener la orden y validar pertenencia
+    const orderRes = await pool.query(
+      'SELECT id, payment_status, payment_method, balance_receipt_url, client_id FROM sales_orders WHERE id = $1 AND tenant_id = $2',
+      [orderId, tenant_id]
+    );
+
+    if (orderRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    const order = orderRes.rows[0];
+    if (req.user.role === 'b2b_client' && order.client_id !== req.user.id) {
+      return res.status(403).json({ error: 'No tienes acceso a este pedido.' });
+    }
+
+    // Si ya tenemos el recibo guardado localmente, retornarlo directamente
+    if (order.balance_receipt_url) {
+      return res.json({ success: true, url: order.balance_receipt_url });
+    }
+
+    if (order.payment_method !== 'stripe') {
+      return res.status(400).json({ error: 'Este pedido no fue pagado mediante Stripe.' });
+    }
+
+    // 2. Obtener las credenciales de Stripe del Tenant
+    const tenantRes = await pool.query(
+      'SELECT stripe_secret_key FROM tenants WHERE id = $1',
+      [tenant_id]
+    );
+
+    if (tenantRes.rows.length === 0 || !tenantRes.rows[0].stripe_secret_key) {
+      return res.status(400).json({ 
+        error: 'El pago con tarjeta (Stripe) no está configurado para esta empresa.' 
+      });
+    }
+
+    const { stripe_secret_key } = tenantRes.rows[0];
+    const authHeader = 'Basic ' + Buffer.from(stripe_secret_key + ':').toString('base64');
+
+    // 3. Consultar sesiones recientes de Stripe Checkout para encontrar la correspondiente al pedido
+    console.log(`Buscando sesión de Stripe Checkout para el pedido ${orderId}...`);
+    const stripeResponse = await fetch('https://api.stripe.com/v1/checkout/sessions?limit=50&expand[]=data.payment_intent.latest_charge', {
+      method: 'GET',
+      headers: {
+        'Authorization': authHeader
+      }
+    });
+
+    const listData = await stripeResponse.json();
+    if (!stripeResponse.ok) {
+      console.error('Error de Stripe API al listar sesiones:', listData);
+      return res.status(502).json({ error: `Error de Stripe: ${listData.error?.message || 'Error desconocido'}` });
+    }
+
+    // Buscar sesión con metadata de order_id coincidente
+    const session = listData.data?.find(s => s.metadata?.order_id === orderId);
+
+    if (!session) {
+      return res.status(404).json({ error: 'No se encontró ninguna sesión de pago de Stripe para este pedido en el servidor de pasarela.' });
+    }
+
+    const receiptUrl = session.payment_intent?.latest_charge?.receipt_url;
+    if (!receiptUrl) {
+      return res.status(404).json({ error: 'La transacción de Stripe no posee una URL de recibo disponible en este momento.' });
+    }
+
+    // Actualizar base de datos local para persistir la URL del recibo
+    await pool.query(
+      'UPDATE sales_orders SET balance_receipt_url = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [receiptUrl, orderId]
+    );
+
+    res.json({
+      success: true,
+      url: receiptUrl
+    });
+
+  } catch (err) {
+    console.error('Error al recuperar recibo de Stripe:', err);
+    res.status(500).json({ error: 'Error interno del servidor al recuperar el recibo de Stripe.' });
   }
 });
 

@@ -1526,6 +1526,21 @@ function App() {
     reader.readAsDataURL(file);
   };
 
+  const handleViewStripeReceipt = async (orderId) => {
+    try {
+      alert('⏳ Recuperando comprobante de Stripe...');
+      const res = await ordersApi.getStripeReceipt(orderId);
+      if (res && res.url) {
+        window.open(res.url, '_blank');
+        await loadOrders();
+      } else {
+        throw new Error('La transacción no posee una URL de recibo disponible.');
+      }
+    } catch (err) {
+      alert(`❌ Error al cargar comprobante de Stripe: ${err.message}`);
+    }
+  };
+
   const handleExportPDF = (pOrder) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
@@ -4100,10 +4115,10 @@ function App() {
                                 </a>
                               ) : order.payment_method === 'stripe' ? (
                                 <button
-                                  onClick={() => alert(`💳 Pago Electrónico Stripe:\n\n- PO: ${order.po_number || 'PO-????'}\n- Estado: Completado & Verificado\n- Pasarela: Stripe Gateway\n\nEl pago ha sido procesado directamente con Tarjeta de Crédito de forma segura.`)}
+                                  onClick={() => handleViewStripeReceipt(order.id)}
                                   className="btn-glass"
                                   style={{ padding: '6px 10px', fontSize: '12px', background: 'rgba(0, 232, 255, 0.15)', border: '1px solid var(--cyan-neon)', color: 'var(--cyan-neon)' }}
-                                  title="Pago con Tarjeta (Stripe Verificado)"
+                                  title="Ver Recibo de Pago Stripe"
                                 >
                                   💳
                                 </button>

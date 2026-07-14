@@ -139,6 +139,9 @@ export const orders = {
   verifyStripePayment: (id, sessionId) =>
     request('POST', `/api/orders/${id}/verify-stripe-payment`, { sessionId }),
 
+  getStripeReceipt: (id) =>
+    request('GET', `/api/orders/${id}/stripe-receipt`),
+
   sendWhatsApp: (id, number, origin) =>
     request('POST', `/api/orders/${id}/send-whatsapp`, { number, origin }),
 
