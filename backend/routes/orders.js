@@ -1464,7 +1464,11 @@ router.post('/:id/upload-voucher', requireAuth, async (req, res) => {
     const cloudData = await cloudResponse.json();
     if (!cloudResponse.ok) {
       console.error('Error de Cloudinary API:', cloudData);
-      return res.status(502).json({ error: `Cloudinary error: ${cloudData.error?.message || 'Error desconocido'}` });
+      let errMsg = cloudData.error?.message || 'Error desconocido al subir a la nube.';
+      if (errMsg.includes('Upload preset not found')) {
+        errMsg = `El preset de subida "${uploadPreset}" no fue encontrado en tu cuenta de Cloudinary. Por favor, asegúrate de crear un Upload Preset de tipo "Unsigned" (sin firma) en la configuración de tu cuenta de Cloudinary y registrar su nombre exacto en el panel de Configuración de Gosu.`;
+      }
+      return res.status(502).json({ error: `Cloudinary error: ${errMsg}` });
     }
 
     const uploadedUrl = cloudData.secure_url;

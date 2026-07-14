@@ -6621,24 +6621,24 @@ function App() {
               <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginBottom: '8px' }}>
                   <span>Subtotal</span>
-                  <span>${cartTotals.subtotal.toFixed(2)} USD</span>
+                  <span>${cartTotals.subtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
                 </div>
                 {cartTotals.discountPercent > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginBottom: '8px', color: 'var(--pink-neon)' }}>
                     <span>Descuento ({cartTotals.discountPercent}%)</span>
-                    <span>-${cartTotals.discountAmount.toFixed(2)} USD</span>
+                    <span>-${cartTotals.discountAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '18px', fontWeight: '800', marginBottom: '16px', borderTop: '1px dotted #333', paddingTop: '12px' }}>
                   <span>Total de la Orden</span>
-                  <span style={{ color: 'var(--cyan-neon)' }}>${cartTotals.finalTotal.toFixed(2)} USD</span>
+                  <span style={{ color: 'var(--cyan-neon)' }}>${cartTotals.finalTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
                 </div>
 
                 {cartTotals.finalTotal < MOA_LIMIT ? (
                   <div className="glass-panel" style={{ padding: '12px', borderLeft: '4px solid var(--orange-neon)', marginBottom: '16px', background: 'rgba(255, 92, 0, 0.05)' }}>
                     <span style={{ fontSize: '12px', color: 'var(--orange-neon)', fontWeight: '700' }}>MOA no alcanzado</span>
                     <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                      Mínimo: <strong>${MOA_LIMIT.toFixed(2)} USD</strong>. Faltan ${(MOA_LIMIT - cartTotals.finalTotal).toFixed(2)} USD.
+                      Mínimo: <strong>${MOA_LIMIT.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</strong>. Faltan ${(MOA_LIMIT - cartTotals.finalTotal).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD.
                     </p>
                   </div>
                 ) : (
