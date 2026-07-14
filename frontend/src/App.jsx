@@ -110,6 +110,16 @@ function App() {
   const [dashboardEndDate, setDashboardEndDate] = useState('');
   const [loadingDashboard, setLoadingDashboard] = useState(false);
 
+  // Estados para Kardex de Inventario
+  const [kardexModalOpen, setKardexModalOpen] = useState(false);
+  const [kardexProduct, setKardexProduct] = useState(null);
+  const [kardexHistory, setKardexHistory] = useState([]);
+  const [loadingKardex, setLoadingKardex] = useState(false);
+  const [adjustType, setAdjustType] = useState('INITIAL'); // 'INITIAL' | 'ADJUSTMENT'
+  const [adjustQty, setAdjustQty] = useState('');
+  const [adjustNotes, setAdjustNotes] = useState('');
+  const [submittingAdjustment, setSubmittingAdjustment] = useState(false);
+
   // Formulario para Productos (con campos extendidos B2B)
   const [newProduct, setNewProduct] = useState({
     name: '',
@@ -1007,6 +1017,63 @@ function App() {
       await loadProducts();
     } catch (err) {
       alert(`❌ Error: ${err.message}`);
+    }
+  };
+
+  const handleOpenKardex = async (product) => {
+    setKardexProduct(product);
+    setKardexModalOpen(true);
+    setLoadingKardex(true);
+    setAdjustQty('');
+    setAdjustNotes('');
+    try {
+      const history = await productsApi.getKardex(product.id);
+      setKardexHistory(history);
+    } catch (err) {
+      console.error('Error al cargar historial de Kardex:', err);
+      alert('❌ Error al cargar historial de Kardex.');
+    } finally {
+      setLoadingKardex(false);
+    }
+  };
+
+  const handleSaveAdjustment = async (e) => {
+    e.preventDefault();
+    if (!kardexProduct) return;
+    if (!adjustQty || isNaN(parseInt(adjustQty))) {
+      alert('⚠️ Por favor ingresa una cantidad numérica válida.');
+      return;
+    }
+
+    setSubmittingAdjustment(true);
+    try {
+      const res = await productsApi.adjustInventory(kardexProduct.id, {
+        movement_type: adjustType,
+        quantity_cases: parseInt(adjustQty),
+        notes: adjustNotes
+      });
+
+      alert(`🎉 ${res.message}`);
+      
+      // Actualizar localmente el producto
+      setKardexProduct(prev => ({
+        ...prev,
+        stock_physical_cases: res.new_stock
+      }));
+
+      // Recargar lista de productos para actualizar grilla
+      await loadProducts();
+
+      // Recargar historial del Kardex
+      const history = await productsApi.getKardex(kardexProduct.id);
+      setKardexHistory(history);
+
+      setAdjustQty('');
+      setAdjustNotes('');
+    } catch (err) {
+      alert(`❌ Error al procesar ajuste: ${err.message}`);
+    } finally {
+      setSubmittingAdjustment(false);
     }
   };
 
@@ -2782,7 +2849,14 @@ function App() {
 
                         {/* Botones de Administración (Solo Admin) */}
                         {isAdmin && (
-                          <div style={{ display: 'flex', gap: '8px' }}>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', width: '100%', marginTop: '8px' }}>
+                            <button 
+                              onClick={() => handleOpenKardex(product)}
+                              className="btn-glass-cyan"
+                              style={{ flexGrow: 1, padding: '8px', fontSize: '12px' }}
+                            >
+                              🗃️ Kardex
+                            </button>
                             <button 
                               onClick={() => {
                                 setEditingProduct(product);
@@ -2976,6 +3050,14 @@ function App() {
                                   title="Editar Producto"
                                 >
                                   ✏️ Editar
+                                </button>
+                                <button 
+                                  onClick={() => handleOpenKardex(product)}
+                                  className="btn-glass-cyan"
+                                  style={{ padding: '6px 10px', fontSize: '12px' }}
+                                  title="Kardex de Inventario"
+                                >
+                                  🗃️ Kardex
                                 </button>
                                 <button 
                                   onClick={() => handleDeleteProduct(product.id)}
@@ -5294,6 +5376,183 @@ function App() {
                   Cargar Selección a la Orden
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================== */}
+      {/* MODAL: KARDEX DE INVENTARIO Y AJUSTES                 */}
+      {/* ===================================================== */}
+      {kardexModalOpen && kardexProduct && (
+        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.85)', zIndex: '200', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '950px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: '28px', position: 'relative', border: '1px solid var(--cyan-neon)' }}>
+            <button onClick={() => { setKardexModalOpen(false); setKardexProduct(null); }} style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}>×</button>
+
+            <div style={{ borderBottom: '2px solid #333', paddingBottom: '12px', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+                <div>
+                  <h2 style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: '18px', color: 'var(--cyan-neon)', margin: '0 0 4px 0' }}>
+                    🗃️ Kardex de Inventario & Ajustes Manuales
+                  </h2>
+                  <p style={{ color: '#fff', fontSize: '14px', fontWeight: '700', margin: 0 }}>
+                    {kardexProduct.name} <span style={{ color: 'var(--text-secondary)', fontWeight: '400' }}>(SKU: {kardexProduct.sku})</span>
+                  </p>
+                </div>
+                <div style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', padding: '8px 16px', borderRadius: '8px', textAlign: 'right' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', textTransform: 'uppercase' }}>Stock Físico Disponible</span>
+                  <strong style={{ fontSize: '18px', color: 'var(--green-neon)' }}>{kardexProduct.stock_physical_cases || 0} master cases</strong>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '24px', flexGrow: 1, overflowY: 'auto', marginBottom: '20px' }}>
+              
+              {/* PANEL IZQUIERDO: Historial del Kardex */}
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#fff', marginBottom: '12px' }}>📜 Historial de Transacciones (Kardex)</h3>
+                
+                {loadingKardex ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--cyan-neon)' }}>⏳ Cargando historial...</div>
+                ) : kardexHistory.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)', border: '1px dashed rgba(255,255,255,0.06)', borderRadius: '8px', background: 'rgba(0,0,0,0.1)' }}>
+                    No hay movimientos registrados para este producto. Realiza el **Inventario Inicial** en el panel lateral.
+                  </div>
+                ) : (
+                  <div style={{ flexGrow: 1, overflowY: 'auto', maxHeight: '400px', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', background: 'rgba(0,0,0,0.2)' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.02)' }}>
+                          <th style={{ padding: '10px 12px' }}>Fecha</th>
+                          <th style={{ padding: '10px 12px' }}>Tipo</th>
+                          <th style={{ padding: '10px 12px', textAlign: 'center' }}>Cantidad</th>
+                          <th style={{ padding: '10px 12px', textAlign: 'center' }}>Saldo (Ant/Nvo)</th>
+                          <th style={{ padding: '10px 12px' }}>Detalles / Glosa</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {kardexHistory.map((k, idx) => {
+                          const isPositive = k.quantity_cases > 0;
+                          return (
+                            <tr key={k.id || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                              <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                                {new Date(k.created_at).toLocaleDateString('es-ES', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <span className={`badge ${
+                                  k.movement_type === 'INITIAL' ? 'badge-cyan' :
+                                  k.movement_type === 'PRODUCTION' ? 'badge-green' :
+                                  k.movement_type === 'SALE' ? 'badge-pink' :
+                                  'badge-orange'
+                                }`} style={{ fontSize: '9px' }}>
+                                  {k.movement_type}
+                                </span>
+                              </td>
+                              <td style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '700', color: isPositive ? 'var(--green-neon)' : 'var(--pink-neon)' }}>
+                                {isPositive ? `+${k.quantity_cases}` : k.quantity_cases}
+                              </td>
+                              <td style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                                {k.previous_stock} → {k.new_stock}
+                              </td>
+                              <td style={{ padding: '10px 12px', color: '#fff', fontSize: '11px' }}>
+                                {k.notes}
+                                {k.user_name && <span style={{ display: 'block', fontSize: '9px', color: 'var(--text-muted)', marginTop: '2px' }}>Por: {k.user_name}</span>}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* PANEL DERECHO: Formulario de Ajustes */}
+              <div className="glass-panel" style={{ padding: '20px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', flexDirection: 'column' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#fff', marginBottom: '16px' }}>⚙️ Registrar Operación / Ajuste Manual</h3>
+                
+                <form onSubmit={handleSaveAdjustment} style={{ display: 'flex', flexDirection: 'column', gap: '16px', flexGrow: 1 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '8px', fontWeight: '600', textTransform: 'uppercase' }}>Tipo de Operación</label>
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#fff', fontSize: '13px', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="adjustType"
+                          checked={adjustType === 'INITIAL'}
+                          onChange={() => setAdjustType('INITIAL')}
+                          style={{ cursor: 'pointer' }}
+                        />
+                        Inventario Inicial
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#fff', fontSize: '13px', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="adjustType"
+                          checked={adjustType === 'ADJUSTMENT'}
+                          onChange={() => setAdjustType('ADJUSTMENT')}
+                          style={{ cursor: 'pointer' }}
+                        />
+                        Ajuste Manual (+/-)
+                      </label>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                      {adjustType === 'INITIAL' ? 'Cantidad de Inicio (Stock Absoluto)' : 'Cantidad del Ajuste'}
+                    </label>
+                    <input
+                      type="number"
+                      placeholder={adjustType === 'INITIAL' ? 'Ej: 150 (Establece el stock en 150)' : 'Ej: 20 (suma 20) o -15 (resta 15)'}
+                      value={adjustQty}
+                      required
+                      onChange={(e) => setAdjustQty(e.target.value)}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                    <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      {adjustType === 'INITIAL' 
+                        ? 'Sobrescribe el stock físico comercial con la cantidad exacta indicada (cajas master).' 
+                        : 'Suma o resta cantidades al saldo actual del inventario comercial disponible.'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>Notas / Glosa de Auditoría</label>
+                    <textarea
+                      rows="3"
+                      placeholder="Ej: Carga inicial de arranque de operaciones, ajuste por descarte en bodega, etc."
+                      value={adjustNotes}
+                      required
+                      onChange={(e) => setAdjustNotes(e.target.value)}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', resize: 'none', fontSize: '12.5px' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'auto', paddingTop: '10px' }}>
+                    <button
+                      type="submit"
+                      disabled={submittingAdjustment}
+                      className="btn-pink"
+                      style={{ padding: '10px 24px', fontSize: '12.5px', fontWeight: '700', width: '100%' }}
+                    >
+                      {submittingAdjustment ? 'Procesando ajuste...' : '💾 Registrar en Kardex'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+            </div>
+
+            <div style={{ textAlign: 'right' }}>
+              <button
+                type="button"
+                onClick={() => { setKardexModalOpen(false); setKardexProduct(null); }}
+                className="btn-glass"
+                style={{ padding: '10px 24px' }}
+              >
+                Cerrar Panel
+              </button>
             </div>
           </div>
         </div>

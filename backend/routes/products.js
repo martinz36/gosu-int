@@ -380,4 +380,112 @@ router.delete('/:id', requireAuth, requireTenantAdmin, async (req, res) => {
   }
 });
 
+// ============================================================
+// GET /api/products/:id/kardex (Solo Tenant Admin)
+// Retorna el historial de movimientos de inventario de un producto.
+// ============================================================
+router.get('/:id/kardex', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { id: productId } = req.params;
+
+  try {
+    const result = await pool.query(
+      `SELECT k.*, u.name as user_name 
+       FROM inventory_kardex k
+       LEFT JOIN users u ON u.id = k.created_by
+       WHERE k.product_id = $1 AND k.tenant_id = $2
+       ORDER BY k.created_at DESC`,
+      [productId, tenant_id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error al obtener Kardex de producto:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ============================================================
+// POST /api/products/:id/inventory-adjust (Solo Tenant Admin)
+// Realiza un ajuste de inventario (inicial o ajuste manual).
+// Body: { movement_type: 'INITIAL'|'ADJUSTMENT', quantity_cases: number, notes: string }
+// ============================================================
+router.post('/:id/inventory-adjust', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id, id: userId } = req.user;
+  const { id: productId } = req.params;
+  const { movement_type, quantity_cases, notes } = req.body;
+
+  if (!['INITIAL', 'ADJUSTMENT'].includes(movement_type)) {
+    return res.status(400).json({ error: 'Tipo de movimiento inválido para ajuste manual (debe ser INITIAL o ADJUSTMENT).' });
+  }
+
+  const qty = parseInt(quantity_cases);
+  if (isNaN(qty)) {
+    return res.status(400).json({ error: 'La cantidad debe ser un número entero válido.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Obtener stock físico actual (bloqueo por update)
+    let currentStock = 0;
+    const invResult = await client.query(
+      'SELECT stock_physical_cases, stock_in_production_cases FROM inventory WHERE product_id = $1 AND tenant_id = $2 FOR UPDATE',
+      [productId, tenant_id]
+    );
+
+    if (invResult.rows.length > 0) {
+      currentStock = invResult.rows[0].stock_physical_cases;
+    } else {
+      // Si no existe fila de inventario, la insertamos inicialmente en 0
+      await client.query(
+        'INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases) VALUES ($1, $2, 0, 0)',
+        [tenant_id, productId]
+      );
+    }
+
+    // 2. Calcular nuevo stock y diferencia
+    let newStock = 0;
+    let delta = 0;
+
+    if (movement_type === 'INITIAL') {
+      newStock = qty;
+      delta = qty - currentStock;
+    } else if (movement_type === 'ADJUSTMENT') {
+      newStock = currentStock + qty;
+      delta = qty;
+    }
+
+    // 3. Actualizar la tabla de inventario
+    await client.query(
+      `UPDATE inventory 
+       SET stock_physical_cases = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE product_id = $2 AND tenant_id = $3`,
+      [newStock, productId, tenant_id]
+    );
+
+    // 4. Registrar en la bitácora de Kardex
+    const kardexResult = await client.query(
+      `INSERT INTO inventory_kardex (tenant_id, product_id, movement_type, quantity_cases, previous_stock, new_stock, notes, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [tenant_id, productId, movement_type, delta, currentStock, newStock, notes || '', userId]
+    );
+
+    await client.query('COMMIT');
+    res.json({
+      success: true,
+      message: 'Ajuste de inventario procesado con éxito.',
+      kardex: kardexResult.rows[0],
+      new_stock: newStock
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error al realizar ajuste de inventario:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  } finally {
+    client.release();
+  }
+});
+
 export default router;

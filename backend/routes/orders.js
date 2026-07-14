@@ -206,14 +206,28 @@ router.post('/', requireAuth, async (req, res) => {
       );
 
       // Descontar del inventario físico comercial
+      const currentInv = await client.query(
+        'SELECT stock_physical_cases FROM inventory WHERE product_id = $1 AND tenant_id = $2 FOR UPDATE',
+        [item.product_id, tenant_id]
+      );
+      const prevStock = currentInv.rows.length > 0 ? currentInv.rows[0].stock_physical_cases : 0;
+      const nextStock = Math.max(0, prevStock - qty);
+
       await client.query(
         `INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases)
-         VALUES ($1, $2, -$3, 0)
+         VALUES ($1, $2, $3, 0)
          ON CONFLICT (tenant_id, product_id)
          DO UPDATE SET 
-           stock_physical_cases = inventory.stock_physical_cases - EXCLUDED.stock_physical_cases,
+           stock_physical_cases = GREATEST(0, inventory.stock_physical_cases - EXCLUDED.stock_physical_cases),
            updated_at = CURRENT_TIMESTAMP`,
         [tenant_id, item.product_id, qty]
+      );
+
+      // Registrar en Kardex
+      await client.query(
+        `INSERT INTO inventory_kardex (tenant_id, product_id, movement_type, quantity_cases, previous_stock, new_stock, notes, created_by)
+         VALUES ($1, $2, 'SALE', $3, $4, $5, $6, $7)`,
+        [tenant_id, item.product_id, -qty, prevStock, nextStock, `Salida por Pedido B2B #${newOrder.id.split('-')[0].toUpperCase()}`, client_id]
       );
     }
 

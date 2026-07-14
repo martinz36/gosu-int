@@ -278,6 +278,13 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
     } else if (wasIn && isPost) {
       // Trasladar de stock en producción a stock físico
       for (const item of items) {
+        const currentInv = await client.query(
+          'SELECT stock_physical_cases FROM inventory WHERE product_id = $1 AND tenant_id = $2 FOR UPDATE',
+          [item.product_id, tenant_id]
+        );
+        const prevStock = currentInv.rows.length > 0 ? currentInv.rows[0].stock_physical_cases : 0;
+        const nextStock = prevStock + item.quantity_cases;
+
         await client.query(
           `INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases)
            VALUES ($1, $2, $3, 0)
@@ -288,10 +295,23 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
              updated_at = CURRENT_TIMESTAMP`,
           [tenant_id, item.product_id, item.quantity_cases]
         );
+
+        await client.query(
+          `INSERT INTO inventory_kardex (tenant_id, product_id, movement_type, quantity_cases, previous_stock, new_stock, notes, created_by)
+           VALUES ($1, $2, 'PRODUCTION', $3, $4, $5, $6, null)`,
+          [tenant_id, item.product_id, item.quantity_cases, prevStock, nextStock, `Ingreso por Orden de Fabricación Finalizada #${order.order_number}`]
+        );
       }
     } else if (wasPre && isPost) {
       // Sumar directamente a stock físico (nunca pasó por producción)
       for (const item of items) {
+        const currentInv = await client.query(
+          'SELECT stock_physical_cases FROM inventory WHERE product_id = $1 AND tenant_id = $2 FOR UPDATE',
+          [item.product_id, tenant_id]
+        );
+        const prevStock = currentInv.rows.length > 0 ? currentInv.rows[0].stock_physical_cases : 0;
+        const nextStock = prevStock + item.quantity_cases;
+
         await client.query(
           `INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases)
            VALUES ($1, $2, $3, 0)
@@ -301,10 +321,23 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
              updated_at = CURRENT_TIMESTAMP`,
           [tenant_id, item.product_id, item.quantity_cases]
         );
+
+        await client.query(
+          `INSERT INTO inventory_kardex (tenant_id, product_id, movement_type, quantity_cases, previous_stock, new_stock, notes, created_by)
+           VALUES ($1, $2, 'PRODUCTION', $3, $4, $5, $6, null)`,
+          [tenant_id, item.product_id, item.quantity_cases, prevStock, nextStock, `Ingreso directo por Orden de Fabricación Finalizada #${order.order_number}`]
+        );
       }
     } else if (wasPost && isIn) {
       // Deshacer entregado: Restar de stock físico y sumar a stock en producción
       for (const item of items) {
+        const currentInv = await client.query(
+          'SELECT stock_physical_cases FROM inventory WHERE product_id = $1 AND tenant_id = $2 FOR UPDATE',
+          [item.product_id, tenant_id]
+        );
+        const prevStock = currentInv.rows.length > 0 ? currentInv.rows[0].stock_physical_cases : 0;
+        const nextStock = Math.max(0, prevStock - item.quantity_cases);
+
         await client.query(
           `INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases)
            VALUES ($1, $2, 0, $3)
@@ -315,16 +348,35 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
              updated_at = CURRENT_TIMESTAMP`,
           [tenant_id, item.product_id, item.quantity_cases, item.quantity_cases]
         );
+
+        await client.query(
+          `INSERT INTO inventory_kardex (tenant_id, product_id, movement_type, quantity_cases, previous_stock, new_stock, notes, created_by)
+           VALUES ($1, $2, 'PRODUCTION', $3, $4, $5, $6, null)`,
+          [tenant_id, item.product_id, -item.quantity_cases, prevStock, nextStock, `Salida por Reversión de Orden de Fabricación #${order.order_number}`]
+        );
       }
     } else if (wasPost && isPre) {
       // Deshacer entregado a borrador/proforma: Restar de stock físico
       for (const item of items) {
+        const currentInv = await client.query(
+          'SELECT stock_physical_cases FROM inventory WHERE product_id = $1 AND tenant_id = $2 FOR UPDATE',
+          [item.product_id, tenant_id]
+        );
+        const prevStock = currentInv.rows.length > 0 ? currentInv.rows[0].stock_physical_cases : 0;
+        const nextStock = Math.max(0, prevStock - item.quantity_cases);
+
         await client.query(
           `UPDATE inventory
            SET stock_physical_cases = GREATEST(0, stock_physical_cases - $1),
                updated_at = CURRENT_TIMESTAMP
            WHERE tenant_id = $2 AND product_id = $3`,
           [item.quantity_cases, tenant_id, item.product_id]
+        );
+
+        await client.query(
+          `INSERT INTO inventory_kardex (tenant_id, product_id, movement_type, quantity_cases, previous_stock, new_stock, notes, created_by)
+           VALUES ($1, $2, 'PRODUCTION', $3, $4, $5, $6, null)`,
+          [tenant_id, item.product_id, -item.quantity_cases, prevStock, nextStock, `Salida por Reversión de Orden de Fabricación #${order.order_number}`]
         );
       }
     }

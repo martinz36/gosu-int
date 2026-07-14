@@ -105,6 +105,12 @@ export const products = {
 
   bulkUpload: (productsData) =>
     request('POST', '/api/products/bulk', { products: productsData }),
+
+  getKardex: (productId) =>
+    request('GET', `/api/products/${productId}/kardex`),
+
+  adjustInventory: (productId, data) =>
+    request('POST', `/api/products/${productId}/inventory-adjust`, data),
 };
 
 // ============================================================

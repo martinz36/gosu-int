@@ -274,3 +274,22 @@ CREATE TABLE audit_logs (
 );
 
 CREATE INDEX idx_audit_logs_tenant ON audit_logs(tenant_id);
+
+-- ============================================================
+-- 12. INVENTORY KARDEX (Registro histórico de movimientos)
+-- ============================================================
+CREATE TABLE inventory_kardex (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id        UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  product_id       UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  movement_type    VARCHAR(50) NOT NULL, -- 'INITIAL', 'ADJUSTMENT', 'PRODUCTION', 'SALE'
+  quantity_cases   INTEGER NOT NULL,
+  previous_stock   INTEGER NOT NULL,
+  new_stock        INTEGER NOT NULL,
+  notes            TEXT,
+  created_by       UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_kardex_tenant_product ON inventory_kardex(tenant_id, product_id);
+CREATE INDEX idx_kardex_created_at ON inventory_kardex(created_at DESC);
