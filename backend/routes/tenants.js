@@ -234,4 +234,72 @@ router.delete('/:id', requireAuth, requireSuperAdmin, async (req, res) => {
   }
 });
 
+// ============================================================
+// GET /api/tenants/current/settings (Solo Tenant Admin)
+// Retorna las API keys y configuración del tenant actual.
+// ============================================================
+router.get('/current/settings', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+
+  try {
+    const result = await pool.query(
+      'SELECT id, name, slug, whatsapp_api_key, resend_api_key FROM tenants WHERE id = $1 AND deleted_at IS NULL',
+      [tenant_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Empresa no encontrada.' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error al obtener configuraciones del tenant:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ============================================================
+// PUT /api/tenants/current/settings (Solo Tenant Admin)
+// Actualiza las API keys del tenant actual.
+// ============================================================
+router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { whatsapp_api_key, resend_api_key } = req.body;
+
+  try {
+    const result = await pool.query(
+      `UPDATE tenants
+       SET whatsapp_api_key = $1, resend_api_key = $2, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3 AND deleted_at IS NULL
+       RETURNING id, name, slug, whatsapp_api_key, resend_api_key`,
+      [
+        whatsapp_api_key !== undefined && whatsapp_api_key !== null ? whatsapp_api_key.trim() : null,
+        resend_api_key !== undefined && resend_api_key !== null ? resend_api_key.trim() : null,
+        tenant_id
+      ]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Empresa no encontrada.' });
+    }
+
+    // Auditoría
+    await logAudit(
+      req.user.id,
+      req.user.name,
+      tenant_id,
+      'UPDATE_TENANT_API_KEYS',
+      { whatsapp_api_key_configured: !!whatsapp_api_key, resend_api_key_configured: !!resend_api_key }
+    );
+
+    res.json({
+      message: 'Configuraciones de API actualizadas con éxito.',
+      settings: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Error al actualizar configuraciones del tenant:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
 export default router;

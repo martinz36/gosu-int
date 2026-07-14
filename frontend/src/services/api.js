@@ -150,6 +150,12 @@ export const tenants = {
 
   delete: (id) =>
     request('DELETE', `/api/tenants/${id}`),
+
+  getCurrentSettings: () =>
+    request('GET', '/api/tenants/current/settings'),
+
+  updateCurrentSettings: (settingsData) =>
+    request('PUT', '/api/tenants/current/settings', settingsData),
 };
 
 // ============================================================

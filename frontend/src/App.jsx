@@ -94,6 +94,10 @@ function App() {
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkResult, setBulkResult] = useState(null);
 
+  // Estados para API Keys (json.pe y Resend)
+  const [tenantSettings, setTenantSettings] = useState({ whatsapp_api_key: '', resend_api_key: '' });
+  const [savingSettings, setSavingSettings] = useState(false);
+
   // Formulario para Productos (con campos extendidos B2B)
   const [newProduct, setNewProduct] = useState({
     name: '',
@@ -269,6 +273,33 @@ function App() {
     }
   }, [currentUser, isSuperAdmin, isAdmin, loadClients, loadPricingTiers]);
 
+  const loadTenantSettings = useCallback(async () => {
+    if (!currentUser || isSuperAdmin || !isAdmin) return;
+    try {
+      const data = await tenantsApi.getCurrentSettings();
+      setTenantSettings({
+        whatsapp_api_key: data.whatsapp_api_key || '',
+        resend_api_key: data.resend_api_key || ''
+      });
+    } catch (err) {
+      console.error('Error al cargar API keys del tenant:', err);
+    }
+  }, [currentUser, isSuperAdmin, isAdmin]);
+
+  const handleUpdateTenantSettings = async (e) => {
+    e.preventDefault();
+    if (!isAdmin) return;
+    setSavingSettings(true);
+    try {
+      await tenantsApi.updateCurrentSettings(tenantSettings);
+      alert('🎉 Configuraciones de API Keys actualizadas con éxito.');
+    } catch (err) {
+      alert(`❌ Error al guardar configuraciones: ${err.message}`);
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
   // Carga inicial cuando el usuario se autentifica
   useEffect(() => {
     if (!currentUser) return;
@@ -280,16 +311,17 @@ function App() {
         if (isSuperAdmin) {
           await loadTenants();
         } else {
-          await Promise.all([loadProducts(), loadOrders(), loadProduction(), loadCatalogConfig()]);
+          await Promise.all([loadProducts(), loadOrders(), loadProduction(), loadCatalogConfig(), loadTenantSettings()]);
         }
       } catch (err) {
         setDataError('Error al cargar datos del servidor.');
       } finally {
+        setDataError(''); // Clear error just in case
         setDataLoading(false);
       }
     };
     loadAll();
-  }, [currentUser, isSuperAdmin, loadTenants, loadProducts, loadOrders, loadProduction, loadCatalogConfig]);
+  }, [currentUser, isSuperAdmin, loadTenants, loadProducts, loadOrders, loadProduction, loadCatalogConfig, loadTenantSettings]);
 
   // Recargar desde servidor solo cuando cambia categoría
   useEffect(() => {
@@ -322,11 +354,14 @@ function App() {
       loadClients();
       loadPricingTiers();
     }
-    if (activeTab === 'catalog' || activeTab === 'config') loadCatalogConfig();
+    if (activeTab === 'catalog' || activeTab === 'config') {
+      loadCatalogConfig();
+      loadTenantSettings();
+    }
     if (['saas-tenants', 'saas-users', 'saas-billing', 'saas-audit'].includes(activeTab)) {
       loadTenants();
     }
-  }, [activeTab, currentUser, loadOrders, loadProduction, loadClients, loadPricingTiers, loadTenants, loadCatalogConfig]);
+  }, [activeTab, currentUser, loadOrders, loadProduction, loadClients, loadPricingTiers, loadTenants, loadCatalogConfig, loadTenantSettings]);
 
   // Aligerar la vista del Super Admin forzando la redirección de tab
   useEffect(() => {
@@ -3772,6 +3807,59 @@ function App() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* PANEL DE CONFIGURACIÓN DE API KEYS DE TERCEROS */}
+            <div className="glass-panel" style={{ padding: '24px', marginTop: '24px' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: '800', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '16px', marginBottom: '20px', color: 'var(--cyan-neon)' }}>
+                🔑 Llaves de API de Integraciones (WhatsApp & Resend)
+              </h2>
+              <form onSubmit={handleUpdateTenantSettings} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                      Token de json.pe (Conector de WhatsApp)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Escribe tu API Key de json.pe..."
+                      value={tenantSettings.whatsapp_api_key}
+                      onChange={(e) => setTenantSettings(prev => ({ ...prev, whatsapp_api_key: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                    <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                      Requerido para el envío automático de notificaciones de estados de pedido y proformas directamente a WhatsApp.
+                    </span>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                      API Key de Resend (Servicio de Correo)
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="Escribe tu API Key de Resend (re_...)"
+                      value={tenantSettings.resend_api_key}
+                      onChange={(e) => setTenantSettings(prev => ({ ...prev, resend_api_key: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                    <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                      Clave de autorización de Resend para el envío automático de facturas, packing lists y correos de bienvenida B2B.
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+                  <button
+                    type="submit"
+                    disabled={savingSettings}
+                    className="btn-pink"
+                    style={{ padding: '12px 32px', fontSize: '13px', fontWeight: '700' }}
+                  >
+                    {savingSettings ? 'Guardando llaves...' : '💾 Guardar Llaves de API'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
