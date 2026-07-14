@@ -35,7 +35,8 @@ CREATE TABLE tenants (
   bank_routing_number VARCHAR(255),
   logo_url            VARCHAR(512),
   created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  deleted_at          TIMESTAMP
 );
 
 CREATE INDEX idx_tenants_slug ON tenants(slug);
@@ -53,7 +54,8 @@ CREATE TABLE users (
   is_active      BOOLEAN NOT NULL DEFAULT TRUE,
   must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
   created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  deleted_at     TIMESTAMP
 );
 
 CREATE INDEX idx_users_tenant_id ON users(tenant_id);
