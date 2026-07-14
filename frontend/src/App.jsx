@@ -1547,13 +1547,18 @@ function App() {
                 <span className={`nav-link-btn ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>
                   📂 Catálogo B2B
                 </span>
-                <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
-                  📜 Mis Pedidos & Bóveda
-                </span>
+                {!isAdmin && (
+                  <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
+                    📜 Mis Pedidos & Bóveda
+                  </span>
+                )}
                 {isAdmin && (
                   <>
                     <span className={`nav-link-btn ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
                       📈 Control de Mando
+                    </span>
+                    <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
+                      📊 Registro de Ventas
                     </span>
                     <span className={`nav-link-btn ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
                       🏭 Fábrica & Producción
@@ -1618,10 +1623,13 @@ function App() {
             ) : (
               <>
                 <span className={`mobile-nav-item ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>📂 Catálogo</span>
-                <span className={`mobile-nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>📜 Pedidos</span>
+                {!isAdmin && (
+                  <span className={`mobile-nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>📜 Pedidos</span>
+                )}
                 {isAdmin && (
                   <>
                     <span className={`mobile-nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>📈 Dash</span>
+                    <span className={`mobile-nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>📊 Ventas</span>
                     <span className={`mobile-nav-item ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>🏭 Fábrica</span>
                     <span className={`mobile-nav-item ${activeTab === 'clients' ? 'active' : ''}`} onClick={() => setActiveTab('clients')}>👥 Clientes</span>
                     <span className={`mobile-nav-item ${activeTab === 'config' ? 'active' : ''}`} onClick={() => setActiveTab('config')}>⚙️ Config</span>
@@ -2991,21 +2999,27 @@ function App() {
         )}
 
         {/* ===================================================== */}
-        {/* TAB 2: MIS PEDIDOS Y BÓVEDA DE DOCUMENTOS             */}
+        {/* TAB 2: REGISTRO DE VENTAS (ADMIN) / MIS PEDIDOS (CLIENTE) */}
         {/* ===================================================== */}
         {activeTab === 'orders' && !dataLoading && (
           <div>
             <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
-              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Bóveda de Documentos B2B</h1>
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>
+                {isAdmin ? '📊 Registro de Ventas B2B' : 'Bóveda de Documentos B2B'}
+              </h1>
               <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                Monitorea el tracking de tus pedidos y descarga tus Invoices y Packing Lists.
+                {isAdmin
+                  ? 'Monitorea, aprueba y haz tracking logístico de todos los pedidos realizados por tus clientes B2B.'
+                  : 'Monitorea el tracking de tus pedidos y descarga tus Invoices y Packing Lists.'}
               </p>
             </div>
 
             {clientOrders.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
-                <p style={{ fontSize: '18px', marginBottom: '8px' }}>No tienes pedidos aún en el sistema.</p>
-                <button className="btn-neon" onClick={() => setActiveTab('catalog')}>Ir al Catálogo Comercial</button>
+                <p style={{ fontSize: '18px', marginBottom: '8px' }}>
+                  {isAdmin ? 'No hay registros de ventas en el sistema.' : 'No tienes pedidos aún en el sistema.'}
+                </p>
+                {!isAdmin && <button className="btn-neon" onClick={() => setActiveTab('catalog')}>Ir al Catálogo Comercial</button>}
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
