@@ -63,6 +63,14 @@ function App() {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(''); // 'bank' | 'stripe'
   const [simulatingStripePayment, setSimulatingStripePayment] = useState(false);
   const [stripePaidSuccess, setStripePaidSuccess] = useState(false);
+  const [selectedProdOrder, setSelectedProdOrder] = useState(null);
+  const [showProdOrderDetailModal, setShowProdOrderDetailModal] = useState(false);
+
+  // Estados para Almacenes (Warehouses)
+  const [warehouses, setWarehouses] = useState([]);
+  const [showWarehouseForm, setShowWarehouseForm] = useState(false);
+  const [newWarehouseForm, setNewWarehouseForm] = useState({ name: '', code: '', address: '', contact_info: '' });
+  const [editingWarehouseId, setEditingWarehouseId] = useState(null);
   const [tenantPublicInfo, setTenantPublicInfo] = useState(null);
 
   // Formulario para nuevo Tenant / Edición
@@ -274,6 +282,35 @@ function App() {
       console.error('Error cargando clientes distribuidores:', err);
     }
   }, [isAdmin]);
+
+  const loadWarehouses = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const data = await tenantsApi.getCurrentWarehouses();
+      setWarehouses(data);
+    } catch (err) {
+      console.error('Error cargando almacenes:', err);
+    }
+  }, [isAdmin]);
+
+  const handleCreateOrUpdateWarehouse = async (e) => {
+    e.preventDefault();
+    try {
+      if (editingWarehouseId) {
+        await tenantsApi.updateWarehouse(editingWarehouseId, newWarehouseForm);
+        alert('Almacén actualizado con éxito.');
+      } else {
+        await tenantsApi.createWarehouse(newWarehouseForm);
+        alert('Almacén registrado con éxito.');
+      }
+      setNewWarehouseForm({ name: '', code: '', address: '', contact_info: '' });
+      setEditingWarehouseId(null);
+      setShowWarehouseForm(false);
+      loadWarehouses();
+    } catch (err) {
+      alert(err.error || err.message || 'Error al procesar el almacén.');
+    }
+  };
 
   const loadTenants = useCallback(async () => {
     if (!isSuperAdmin) return;
@@ -490,7 +527,10 @@ function App() {
   useEffect(() => {
     if (!currentUser) return;
     if (activeTab === 'orders') loadOrders();
-    if (activeTab === 'admin') loadProduction();
+    if (activeTab === 'admin') {
+      loadProduction();
+      loadWarehouses();
+    }
     if (activeTab === 'dashboard') loadDashboardData();
     if (activeTab === 'clients') {
       loadClients();
@@ -499,11 +539,12 @@ function App() {
     if (activeTab === 'catalog' || activeTab === 'config' || activeTab === 'inventory') {
       loadCatalogConfig();
       loadTenantSettings();
+      loadWarehouses();
     }
     if (['saas-tenants', 'saas-users', 'saas-billing', 'saas-audit'].includes(activeTab)) {
       loadTenants();
     }
-  }, [activeTab, currentUser, loadOrders, loadProduction, loadClients, loadPricingTiers, loadTenants, loadCatalogConfig, loadTenantSettings, loadDashboardData]);
+  }, [activeTab, currentUser, loadOrders, loadProduction, loadClients, loadPricingTiers, loadTenants, loadCatalogConfig, loadTenantSettings, loadDashboardData, loadWarehouses]);
 
   // Recargar datos del dashboard cuando cambian los filtros
   useEffect(() => {
@@ -3116,7 +3157,13 @@ function App() {
                             📦 Contenido: <strong>{product.units_per_case} unidades / caja</strong>
                           </span>
                           <span style={{ color: 'var(--text-secondary)' }}>
-                            Disponible: <strong style={{ color: product.stock_physical_cases > 10 ? 'var(--green-neon)' : 'var(--orange-neon)' }}>{product.stock_physical_cases} cajas</strong>
+                            Disponible: <strong style={{ color: product.stock_physical_cases > 10 ? 'var(--green-neon)' : product.stock_physical_cases > 0 ? 'var(--orange-neon)' : 'var(--pink-neon)' }}>
+                              {product.stock_physical_cases > 0 
+                                ? `${product.stock_physical_cases} cajas` 
+                                : (product.stock_in_production_cases || 0) > 0 
+                                  ? `0 físicas (⚙️ ${product.stock_in_production_cases} en producción)` 
+                                  : '⚠️ Agotado'}
+                            </strong>
                           </span>
                         </div>
 
@@ -3148,7 +3195,7 @@ function App() {
                                 <div>⚖️ Peso Master Case: <strong>{product.case_weight_kg} kg</strong></div>
                                 <div>📏 Dimensiones Caja: <strong>{product.case_length_cm}x{product.case_width_cm}x{product.case_height_cm} cm</strong></div>
                                 <div>🚢 Volumen Calculado: <strong style={{ color: 'var(--cyan-neon)' }}>{parseFloat(product.case_cbm).toFixed(5)} CBM</strong></div>
-                                {product.fabrication_notes && (
+                                {product.production_files_url && (
                                   <div style={{ borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '6px' }}>
                                     📝 <em style={{ fontStyle: 'normal', color: 'var(--text-muted)' }}>Notas: {product.fabrication_notes}</em>
                                   </div>
@@ -3177,7 +3224,7 @@ function App() {
                                 <input 
                                   type="number"
                                   min="1"
-                                  max={product.stock_physical_cases || 1000}
+                                  max={product.stock_physical_cases || product.stock_in_production_cases || 1000}
                                   value={inCartQty}
                                   onChange={(e) => handleSetCartQty(product.id, parseInt(e.target.value))}
                                   style={{
@@ -3204,9 +3251,13 @@ function App() {
                               className="btn-glass-neon"
                               style={{ width: '100%', padding: '10px 16px', fontSize: '13px' }}
                               onClick={() => handleAddToCart(product.id)}
-                              disabled={product.stock_physical_cases === 0}
+                              disabled={product.stock_physical_cases === 0 && (product.stock_in_production_cases || 0) === 0}
                             >
-                              {product.stock_physical_cases === 0 ? 'Sin Stock' : 'Añadir al Pedido B2B'}
+                              {product.stock_physical_cases > 0 
+                                ? 'Añadir al Pedido B2B' 
+                                : (product.stock_in_production_cases || 0) > 0 
+                                  ? 'Pre-comprar (Reserva)' 
+                                  : 'Sin Stock'}
                             </button>
                           )
                         )}
@@ -6442,6 +6493,224 @@ function App() {
               <button
                 type="button"
                 onClick={() => { setShowOrderDetailModal(false); setSelectedOrderDetail(null); }}
+                className="btn-glass"
+                style={{ padding: '10px 24px' }}
+              >
+                Cerrar Panel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ===================================================== */}
+      {/* MODAL: DETALLE DE ORDEN DE FABRICACIÓN (ADMIN POPUP)   */}
+      {/* ===================================================== */}
+      {showProdOrderDetailModal && selectedProdOrder && (
+        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', zIndex: '200', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: '28px', position: 'relative', border: '1px solid var(--pink-neon)' }}>
+            <button onClick={() => { setShowProdOrderDetailModal(false); setSelectedProdOrder(null); }} style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}>×</button>
+            
+            <div style={{ borderBottom: '2px solid #333', paddingBottom: '12px', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+                <div>
+                  <h2 style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: '18px', color: 'var(--pink-neon)', margin: '0 0 4px 0' }}>
+                    🏭 {selectedProdOrder.order_number} — Detalle de Fabricación
+                  </h2>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                    Registrado el: {new Date(selectedProdOrder.created_at).toLocaleString('es-ES')}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span className={`badge ${
+                    selectedProdOrder.status === 'Quotation' ? 'badge-pink' :
+                    selectedProdOrder.status === 'Production' ? 'badge-orange' :
+                    selectedProdOrder.status === 'Shipped' ? 'badge-cyan' :
+                    'badge-green'
+                  }`} style={{ fontSize: '12px', padding: '6px 12px', height: 'fit-content' }}>
+                    {selectedProdOrder.status}
+                  </span>
+
+                  <select
+                    value={selectedProdOrder.status}
+                    onChange={async (e) => {
+                      try {
+                        await handleUpdateProductionStatus(selectedProdOrder.id, e.target.value);
+                        setSelectedProdOrder(prev => ({ ...prev, status: e.target.value }));
+                      } catch(err) {
+                        alert(`❌ Error al cambiar estado: ${err.message}`);
+                      }
+                    }}
+                    style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600' }}
+                  >
+                    <option value="Quotation">Quotation (Presupuesto)</option>
+                    <option value="Production">Production (Fabricación)</option>
+                    <option value="Shipped">Shipped (Enviado)</option>
+                    <option value="Delivered">Delivered (Entregado)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ flexGrow: 1, overflowY: 'auto', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              
+              {/* Timeline Gráfico de Estados */}
+              {(() => {
+                const stepNames = ['Quotation', 'Production', 'Shipped', 'Delivered'];
+                const currentStepIdx = stepNames.indexOf(selectedProdOrder.status);
+                return (
+                  <div style={{ padding: '10px 0 20px', position: 'relative' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', width: '100%' }}>
+                      <div style={{ position: 'absolute', top: '15px', left: '6%', right: '6%', height: '3px', background: 'rgba(255,255,255,0.06)', zIndex: 1 }} />
+                      <div style={{ position: 'absolute', top: '15px', left: '6%', width: `${(currentStepIdx / (stepNames.length - 1)) * 88}%`, height: '3px', background: 'var(--cyan-neon)', zIndex: 2, transition: 'all 0.4s ease' }} />
+
+                      {stepNames.map((step, idx) => {
+                        const isActive = idx <= currentStepIdx;
+                        const isCurrent = idx === currentStepIdx;
+                        return (
+                          <div key={step} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 3, position: 'relative', width: '22%' }}>
+                            <div style={{
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '50%',
+                              background: isCurrent ? 'var(--pink-neon)' : isActive ? 'var(--cyan-neon)' : 'rgba(20, 20, 20, 0.9)',
+                              border: isActive ? '2px solid transparent' : '2px solid rgba(255,255,255,0.1)',
+                              boxShadow: isCurrent ? '0 0 10px var(--pink-neon)' : isActive ? '0 0 8px var(--cyan-neon)' : 'none',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '12px',
+                              color: isActive ? '#000' : 'rgba(255,255,255,0.4)',
+                              fontWeight: '900',
+                              transition: 'all 0.3s'
+                            }}>
+                              {idx + 1}
+                            </div>
+                            <span style={{ fontSize: '10px', marginTop: '6px', textAlign: 'center', fontWeight: isCurrent ? '700' : '500', color: isCurrent ? 'var(--pink-neon)' : isActive ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>
+                              {step}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Fábrica Origen</div>
+                  <strong style={{ fontSize: '14px', color: '#fff', marginTop: '2px', display: 'block' }}>{selectedProdOrder.factory_name}</strong>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Almacén de Llegada</div>
+                  <strong style={{ fontSize: '14px', color: 'var(--cyan-neon)', marginTop: '2px', display: 'block' }}>
+                    {warehouses.find(w => w.id === selectedProdOrder.warehouse_id)?.name || 'Sin asignar'}
+                  </strong>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Costo Total Lote</div>
+                  <strong style={{ fontSize: '14px', color: 'var(--green-neon)', marginTop: '2px', display: 'block' }}>
+                    ${parseFloat(selectedProdOrder.total_cost_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                  </strong>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Volumen de Carga</div>
+                  <strong style={{ fontSize: '14px', color: 'var(--cyan-neon)', marginTop: '2px', display: 'block' }}>{parseFloat(selectedProdOrder.total_cbm).toFixed(4)} CBM</strong>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Código / Tracking Contenedor</div>
+                  <strong style={{ fontSize: '13px', color: '#fff', marginTop: '2px', display: 'block', textTransform: 'uppercase' }}>
+                    {selectedProdOrder.tracking_number || 'N/A'}
+                  </strong>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Entrega Estimada / Real</div>
+                  <strong style={{ fontSize: '13px', color: '#fff', marginTop: '2px', display: 'block' }}>
+                    {selectedProdOrder.status === 'Delivered' 
+                      ? `Entregado: ${selectedProdOrder.actual_completion_date ? new Date(selectedProdOrder.actual_completion_date).toLocaleDateString('es-ES') : 'N/A'}` 
+                      : selectedProdOrder.estimated_completion_date 
+                        ? new Date(selectedProdOrder.estimated_completion_date).toLocaleDateString('es-ES') 
+                        : 'Sin estimar'}
+                  </strong>
+                </div>
+              </div>
+
+              <div>
+                <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Productos a Producir:</h4>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.01)' }}>
+                        <th style={{ padding: '8px', textAlign: 'left' }}>SKU</th>
+                        <th style={{ padding: '8px', textAlign: 'left' }}>Producto</th>
+                        <th style={{ padding: '8px', textAlign: 'right' }}>Cajas Master</th>
+                        <th style={{ padding: '8px', textAlign: 'right' }}>CBM Unitario</th>
+                        <th style={{ padding: '8px', textAlign: 'right' }}>Total CBM</th>
+                        <th style={{ padding: '8px', textAlign: 'right' }}>Costo Caja</th>
+                        <th style={{ padding: '8px', textAlign: 'right' }}>Total Costo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedProdOrder.items?.map((item, idx) => (
+                        <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                          <td style={{ padding: '8px', fontFamily: 'monospace', color: 'var(--cyan-neon)' }}>{item.sku}</td>
+                          <td style={{ padding: '8px', color: '#fff' }}>{item.name}</td>
+                          <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>{item.quantity_cases}</td>
+                          <td style={{ padding: '8px', textAlign: 'right' }}>{parseFloat(item.item_cbm / item.quantity_cases).toFixed(4)}</td>
+                          <td style={{ padding: '8px', textAlign: 'right', color: 'var(--cyan-neon)' }}>{parseFloat(item.item_cbm).toFixed(4)} CBM</td>
+                          <td style={{ padding: '8px', textAlign: 'right' }}>${parseFloat(item.cost_per_case_usd).toFixed(2)}</td>
+                          <td style={{ padding: '8px', textAlign: 'right', fontWeight: '600', color: 'var(--green-neon)' }}>
+                            ${parseFloat(item.total_item_cost_usd).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Bitácora de Auditoría */}
+              <div className="glass-panel" style={{ padding: '16px', background: 'rgba(0,232,255,0.01)', border: '1px solid rgba(0,232,255,0.15)', borderRadius: '8px' }}>
+                <h4 style={{ fontSize: '12.5px', color: 'var(--cyan-neon)', margin: '0 0 12px', fontWeight: '700', textTransform: 'uppercase' }}>
+                  📜 Registro de Auditoría de Estados de Fabricación
+                </h4>
+                {productionAuditLogs.length === 0 ? (
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Cargando logs o sin cambios de estado aún...</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto' }}>
+                    {productionAuditLogs.map((log) => (
+                      <div key={log.id} style={{ fontSize: '11.5px', borderBottom: '1px solid rgba(255,255,255,0.02)', paddingBottom: '6px' }}>
+                        <span style={{ color: 'var(--cyan-neon)' }}>{new Date(log.created_at).toLocaleString('es-ES')}</span>
+                        <span style={{ color: '#fff' }}> — <strong>{log.user_name}</strong> {log.action === 'CREATE_PRODUCTION_ORDER' ? 'creó la orden' : 'cambió el estado'}</span>
+                        {log.old_value && (
+                          <>
+                            <span> de <strong style={{ color: 'var(--orange-neon)' }}>{log.old_value}</strong></span>
+                          </>
+                        )}
+                        <span> a <strong style={{ color: 'var(--green-neon)' }}>{log.new_value}</strong></span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '16px' }}>
+              <button
+                type="button"
+                onClick={() => handleExportPDF(selectedProdOrder)}
+                className="btn-glass-neon"
+                style={{ padding: '10px 20px', fontSize: '12.5px' }}
+              >
+                📄 Exportar Ficha (PDF)
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowProdOrderDetailModal(false); setSelectedProdOrder(null); }}
                 className="btn-glass"
                 style={{ padding: '10px 24px' }}
               >

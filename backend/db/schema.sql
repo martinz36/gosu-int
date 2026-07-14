@@ -14,6 +14,7 @@ DROP TABLE IF EXISTS sales_orders CASCADE;
 DROP TABLE IF EXISTS volume_discount_rules CASCADE;
 DROP TABLE IF EXISTS inventory CASCADE;
 DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS warehouses CASCADE;
 DROP TABLE IF EXISTS b2b_client_profiles CASCADE;
 DROP TABLE IF EXISTS pricing_tiers CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
@@ -101,6 +102,24 @@ CREATE TABLE b2b_client_profiles (
 CREATE INDEX idx_b2b_profiles_tenant ON b2b_client_profiles(tenant_id);
 CREATE INDEX idx_b2b_profiles_user ON b2b_client_profiles(user_id);
 CREATE INDEX idx_b2b_profiles_tier ON b2b_client_profiles(pricing_tier_id);
+
+-- ============================================================
+-- 3.7 WAREHOUSES (Almacenes Físicos y Virtuales de Fabricación)
+-- ============================================================
+CREATE TABLE warehouses (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id     UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name          VARCHAR(255) NOT NULL,
+  code          VARCHAR(50) NOT NULL,
+  address       TEXT,
+  contact_info  TEXT,
+  is_virtual    BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(tenant_id, code)
+);
+
+CREATE INDEX idx_warehouses_tenant ON warehouses(tenant_id);
 
 -- ============================================================
 -- 4. PRODUCTS (Catálogo de Productos Dual: Comercial vs. Fábrica)
@@ -244,12 +263,13 @@ CREATE TABLE production_orders (
   tenant_id                  UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   order_number               VARCHAR(100) NOT NULL,
   factory_name               VARCHAR(255) NOT NULL,
-  status                     VARCHAR(50) NOT NULL DEFAULT 'Draft', -- Draft, Proforma, Production, QC Inspection, Port, Transit, Delivered
+  status                     VARCHAR(50) NOT NULL DEFAULT 'Quotation', -- Quotation, Production, Shipped, Delivered
   estimated_completion_date  DATE,
   actual_completion_date     DATE,
   total_cost_usd             NUMERIC(12,2) NOT NULL DEFAULT 0.00,
   total_cbm                  NUMERIC(10,5) NOT NULL DEFAULT 0.00000,
   tracking_number            VARCHAR(100),
+  warehouse_id               UUID REFERENCES warehouses(id) ON DELETE SET NULL,
   created_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE(tenant_id, order_number)

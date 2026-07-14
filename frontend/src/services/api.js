@@ -174,6 +174,15 @@ export const tenants = {
     const qs = new URLSearchParams(params).toString();
     return request('GET', `/api/tenants/current/dashboard${qs ? `?${qs}` : ''}`);
   },
+
+  getCurrentWarehouses: () =>
+    request('GET', '/api/tenants/current/warehouses'),
+
+  createWarehouse: (warehouseData) =>
+    request('POST', '/api/tenants/current/warehouses', warehouseData),
+
+  updateWarehouse: (id, warehouseData) =>
+    request('PUT', `/api/tenants/current/warehouses/${id}`, warehouseData),
 };
 
 // ============================================================

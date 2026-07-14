@@ -488,4 +488,74 @@ router.get('/current/bank-details', requireAuth, async (req, res) => {
   }
 });
 
+// ============================================================
+// WAREHOUSES MANAGEMENT (Solo Tenant Admin)
+// ============================================================
+
+// GET /api/tenants/current/warehouses
+router.get('/current/warehouses', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  try {
+    const result = await pool.query(
+      'SELECT id, name, code, address, contact_info, is_virtual FROM warehouses WHERE tenant_id = $1 ORDER BY is_virtual ASC, code ASC',
+      [tenant_id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error al obtener almacenes:', err);
+    res.status(500).json({ error: 'Error al cargar los almacenes.' });
+  }
+});
+
+// POST /api/tenants/current/warehouses (Crear nuevo almacén físico)
+router.post('/current/warehouses', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { name, code, address, contact_info } = req.body;
+
+  if (!name || !code) {
+    return res.status(400).json({ error: 'El nombre y código de almacén son obligatorios.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO warehouses (tenant_id, name, code, address, contact_info, is_virtual)
+       VALUES ($1, $2, $3, $4, $5, FALSE)
+       RETURNING *`,
+      [tenant_id, name, code.toUpperCase().trim(), address, contact_info]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Error al crear almacén:', err);
+    res.status(500).json({ error: 'Error al registrar el almacén (verifique que el código no esté duplicado).' });
+  }
+});
+
+// PUT /api/tenants/current/warehouses/:id
+router.put('/current/warehouses/:id', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { id } = req.params;
+  const { name, address, contact_info } = req.body;
+
+  if (!name) {
+    return res.status(400).json({ error: 'El nombre del almacén es obligatorio.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE warehouses 
+       SET name = $1, address = $2, contact_info = $3, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $4 AND tenant_id = $5
+       RETURNING *`,
+      [name, address, contact_info, id, tenant_id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Almacén no encontrado.' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error al actualizar almacén:', err);
+    res.status(500).json({ error: 'Error al actualizar el almacén.' });
+  }
+});
+
 export default router;

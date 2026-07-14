@@ -57,7 +57,7 @@ router.get('/', requireAuth, requireTenantAdmin, async (req, res) => {
 // ============================================================
 router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
   const { tenant_id } = req.user;
-  const { factory_name, estimated_completion_date, tracking_number, items, status } = req.body;
+  const { factory_name, estimated_completion_date, tracking_number, items, status, warehouse_id } = req.body;
 
   if (!factory_name || !items || items.length === 0) {
     return res.status(400).json({ error: 'La fábrica y al menos un producto son requeridos.' });
@@ -115,19 +115,31 @@ router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
       });
     }
 
-    const orderStatus = status || 'Draft';
+    const orderStatus = status || 'Quotation';
+
+    // Obtener almacén destino (por defecto el físico principal del tenant)
+    let targetWarehouseId = warehouse_id;
+    if (!targetWarehouseId) {
+      const whResult = await client.query(
+        "SELECT id FROM warehouses WHERE tenant_id = $1 AND code = 'WH-MAIN' LIMIT 1",
+        [tenant_id]
+      );
+      if (whResult.rows.length > 0) {
+        targetWarehouseId = whResult.rows[0].id;
+      }
+    }
 
     // 3. Insertar cabecera de orden
     const orderResult = await client.query(
       `INSERT INTO production_orders (
          tenant_id, order_number, factory_name, status, 
-         estimated_completion_date, total_cost_usd, total_cbm, tracking_number
+         estimated_completion_date, total_cost_usd, total_cbm, tracking_number, warehouse_id
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
       [
         tenant_id, orderNumber, factory_name, orderStatus,
-        estimated_completion_date || null, totalCostUsd, totalCbm, tracking_number || null
+        estimated_completion_date || null, totalCostUsd, totalCbm, tracking_number || null, targetWarehouseId
       ]
     );
     const newOrder = orderResult.rows[0];
@@ -146,8 +158,8 @@ router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
         ]
       );
 
-      // Si la orden se inicia directamente en Production, incrementamos el stock en producción
-      if (orderStatus === 'Production') {
+      // Si la orden se inicia directamente en Production o Shipped, incrementamos el stock en producción
+      if (['Production', 'Shipped'].includes(orderStatus)) {
         await client.query(
           `INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases)
            VALUES ($1, $2, 0, $3)
@@ -195,7 +207,7 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
-  const validStatuses = ['Draft', 'Proforma', 'Production', 'QC Inspection', 'Port', 'Transit', 'Delivered'];
+  const validStatuses = ['Quotation', 'Production', 'Shipped', 'Delivered'];
   if (!validStatuses.includes(status)) {
     return res.status(400).json({ error: 'Estado no válido en la máquina de estados.' });
   }
@@ -223,8 +235,8 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
       return res.json(order);
     }
 
-    // Validación de transición secuencial estricta según @order-state-machine
-    const stepNames = ['Draft', 'Proforma', 'Production', 'QC Inspection', 'Port', 'Transit', 'Delivered'];
+    // Validación de transición secuencial estricta
+    const stepNames = ['Quotation', 'Production', 'Shipped', 'Delivered'];
     const oldStepIdx = stepNames.indexOf(oldStatus);
     const newStepIdx = stepNames.indexOf(status);
 
@@ -243,8 +255,8 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
     const items = itemsResult.rows;
 
     // 2. Lógica de traspaso de inventario inteligente y reversible
-    const PRE_PROD = ['Draft', 'Proforma'];
-    const IN_PROD = ['Production', 'QC Inspection', 'Port', 'Transit'];
+    const PRE_PROD = ['Quotation'];
+    const IN_PROD = ['Production', 'Shipped'];
     const POST_PROD = ['Delivered'];
 
     const wasPre = PRE_PROD.includes(oldStatus);
