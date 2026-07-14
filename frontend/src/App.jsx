@@ -1356,6 +1356,22 @@ function App() {
     });
   };
 
+  const handleSetCartQty = (productId, qty) => {
+    const parsedQty = parseInt(qty);
+    if (isNaN(parsedQty) || parsedQty <= 0) {
+      setCart(prev => {
+        const updated = { ...prev };
+        delete updated[productId];
+        return updated;
+      });
+      return;
+    }
+    const product = productList.find(p => p.id === productId);
+    const maxStock = product ? (product.stock_physical_cases || 0) : 1000;
+    const finalQty = Math.min(parsedQty, maxStock);
+    setCart(prev => ({ ...prev, [productId]: finalQty }));
+  };
+
   const getCartTotals = () => {
     let totalItemsCases = 0;
     let subtotal = 0;
@@ -2832,10 +2848,32 @@ function App() {
                         {/* Controles de Carrito para Clientes B2B */}
                         {!isAdmin && (
                           inCartQty > 0 ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'center' }}>
-                              <button onClick={() => handleRemoveFromCart(product.id)} className="btn-glass" style={{ padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>-</button>
-                              <span style={{ fontWeight: '700', fontSize: '15px', color: '#fff' }}>{inCartQty} {inCartQty === 1 ? 'Caja' : 'Cajas'}</span>
-                              <button onClick={() => handleAddToCart(product.id)} className="btn-glass" style={{ padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>+</button>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center', width: '100%' }}>
+                                <button onClick={() => handleRemoveFromCart(product.id)} className="btn-glass" style={{ padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>-</button>
+                                <input 
+                                  type="number"
+                                  min="1"
+                                  max={product.stock_physical_cases || 1000}
+                                  value={inCartQty}
+                                  onChange={(e) => handleSetCartQty(product.id, parseInt(e.target.value))}
+                                  style={{
+                                    width: '70px',
+                                    textAlign: 'center',
+                                    background: '#121212',
+                                    border: '1px solid var(--border-color)',
+                                    color: '#fff',
+                                    padding: '6px',
+                                    borderRadius: '6px',
+                                    fontWeight: '700',
+                                    fontSize: '14px'
+                                  }}
+                                />
+                                <button onClick={() => handleAddToCart(product.id)} className="btn-glass" style={{ padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>+</button>
+                              </div>
+                              <span style={{ fontSize: '11.5px', color: 'var(--cyan-neon)', fontWeight: '600' }}>
+                                Total: {(inCartQty * (product.units_per_case || 1)).toLocaleString('es-ES')} uds.
+                              </span>
                             </div>
                           ) : (
                             <button
@@ -2993,16 +3031,42 @@ function App() {
                             {/* Vista Cliente: Controles de compra */}
                             {!isAdmin && (
                               product.stock_physical_cases > 0 ? (
-                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center' }}>
+                                    {inCartQty > 0 ? (
+                                      <>
+                                        <button onClick={() => handleRemoveFromCart(product.id)} className="btn-pink" style={{ padding: '4px 10px', fontSize: '11px', fontWeight: '700', borderRadius: '4px' }}>-</button>
+                                        <input 
+                                          type="number"
+                                          min="1"
+                                          max={product.stock_physical_cases || 1000}
+                                          value={inCartQty}
+                                          onChange={(e) => handleSetCartQty(product.id, parseInt(e.target.value))}
+                                          style={{
+                                            width: '56px',
+                                            textAlign: 'center',
+                                            background: '#121212',
+                                            border: '1px solid var(--border-color)',
+                                            color: '#fff',
+                                            padding: '4px',
+                                            borderRadius: '4px',
+                                            fontWeight: '700',
+                                            fontSize: '13px'
+                                          }}
+                                        />
+                                        <button onClick={() => handleAddToCart(product.id)} className="btn-neon" style={{ padding: '4px 10px', fontSize: '11px', fontWeight: '700', borderRadius: '4px' }}>+</button>
+                                      </>
+                                    ) : (
+                                      <button onClick={() => handleAddToCart(product.id)} className="btn-neon" style={{ padding: '6px 14px', fontSize: '12px', fontWeight: '700', borderRadius: '6px' }}>
+                                        Añadir
+                                      </button>
+                                    )}
+                                  </div>
                                   {inCartQty > 0 && (
-                                    <>
-                                      <button onClick={() => handleRemoveFromCart(product.id)} className="btn-pink" style={{ padding: '2px 8px', fontSize: '11px' }}>-</button>
-                                      <strong style={{ minWidth: '20px', textAlign: 'center' }}>{inCartQty}</strong>
-                                    </>
+                                    <span style={{ fontSize: '11px', color: 'var(--cyan-neon)', fontWeight: '600' }}>
+                                      ({(inCartQty * (product.units_per_case || 1)).toLocaleString('es-ES')} uds.)
+                                    </span>
                                   )}
-                                  <button onClick={() => handleAddToCart(product.id)} className="btn-neon" style={{ padding: '4px 10px', fontSize: '11px' }}>
-                                    {inCartQty > 0 ? '+' : 'Añadir'}
-                                  </button>
                                 </div>
                               ) : (
                                 <span style={{ color: 'var(--text-muted)' }}>Agotado</span>
@@ -5107,7 +5171,6 @@ function App() {
       </footer>
         </div>
       </div>
-
       {/* ===================================================== */}
       {/* PANEL LATERAL: CARRITO B2B                            */}
       {/* ===================================================== */}
@@ -5129,10 +5192,30 @@ function App() {
                       <div>
                         <h4 style={{ fontSize: '14px', fontWeight: '700' }}>{item.name}</h4>
                         <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>${parseFloat(item.price_per_case_usd).toFixed(2)} x {item.qty} {item.qty === 1 ? 'caja' : 'cajas'}</span>
+                        <span style={{ display: 'block', fontSize: '11px', color: 'var(--cyan-neon)', fontWeight: '600', marginTop: '2px' }}>
+                          ({(item.qty * (item.units_per_case || 1)).toLocaleString('es-ES')} uds. totales)
+                        </span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <button onClick={() => handleRemoveFromCart(item.id)} style={{ width: '24px', height: '24px', borderRadius: '4px', background: '#333', border: 'none', color: '#fff', cursor: 'pointer' }}>-</button>
-                        <span>{item.qty}</span>
+                        <input 
+                          type="number"
+                          min="1"
+                          max={item.stock_physical_cases || 1000}
+                          value={item.qty}
+                          onChange={(e) => handleSetCartQty(item.id, parseInt(e.target.value))}
+                          style={{
+                            width: '46px',
+                            textAlign: 'center',
+                            background: '#121212',
+                            border: '1px solid var(--border-color)',
+                            color: '#fff',
+                            padding: '4px',
+                            borderRadius: '4px',
+                            fontWeight: '700',
+                            fontSize: '13px'
+                          }}
+                        />
                         <button onClick={() => handleAddToCart(item.id)} style={{ width: '24px', height: '24px', borderRadius: '4px', background: '#333', border: 'none', color: '#fff', cursor: 'pointer' }}>+</button>
                       </div>
                     </div>
