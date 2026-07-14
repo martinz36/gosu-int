@@ -4036,16 +4036,6 @@ function App() {
                                order.payment_status === 'Crédito' ? '🔵 Crédito' :
                                order.payment_status === 'En Revisión' ? '🟠 En Revisión' :
                                '🔴 Pendiente'}
-                              {order.payment_status === 'Pagado' && order.balance_receipt_url && (
-                                <a
-                                  href={order.balance_receipt_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  style={{ marginLeft: '6px', color: '#fff', textDecoration: 'underline' }}
-                                >
-                                  [Doc]
-                                </a>
-                              )}
                             </span>
                           </td>
                           <td style={{ padding: '16px' }}>
@@ -4133,22 +4123,26 @@ function App() {
                                   📤
                                 </button>
                               )}
-                              <button
-                                onClick={() => handleShareWhatsApp(order)}
-                                className="btn-glass"
-                                style={{ padding: '6px 10px', fontSize: '12px', background: 'rgba(37, 211, 102, 0.15)', border: '1px solid #25d366', color: '#25d366' }}
-                                title="Enviar por WhatsApp (json.pe)"
-                              >
-                                💬
-                              </button>
-                              <button
-                                onClick={() => handleShareEmail(order)}
-                                className="btn-glass"
-                                style={{ padding: '6px 10px', fontSize: '12px', background: 'rgba(233, 30, 99, 0.15)', border: '1px solid #e91e63', color: '#e91e63' }}
-                                title="Enviar por Email (Resend)"
-                              >
-                                ✉️
-                              </button>
+                              {isAdmin && (
+                                <>
+                                  <button
+                                    onClick={() => handleShareWhatsApp(order)}
+                                    className="btn-glass"
+                                    style={{ padding: '6px 10px', fontSize: '12px', background: 'rgba(37, 211, 102, 0.15)', border: '1px solid #25d366', color: '#25d366' }}
+                                    title="Enviar por WhatsApp (json.pe)"
+                                  >
+                                    💬
+                                  </button>
+                                  <button
+                                    onClick={() => handleShareEmail(order)}
+                                    className="btn-glass"
+                                    style={{ padding: '6px 10px', fontSize: '12px', background: 'rgba(233, 30, 99, 0.15)', border: '1px solid #e91e63', color: '#e91e63' }}
+                                    title="Enviar por Email (Resend)"
+                                  >
+                                    ✉️
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </td>
                         </tr>
