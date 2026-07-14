@@ -423,7 +423,7 @@ function App() {
       loadClients();
       loadPricingTiers();
     }
-    if (activeTab === 'catalog' || activeTab === 'config') {
+    if (activeTab === 'catalog' || activeTab === 'config' || activeTab === 'inventory') {
       loadCatalogConfig();
       loadTenantSettings();
     }
@@ -1624,6 +1624,9 @@ function App() {
                     <span className={`nav-link-btn ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
                       📈 Control de Mando
                     </span>
+                    <span className={`nav-link-btn ${activeTab === 'inventory' ? 'active' : ''}`} onClick={() => setActiveTab('inventory')}>
+                      📦 Inventario & Stock
+                    </span>
                     <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
                       📊 Registro de Ventas
                     </span>
@@ -1696,9 +1699,9 @@ function App() {
                 {isAdmin && (
                   <>
                     <span className={`mobile-nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>📈 Dash</span>
+                    <span className={`mobile-nav-item ${activeTab === 'inventory' ? 'active' : ''}`} onClick={() => setActiveTab('inventory')}>📦 Stock</span>
                     <span className={`mobile-nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>📊 Ventas</span>
                     <span className={`mobile-nav-item ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>🏭 Fábrica</span>
-                    <span className={`mobile-nav-item ${activeTab === 'clients' ? 'active' : ''}`} onClick={() => setActiveTab('clients')}>👥 Clientes</span>
                     <span className={`mobile-nav-item ${activeTab === 'config' ? 'active' : ''}`} onClick={() => setActiveTab('config')}>⚙️ Config</span>
                   </>
                 )}
@@ -2849,14 +2852,7 @@ function App() {
 
                         {/* Botones de Administración (Solo Admin) */}
                         {isAdmin && (
-                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', width: '100%', marginTop: '8px' }}>
-                            <button 
-                              onClick={() => handleOpenKardex(product)}
-                              className="btn-glass-cyan"
-                              style={{ flexGrow: 1, padding: '8px', fontSize: '12px' }}
-                            >
-                              🗃️ Kardex
-                            </button>
+                          <div style={{ display: 'flex', gap: '8px', width: '100%', marginTop: '8px' }}>
                             <button 
                               onClick={() => {
                                 setEditingProduct(product);
@@ -3050,14 +3046,6 @@ function App() {
                                   title="Editar Producto"
                                 >
                                   ✏️ Editar
-                                </button>
-                                <button 
-                                  onClick={() => handleOpenKardex(product)}
-                                  className="btn-glass-cyan"
-                                  style={{ padding: '6px 10px', fontSize: '12px' }}
-                                  title="Kardex de Inventario"
-                                >
-                                  🗃️ Kardex
                                 </button>
                                 <button 
                                   onClick={() => handleDeleteProduct(product.id)}
@@ -4306,6 +4294,99 @@ function App() {
         )}
 
         {/* ===================================================== */}
+        {/* TAB: INVENTARIO GLOBAL (KARDEX HUB)                   */}
+        {/* ===================================================== */}
+        {activeTab === 'inventory' && isAdmin && !dataLoading && (
+          <div>
+            <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+              <div>
+                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>📦 Control Global de Inventario</h1>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                  Supervisa el stock físico para venta B2B, inventario en producción de fábrica y gestiona las bitácoras de movimientos (Kardex).
+                </p>
+              </div>
+              <div>
+                <button
+                  onClick={loadProducts}
+                  className="btn-glass"
+                  style={{ padding: '8px 16px', fontSize: '13px' }}
+                >
+                  🔄 Sincronizar Existencias
+                </button>
+              </div>
+            </div>
+
+            {/* Tabla Global de Inventario */}
+            <div className="glass-panel" style={{ padding: '24px', overflowX: 'auto' }}>
+              {productList.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  No hay productos registrados en el catálogo para administrar.
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13.5px', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.02)' }}>
+                      <th style={{ padding: '12px 16px', width: '70px' }}>Miniatura</th>
+                      <th style={{ padding: '12px 16px' }}>Producto</th>
+                      <th style={{ padding: '12px 16px' }}>SKU</th>
+                      <th style={{ padding: '12px 16px' }}>Categoría</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'center' }}>Stock Físico (Ventas)</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'center' }}>Stock en Producción</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'center', width: '220px' }}>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {productList.map(product => {
+                      const hasPhysical = (product.stock_physical_cases || 0) > 0;
+                      const hasProduction = (product.stock_in_production_cases || 0) > 0;
+
+                      return (
+                        <tr key={product.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', transition: 'background 0.2s' }}>
+                          <td style={{ padding: '12px 16px' }}>
+                            {product.image_url ? (
+                              <img src={product.image_url} alt={product.name} style={{ width: '46px', height: '46px', borderRadius: '8px', objectFit: 'cover' }} />
+                            ) : (
+                              <div style={{ width: '46px', height: '46px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>📦</div>
+                            )}
+                          </td>
+                          <td style={{ padding: '12px 16px' }}>
+                            <strong style={{ color: '#fff', fontSize: '14.5px' }}>{product.name}</strong>
+                            {product.color && <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Color: {product.color}</span>}
+                          </td>
+                          <td style={{ padding: '12px 16px', fontFamily: 'monospace' }}>{product.sku}</td>
+                          <td style={{ padding: '12px 16px' }}>
+                            <span style={{ textTransform: 'capitalize' }}>{product.category?.replace('_', ' ')}</span>
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                            <span className={hasPhysical ? 'badge badge-green' : 'badge badge-red'} style={{ fontSize: '12px', fontWeight: '800', padding: '6px 12px' }}>
+                              {product.stock_physical_cases || 0} master cases
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                            <span className={hasProduction ? 'badge badge-orange' : 'badge'} style={{ fontSize: '12px', padding: '6px 12px', background: hasProduction ? 'rgba(255,165,0,0.1)' : 'rgba(255,255,255,0.03)', border: hasProduction ? '1px solid orange' : '1px solid rgba(255,255,255,0.08)' }}>
+                              {product.stock_in_production_cases || 0} master cases
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                            <button
+                              onClick={() => handleOpenKardex(product)}
+                              className="btn-glass-cyan"
+                              style={{ padding: '8px 16px', fontSize: '12px', width: '100%', fontWeight: '700' }}
+                            >
+                              🗃️ Ver Movimientos & Ajustes
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ===================================================== */}
         {/* TAB PROFILE: CONFIGURACIÓN DE PERFIL & PASSWORD      */}
         {/* ===================================================== */}
         {activeTab === 'profile' && !dataLoading && (
@@ -5385,7 +5466,7 @@ function App() {
       {/* MODAL: KARDEX DE INVENTARIO Y AJUSTES                 */}
       {/* ===================================================== */}
       {kardexModalOpen && kardexProduct && (
-        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.85)', zIndex: '200', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', zIndex: '200', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
           <div className="glass-panel" style={{ width: '100%', maxWidth: '950px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: '28px', position: 'relative', border: '1px solid var(--cyan-neon)' }}>
             <button onClick={() => { setKardexModalOpen(false); setKardexProduct(null); }} style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}>×</button>
 
