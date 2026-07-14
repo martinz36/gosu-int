@@ -912,7 +912,7 @@ router.post('/:id/send-whatsapp', requireAuth, requireTenantAdmin, async (req, r
       },
       body: JSON.stringify({
         number: cleanNumber,
-        message: message
+        text: message
       })
     });
 
