@@ -50,6 +50,11 @@ function App() {
   const [invFilterCategory, setInvFilterCategory] = useState('all');
   const [invFilterStockStatus, setInvFilterStockStatus] = useState('all');
   const [invFilterFactory, setInvFilterFactory] = useState('all');
+  // Estados para compartir documentos de forma pública (Vistas de impresión)
+  const [publicPrintOrder, setPublicPrintOrder] = useState(null);
+  const [publicPrintDocType, setPublicPrintDocType] = useState('');
+  const [loadingPublicPrint, setLoadingPublicPrint] = useState(false);
+
   const [cart, setCart] = useState({});
   const [showCart, setShowCart] = useState(false);
   const [receiptUploaded, setReceiptUploaded] = useState(false);
@@ -536,6 +541,31 @@ function App() {
     };
     loadAll();
   }, [currentUser, isSuperAdmin, isAdmin, loadTenants, loadProducts, loadOrders, loadProduction, loadCatalogConfig, loadTenantSettings, loadDashboardData, loadTenantPublicInfo]);
+
+  // Hook de inicio para revisar si hay solicitudes públicas de visualización/impresión de documentos
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const printOrderId = params.get('print_order');
+    const docTypeParam = params.get('doc_type');
+    if (printOrderId && docTypeParam) {
+      setLoadingPublicPrint(true);
+      setPublicPrintDocType(docTypeParam);
+      ordersApi.getPublicDetail(printOrderId)
+        .then(data => {
+          setPublicPrintOrder(data);
+          setLoadingPublicPrint(false);
+          // Disparar la ventana de impresión del navegador tras un breve delay para permitir el renderizado
+          setTimeout(() => {
+            window.print();
+          }, 1000);
+        })
+        .catch(err => {
+          console.error(err);
+          alert('❌ Error al cargar el documento público: ' + err.message);
+          setLoadingPublicPrint(false);
+        });
+    }
+  }, []);
 
   // Recargar desde servidor solo cuando cambia categoría
   useEffect(() => {
@@ -1341,6 +1371,29 @@ function App() {
     }
   };
 
+  const handleShareWhatsApp = async (order) => {
+    const num = prompt(`Ingresa el número de WhatsApp del cliente para enviar los enlaces del pedido B2B ${order.po_number || order.id.split('-')[0].toUpperCase()} (código de país seguido del número, sin espacios ni caracteres especiales, ej: 51987654321):`, "");
+    if (!num) return;
+    try {
+      await ordersApi.sendWhatsApp(order.id, num, window.location.origin);
+      alert('🎉 Mensaje enviado por WhatsApp con éxito (vía json.pe).');
+    } catch(err) {
+      alert(`❌ Error al enviar WhatsApp: ${err.message}`);
+    }
+  };
+
+  const handleShareEmail = async (order) => {
+    const defaultEmail = order.client_email || "";
+    const email = prompt(`Ingresa el correo electrónico del cliente para enviar la factura y packing list del pedido ${order.po_number || order.id.split('-')[0].toUpperCase()}:`, defaultEmail);
+    if (!email) return;
+    try {
+      await ordersApi.sendEmail(order.id, email, window.location.origin);
+      alert('🎉 Correo electrónico enviado con éxito (vía Resend).');
+    } catch(err) {
+      alert(`❌ Error al enviar correo: ${err.message}`);
+    }
+  };
+
   const handleExportPDF = (pOrder) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
@@ -1650,6 +1703,150 @@ function App() {
       setSimulatingStripePayment(false);
     }
   };
+
+  // -------------------------------------------------------
+  // Renderizar la vista de impresión pública si se solicita
+  // -------------------------------------------------------
+  if (loadingPublicPrint) {
+    return (
+      <div style={{ background: '#0d0d0f', color: '#fff', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
+        <div style={{ textAlign: 'center' }}>
+          <h2 style={{ color: 'var(--cyan-neon)' }}>⏳ Cargando Documento...</h2>
+          <p style={{ color: '#888' }}>Preparando la vista de impresión oficial</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (publicPrintOrder) {
+    const order = publicPrintOrder;
+    const isInvoice = publicPrintDocType === 'invoice';
+    const clientName = order.client_name || order.company_name;
+    const clientEmail = order.client_email || '';
+
+    return (
+      <div className="public-print-container" style={{ background: '#fff', color: '#000', padding: '40px', fontFamily: 'Segoe UI, sans-serif', minHeight: '100vh', boxSizing: 'border-box' }}>
+        <style dangerouslySetInnerHTML={{__html: `
+          @media print {
+            body { background: #fff !important; color: #000 !important; padding: 0 !important; }
+            .no-print { display: none !important; }
+            .public-print-container { padding: 0 !important; }
+          }
+        `}} />
+        
+        <div className="no-print" style={{ background: '#f5f5f7', borderBottom: '1px solid #ddd', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', borderRadius: '8px' }}>
+          <div>
+            <h3 style={{ margin: '0 0 4px', color: '#111' }}>Modo de Visualización de Documento B2B</h3>
+            <span style={{ fontSize: '12px', color: '#666' }}>Esta vista está formateada para imprimir o exportar como PDF directamente en tu navegador.</span>
+          </div>
+          <button 
+            onClick={() => window.print()} 
+            style={{ background: '#00bcd4', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}
+          >
+            🖨️ Imprimir / Guardar como PDF
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '3px solid #00bcd4', paddingBottom: '20px', marginBottom: '30px' }}>
+          <div>
+            <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', color: '#00bcd4', fontWeight: '800' }}>
+              {isInvoice ? 'COMMERCIAL INVOICE' : 'COMMERCIAL PACKING LIST'}
+            </h1>
+            <span style={{ fontSize: '14px', color: '#555' }}>Gosu Accessories Ltd. / Shenzhen Export Warehouse, China</span>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#111' }}>Orden: {order.po_number || order.id.split('-')[0].toUpperCase()}</span><br />
+            <span style={{ fontSize: '13px', color: '#666' }}>Fecha: {new Date(order.created_at).toLocaleDateString('es-ES')}</span>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '40px', background: '#f9f9f9', padding: '20px', borderRadius: '8px', border: '1px solid #eee' }}>
+          <div>
+            <h4 style={{ margin: '0 0 8px', color: '#00bcd4', textTransform: 'uppercase', fontSize: '11px', letterSpacing: '0.5px' }}>Destinatario (Cliente B2B)</h4>
+            <strong style={{ fontSize: '15px', color: '#111' }}>{clientName}</strong><br />
+            {clientEmail && <span style={{ color: '#555', fontSize: '13px' }}>{clientEmail}</span>}<br />
+            <span style={{ color: '#666', fontSize: '13px' }}>Tax ID: {order.tax_id || '-'}</span>
+          </div>
+          <div>
+            <h4 style={{ margin: '0 0 8px', color: '#00bcd4', textTransform: 'uppercase', fontSize: '11px', letterSpacing: '0.5px' }}>Dirección de Facturación / Envío</h4>
+            <span style={{ color: '#111', fontSize: '13px', display: 'block', marginBottom: '4px' }}><strong>Factura:</strong> {order.billing_address || '-'}</span>
+            <span style={{ color: '#111', fontSize: '13px', display: 'block' }}><strong>Forwarder:</strong> {order.forwarder_address || '-'}</span>
+          </div>
+        </div>
+
+        {isInvoice ? (
+          <div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '30px' }}>
+              <thead>
+                <tr style={{ background: '#333', color: '#fff' }}>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'left' }}>Producto</th>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'center', width: '100px' }}>SKU</th>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'center', width: '80px' }}>Cajas</th>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'right', width: '120px' }}>Precio/Caja</th>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'right', width: '140px' }}>Total USD</th>
+                </tr>
+              </thead>
+              <tbody>
+                {order.items?.map((item, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                    <td style={{ padding: '12px 10px', fontSize: '13.5px', fontWeight: '600' }}>{item.name}</td>
+                    <td style={{ padding: '12px 10px', fontSize: '12px', fontFamily: 'monospace', textAlign: 'center' }}>{item.sku}</td>
+                    <td style={{ padding: '12px 10px', fontSize: '13.5px', textAlign: 'center' }}>{item.qty_cases}</td>
+                    <td style={{ padding: '12px 10px', fontSize: '13.5px', textAlign: 'right' }}>${parseFloat(item.price_case_usd || item.price_per_case_usd || 0).toFixed(2)}</td>
+                    <td style={{ padding: '12px 10px', fontSize: '13.5px', textAlign: 'right', fontWeight: 'bold' }}>${parseFloat(item.total_item_usd || 0).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '16px', borderTop: '2px solid #333', paddingTop: '15px' }}>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ color: '#555' }}>Total Comercial FOB: </span>
+                <strong style={{ fontSize: '20px', color: '#000', marginLeft: '10px' }}>${parseFloat(order.total_usd || order.total_amount_usd || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</strong>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '30px' }}>
+              <thead>
+                <tr style={{ background: '#333', color: '#fff' }}>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'left' }}>Descripción del Producto</th>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'center', width: '120px' }}>SKU</th>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'center', width: '100px' }}>Cajas Master</th>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'right', width: '120px' }}>Total Unidades</th>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'center', width: '140px' }}>Volumen (CBM)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {order.items?.map((item, idx) => {
+                  const totalUnits = (item.qty_cases || 0) * (item.units_per_case || 100);
+                  const itemCbm = (item.qty_cases || 0) * (parseFloat(item.case_cbm) || 0.024);
+                  return (
+                    <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                      <td style={{ padding: '12px 10px', fontSize: '13.5px', fontWeight: '600' }}>{item.name}</td>
+                      <td style={{ padding: '12px 10px', fontSize: '12px', fontFamily: 'monospace', textAlign: 'center' }}>{item.sku}</td>
+                      <td style={{ padding: '12px 10px', fontSize: '13.5px', textAlign: 'center' }}>{item.qty_cases}</td>
+                      <td style={{ padding: '12px 10px', fontSize: '13.5px', textAlign: 'right' }}>{totalUnits.toLocaleString('en-US')} uds</td>
+                      <td style={{ padding: '12px 10px', fontSize: '13.5px', textAlign: 'center' }}>{itemCbm.toFixed(4)} CBM</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '15px', borderTop: '2px solid #333', paddingTop: '15px', gap: '40px' }}>
+              <div>Cajas Totales: <strong>{order.total_cases || order.items?.reduce((a, c) => a + c.qty_cases, 0)}</strong></div>
+              <div>Volumen Total: <strong>{parseFloat(order.total_cbm || 0).toFixed(4)} CBM</strong></div>
+            </div>
+          </div>
+        )}
+
+        <div className="footer" style={{ textAlign: 'center', marginTop: '80px', fontSize: '12px', color: '#666', borderTop: '1px solid #eee', paddingTop: '20px' }}>
+          Documento comercial auto-generado por la plataforma B2B de Gosu Accessories Ltd.<br />
+          Soporte: info@gosu.com | Shenzhen Port Logistics Hub, China
+        </div>
+      </div>
+    );
+  }
 
   // -------------------------------------------------------
   // Si no está autenticado, mostrar Login
@@ -3651,16 +3848,35 @@ function App() {
                             </span>
                           </td>
                           <td style={{ padding: '16px', textAlign: 'center' }}>
-                            <button
-                              onClick={() => {
-                                setSelectedOrderDetail(order);
-                                setShowOrderDetailModal(true);
-                              }}
-                              className="btn-glass-cyan"
-                              style={{ padding: '6px 14px', fontSize: '12px' }}
-                            >
-                              👁️ Ver Detalle
-                            </button>
+                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                              <button
+                                onClick={() => {
+                                  setSelectedOrderDetail(order);
+                                  setShowOrderDetailModal(true);
+                                }}
+                                className="btn-glass-cyan"
+                                style={{ padding: '6px 10px', fontSize: '12px' }}
+                                title="Ver Detalle"
+                              >
+                                👁️
+                              </button>
+                              <button
+                                onClick={() => handleShareWhatsApp(order)}
+                                className="btn-glass"
+                                style={{ padding: '6px 10px', fontSize: '12px', background: 'rgba(37, 211, 102, 0.15)', border: '1px solid #25d366', color: '#25d366' }}
+                                title="Enviar por WhatsApp (json.pe)"
+                              >
+                                💬
+                              </button>
+                              <button
+                                onClick={() => handleShareEmail(order)}
+                                className="btn-glass"
+                                style={{ padding: '6px 10px', fontSize: '12px', background: 'rgba(233, 30, 99, 0.15)', border: '1px solid #e91e63', color: '#e91e63' }}
+                                title="Enviar por Email (Resend)"
+                              >
+                                ✉️
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

@@ -773,4 +773,222 @@ router.post('/:id/pay-stripe', requireAuth, async (req, res) => {
   }
 });
 
+// ============================================================
+// GET /api/orders/public/:id
+// Acceso público para visualizar/imprimir Invoice o Packing List.
+// ============================================================
+router.get('/public/:id', async (req, res) => {
+  const { id } = req.params;
+
+  const query = `
+    SELECT
+      so.id, so.po_number, so.status, so.incoterm, so.company_name, so.tax_id, 
+      so.billing_address, so.forwarder_address, so.subtotal_usd, 
+      so.discount_usd, so.shipping_cost_usd, so.total_usd,
+      so.advance_payment_pct, so.deposit_paid_usd, so.deposit_receipt_url,
+      so.balance_paid_usd, so.balance_receipt_url, so.bl_number, so.bl_document_url,
+      so.notes, so.created_at,
+      u.name as client_name, u.email as client_email,
+      SUM(soi.qty_cases * p.case_cbm) as total_cbm,
+      SUM(soi.qty_cases) as total_cases,
+      json_agg(json_build_object(
+        'id', soi.id,
+        'product_id', soi.product_id,
+        'name', p.name,
+        'sku', p.sku,
+        'qty_cases', soi.qty_cases,
+        'price_case_usd', soi.price_case_usd,
+        'discount_pct', soi.discount_pct,
+        'total_item_usd', soi.total_item_usd,
+        'case_cbm', p.case_cbm,
+        'units_per_case', p.units_per_case
+      ) ORDER BY p.name) AS items
+    FROM sales_orders so
+    JOIN users u ON u.id = so.client_id
+    JOIN sales_order_items soi ON soi.sales_order_id = so.id AND soi.tenant_id = so.tenant_id
+    JOIN products p ON p.id = soi.product_id AND p.tenant_id = so.tenant_id
+    WHERE so.id = $1
+    GROUP BY so.id, u.name, u.email
+  `;
+
+  try {
+    const result = await pool.query(query, [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error al obtener pedido público:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ============================================================
+// POST /api/orders/:id/send-whatsapp
+// Envía los enlaces de la Factura y Packing List por WhatsApp usando la API de json.pe.
+// Body: { number, origin }
+// ============================================================
+router.post('/:id/send-whatsapp', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { number, origin } = req.body;
+  const { tenant_id } = req.user;
+
+  if (!number) {
+    return res.status(400).json({ error: 'Debe proporcionar un número de teléfono.' });
+  }
+
+  try {
+    // 1. Obtener la API key de WhatsApp del Tenant
+    const tenantResult = await pool.query(
+      'SELECT name, whatsapp_api_key FROM tenants WHERE id = $1',
+      [tenant_id]
+    );
+    if (tenantResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Tenant no encontrado.' });
+    }
+
+    const { name: tenantName, whatsapp_api_key } = tenantResult.rows[0];
+    if (!whatsapp_api_key) {
+      return res.status(400).json({ error: 'La API Key de WhatsApp (json.pe) no está configurada en la sección de Configuración.' });
+    }
+
+    // 2. Obtener los detalles de la orden
+    const orderResult = await pool.query(
+      'SELECT po_number FROM sales_orders WHERE id = $1 AND tenant_id = $2',
+      [id, tenant_id]
+    );
+    if (orderResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+    const order = orderResult.rows[0];
+    const orderRef = order.po_number || id.split('-')[0].toUpperCase();
+
+    // 3. Construir links y mensaje
+    const invoiceUrl = `${origin || 'http://localhost:5173'}/?print_order=${id}&doc_type=invoice`;
+    const packingUrl = `${origin || 'http://localhost:5173'}/?print_order=${id}&doc_type=packing_list`;
+    const message = `*${tenantName} B2B*\n\nHola, te compartimos los documentos oficiales de tu pedido *${orderRef}*:\n\n📄 *Commercial Invoice (Factura):*\n${invoiceUrl}\n\n📦 *Packing List (Lista de empaque):*\n${packingUrl}\n\n¡Gracias por tu compra!`;
+
+    // 4. Enviar mediante la API de WhatsApp de json.pe
+    const cleanNumber = number.replace(/\+/g, '').trim(); // Asegurar sin "+"
+    const response = await fetch('https://api.whatsapp.json.pe/send/text', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${whatsapp_api_key}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        number: cleanNumber,
+        message: message
+      })
+    });
+
+    const resData = await response.json();
+    if (!response.ok) {
+      return res.status(response.status).json({ error: resData.error || 'Error al enviar WhatsApp a través de json.pe.' });
+    }
+
+    res.json({ success: true, details: resData });
+  } catch (err) {
+    console.error('Error enviando WhatsApp:', err);
+    res.status(500).json({ error: err.message || 'Error interno al procesar el envío de WhatsApp.' });
+  }
+});
+
+// ============================================================
+// POST /api/orders/:id/send-email
+// Envía la cotización y enlaces de documentos por correo usando la API de Resend.
+// Body: { email, origin }
+// ============================================================
+router.post('/:id/send-email', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { email, origin } = req.body;
+  const { tenant_id } = req.user;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Debe proporcionar una dirección de correo electrónico.' });
+  }
+
+  try {
+    // 1. Obtener la API key de Resend del Tenant
+    const tenantResult = await pool.query(
+      'SELECT name, resend_api_key FROM tenants WHERE id = $1',
+      [tenant_id]
+    );
+    if (tenantResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Tenant no encontrado.' });
+    }
+
+    const { name: tenantName, resend_api_key } = tenantResult.rows[0];
+    if (!resend_api_key) {
+      return res.status(400).json({ error: 'La API Key de Resend no está configurada en la sección de Configuración.' });
+    }
+
+    // 2. Obtener los detalles de la orden
+    const orderResult = await pool.query(
+      'SELECT po_number, total_usd FROM sales_orders WHERE id = $1 AND tenant_id = $2',
+      [id, tenant_id]
+    );
+    if (orderResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+    const order = orderResult.rows[0];
+    const orderRef = order.po_number || id.split('-')[0].toUpperCase();
+
+    // 3. Construir links y contenido HTML
+    const invoiceUrl = `${origin || 'http://localhost:5173'}/?print_order=${id}&doc_type=invoice`;
+    const packingUrl = `${origin || 'http://localhost:5173'}/?print_order=${id}&doc_type=packing_list`;
+
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.05);">
+        <div style="background-color: #121212; padding: 24px; text-align: center; border-bottom: 3px solid #00bcd4;">
+          <h1 style="color: #00bcd4; margin: 0; font-size: 24px; text-transform: uppercase;">${tenantName} B2B</h1>
+        </div>
+        <div style="padding: 24px; line-height: 1.6;">
+          <h2 style="margin-top: 0; color: #111;">Documentación del Pedido ${orderRef}</h2>
+          <p>Hola,</p>
+          <p>Te adjuntamos los accesos a los documentos comerciales de tu pedido registrado en la plataforma B2B de <strong>${tenantName}</strong> por un monto total de <strong>$${parseFloat(order.total_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</strong>:</p>
+          
+          <div style="margin: 32px 0; text-align: center;">
+            <a href="${invoiceUrl}" target="_blank" style="display: inline-block; background-color: #00bcd4; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; margin-right: 10px; box-shadow: 0 4px 6px rgba(0, 188, 212, 0.2);">
+              📄 Ver Commercial Invoice (Factura)
+            </a>
+            <a href="${packingUrl}" target="_blank" style="display: inline-block; background-color: #e91e63; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; box-shadow: 0 4px 6px rgba(233, 30, 99, 0.2);">
+              📦 Ver Packing List (Lista de Empaque)
+            </a>
+          </div>
+          
+          <p style="color: #666; font-size: 12px; border-top: 1px solid #eee; padding-top: 16px; margin-top: 32px;">
+            Este enlace te permite ver o imprimir el documento oficial. Si tienes alguna consulta comercial, por favor responde a este correo electrónico.
+          </p>
+        </div>
+      </div>
+    `;
+
+    // 4. Enviar mediante Resend API
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${resend_api_key}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'B2B Gosu <onboarding@resend.dev>',
+        to: email,
+        subject: `Documentos de tu Pedido B2B ${orderRef} - ${tenantName}`,
+        html: htmlContent
+      })
+    });
+
+    const resData = await response.json();
+    if (!response.ok) {
+      return res.status(response.status).json({ error: resData.message || 'Error al enviar correo a través de Resend.' });
+    }
+
+    res.json({ success: true, details: resData });
+  } catch (err) {
+    console.error('Error enviando email:', err);
+    res.status(500).json({ error: err.message || 'Error interno al procesar el envío de correo.' });
+  }
+});
+
 export default router;

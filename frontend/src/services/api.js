@@ -129,6 +129,19 @@ export const orders = {
 
   payWithStripe: (id) =>
     request('POST', `/api/orders/${id}/pay-stripe`),
+
+  sendWhatsApp: (id, number, origin) =>
+    request('POST', `/api/orders/${id}/send-whatsapp`, { number, origin }),
+
+  sendEmail: (id, email, origin) =>
+    request('POST', `/api/orders/${id}/send-email`, { email, origin }),
+
+  getPublicDetail: (id) =>
+    fetch(`${API_BASE}/api/orders/public/${id}`).then(async (res) => {
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al obtener pedido público.');
+      return data;
+    }),
 };
 
 // ============================================================
