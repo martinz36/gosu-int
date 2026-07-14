@@ -133,8 +133,11 @@ export const orders = {
   uploadVoucher: (id, fileData, mimeType) =>
     request('POST', `/api/orders/${id}/upload-voucher`, { fileData, mimeType }),
 
-  payWithStripe: (id) =>
-    request('POST', `/api/orders/${id}/pay-stripe`),
+  payWithStripe: (id, origin) =>
+    request('POST', `/api/orders/${id}/pay-stripe`, { origin }),
+
+  verifyStripePayment: (id, sessionId) =>
+    request('POST', `/api/orders/${id}/verify-stripe-payment`, { sessionId }),
 
   sendWhatsApp: (id, number, origin) =>
     request('POST', `/api/orders/${id}/send-whatsapp`, { number, origin }),

@@ -245,6 +245,7 @@ router.get('/current/settings', requireAuth, requireTenantAdmin, async (req, res
     const result = await pool.query(
       `SELECT id, name, slug, whatsapp_api_key, resend_api_key, 
               cloudinary_cloud_name, cloudinary_upload_preset, cloudinary_api_key, cloudinary_api_secret,
+              stripe_secret_key, stripe_publishable_key,
               bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url 
        FROM tenants WHERE id = $1 AND deleted_at IS NULL`,
       [tenant_id]
@@ -274,6 +275,8 @@ router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res
     cloudinary_upload_preset,
     cloudinary_api_key,
     cloudinary_api_secret,
+    stripe_secret_key,
+    stripe_publishable_key,
     bank_name,
     bank_account_name,
     bank_account_number,
@@ -290,15 +293,18 @@ router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res
            cloudinary_upload_preset = $4,
            cloudinary_api_key = $5,
            cloudinary_api_secret = $6,
-           bank_name = $7, 
-           bank_account_name = $8, 
-           bank_account_number = $9, 
-           bank_routing_number = $10, 
-           logo_url = $11,
+           stripe_secret_key = $7,
+           stripe_publishable_key = $8,
+           bank_name = $9, 
+           bank_account_name = $10, 
+           bank_account_number = $11, 
+           bank_routing_number = $12, 
+           logo_url = $13,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $12 AND deleted_at IS NULL
+       WHERE id = $14 AND deleted_at IS NULL
        RETURNING id, name, slug, whatsapp_api_key, resend_api_key, 
                  cloudinary_cloud_name, cloudinary_upload_preset, cloudinary_api_key, cloudinary_api_secret,
+                 stripe_secret_key, stripe_publishable_key,
                  bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url`,
       [
         whatsapp_api_key !== undefined && whatsapp_api_key !== null ? whatsapp_api_key.trim() : null,
@@ -307,6 +313,8 @@ router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res
         cloudinary_upload_preset !== undefined && cloudinary_upload_preset !== null ? cloudinary_upload_preset.trim() : null,
         cloudinary_api_key !== undefined && cloudinary_api_key !== null ? cloudinary_api_key.trim() : null,
         cloudinary_api_secret !== undefined && cloudinary_api_secret !== null ? cloudinary_api_secret.trim() : null,
+        stripe_secret_key !== undefined && stripe_secret_key !== null ? stripe_secret_key.trim() : null,
+        stripe_publishable_key !== undefined && stripe_publishable_key !== null ? stripe_publishable_key.trim() : null,
         bank_name !== undefined && bank_name !== null ? bank_name.trim() : null,
         bank_account_name !== undefined && bank_account_name !== null ? bank_account_name.trim() : null,
         bank_account_number !== undefined && bank_account_number !== null ? bank_account_number.trim() : null,

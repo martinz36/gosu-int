@@ -770,17 +770,18 @@ router.get('/:id/packing-list', requireAuth, async (req, res) => {
 
 // ============================================================
 // POST /api/orders/:id/pay-stripe (Autenticado, para Clientes B2B)
-// Simula o concreta el pago con tarjeta a través de Stripe.
-// Actualiza el estado de la orden a 'Paid' tras la confirmación.
+// Crea una sesión de Stripe Checkout real usando las credenciales del Tenant.
 // ============================================================
 router.post('/:id/pay-stripe', requireAuth, async (req, res) => {
   const { tenant_id } = req.user;
   const { id: orderId } = req.params;
+  const { origin } = req.body; // El origen frontend (ej. https://gosu-int.vercel.app)
 
   try {
+    // 1. Obtener la orden y validar pertenencia
     const orderRes = await pool.query(
-      'SELECT id, status FROM sales_orders WHERE id = $1 AND tenant_id = $2 AND client_id = $3',
-      [orderId, tenant_id, req.user.id]
+      'SELECT id, po_number, total_usd, payment_status, client_id FROM sales_orders WHERE id = $1 AND tenant_id = $2',
+      [orderId, tenant_id]
     );
 
     if (orderRes.rows.length === 0) {
@@ -788,22 +789,171 @@ router.post('/:id/pay-stripe', requireAuth, async (req, res) => {
     }
 
     const order = orderRes.rows[0];
-    if (order.status === 'Paid') {
+    if (req.user.role === 'b2b_client' && order.client_id !== req.user.id) {
+      return res.status(403).json({ error: 'No tienes acceso a este pedido.' });
+    }
+
+    if (order.payment_status === 'Pagado') {
       return res.status(400).json({ error: 'El pedido ya se encuentra pagado.' });
     }
 
-    await pool.query(
-      "UPDATE sales_orders SET status = 'Paid', updated_at = CURRENT_TIMESTAMP WHERE id = $1",
-      [orderId]
+    // 2. Obtener las credenciales de Stripe del Tenant
+    const tenantRes = await pool.query(
+      'SELECT stripe_secret_key, stripe_publishable_key FROM tenants WHERE id = $1',
+      [tenant_id]
     );
+
+    if (tenantRes.rows.length === 0 || !tenantRes.rows[0].stripe_secret_key) {
+      return res.status(400).json({ 
+        error: 'El pago con tarjeta (Stripe) no está configurado por esta empresa. Por favor configure la API Key secreta en Configuración o use transferencia bancaria.' 
+      });
+    }
+
+    const { stripe_secret_key, stripe_publishable_key } = tenantRes.rows[0];
+
+    // 3. Crear sesión de Stripe Checkout usando la API REST nativa
+    const orderRef = order.po_number || orderId.split('-')[0].toUpperCase();
+    const successUrl = `${origin || 'http://localhost:5173'}/?stripe_success=true&order_id=${orderId}&session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = `${origin || 'http://localhost:5173'}/?stripe_cancel=true&order_id=${orderId}`;
+
+    const params = new URLSearchParams();
+    params.append('payment_method_types[0]', 'card');
+    params.append('mode', 'payment');
+    params.append('success_url', successUrl);
+    params.append('cancel_url', cancelUrl);
+    params.append('line_items[0][price_data][currency]', 'usd');
+    params.append('line_items[0][price_data][product_data][name]', `Pedido B2B ${orderRef}`);
+    
+    // Stripe requiere el monto en centavos
+    const amountCents = Math.round(parseFloat(order.total_usd) * 100);
+    params.append('line_items[0][price_data][unit_amount]', String(amountCents));
+    params.append('line_items[0][quantity]', '1');
+    params.append('metadata[order_id]', orderId);
+    params.append('metadata[tenant_id]', tenant_id);
+
+    const authHeader = 'Basic ' + Buffer.from(stripe_secret_key + ':').toString('base64');
+    
+    console.log(`Creando Stripe Checkout Session para PO: ${orderRef} (${amountCents} centavos)...`);
+    const stripeResponse = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+      method: 'POST',
+      headers: {
+        'Authorization': authHeader,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: params.toString()
+    });
+
+    const sessionData = await stripeResponse.json();
+    if (!stripeResponse.ok) {
+      console.error('Error de Stripe API:', sessionData);
+      return res.status(502).json({ error: `Error de Stripe: ${sessionData.error?.message || 'Error desconocido'}` });
+    }
 
     res.json({
       success: true,
-      message: 'Pago con tarjeta simulado con éxito. Pedido actualizado a Pagado.'
+      url: sessionData.url,
+      sessionId: sessionData.id,
+      publishableKey: stripe_publishable_key
     });
+
   } catch (err) {
-    console.error('Error al simular pago con Stripe:', err);
-    res.status(500).json({ error: 'Error interno del servidor.' });
+    console.error('Error al iniciar pago con Stripe:', err);
+    res.status(500).json({ error: 'Error interno del servidor al procesar el pago con Stripe.' });
+  }
+});
+
+// ============================================================
+// POST /api/orders/:id/verify-stripe-payment (Autenticado, para Clientes B2B)
+// Verifica la sesión de Stripe Checkout y actualiza el estado de pago del pedido en Neon.
+// ============================================================
+router.post('/:id/verify-stripe-payment', requireAuth, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { id: orderId } = req.params;
+  const { sessionId } = req.body;
+
+  if (!sessionId) {
+    return res.status(400).json({ error: 'Se requiere el identificador de sesión de Stripe (sessionId).' });
+  }
+
+  try {
+    // 1. Obtener la orden y validar pertenencia
+    const orderRes = await pool.query(
+      'SELECT id, po_number, total_usd, payment_status, client_id FROM sales_orders WHERE id = $1 AND tenant_id = $2',
+      [orderId, tenant_id]
+    );
+
+    if (orderRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    const order = orderRes.rows[0];
+    if (req.user.role === 'b2b_client' && order.client_id !== req.user.id) {
+      return res.status(403).json({ error: 'No tienes acceso a este pedido.' });
+    }
+
+    // 2. Obtener las credenciales de Stripe del Tenant
+    const tenantRes = await pool.query(
+      'SELECT stripe_secret_key FROM tenants WHERE id = $1',
+      [tenant_id]
+    );
+
+    if (tenantRes.rows.length === 0 || !tenantRes.rows[0].stripe_secret_key) {
+      return res.status(400).json({ 
+        error: 'El pago con tarjeta (Stripe) no está configurado para esta empresa.' 
+      });
+    }
+
+    const { stripe_secret_key } = tenantRes.rows[0];
+
+    // 3. Consultar estado en Stripe
+    const authHeader = 'Basic ' + Buffer.from(stripe_secret_key + ':').toString('base64');
+    console.log(`Verificando Stripe Checkout Session: ${sessionId}...`);
+    const stripeResponse = await fetch(`https://api.stripe.com/v1/checkout/sessions/${sessionId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': authHeader
+      }
+    });
+
+    const sessionData = await stripeResponse.json();
+    if (!stripeResponse.ok) {
+      console.error('Error de Stripe API al consultar sesión:', sessionData);
+      return res.status(502).json({ error: `Error de Stripe al verificar: ${sessionData.error?.message || 'Error desconocido'}` });
+    }
+
+    // 4. Si el pago es exitoso, actualizar Neon
+    if (sessionData.payment_status === 'paid') {
+      const updateResult = await pool.query(
+        `UPDATE sales_orders 
+         SET payment_status = 'Pagado', payment_method = 'stripe', updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $1 AND tenant_id = $2
+         RETURNING *`,
+        [orderId, tenant_id]
+      );
+
+      // Guardar auditoría
+      await pool.query(
+        `INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, old_value, new_value)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [tenant_id, req.user.id, 'VERIFY_STRIPE_PAYMENT_SUCCESS', 'sales_orders', orderId, order.payment_status, 'Pagado']
+      );
+
+      res.json({
+        success: true,
+        message: 'Pago verificado con éxito.',
+        order: updateResult.rows[0]
+      });
+    } else {
+      res.json({
+        success: false,
+        paymentStatus: sessionData.payment_status,
+        message: 'La sesión de pago de Stripe aún no ha sido completada.'
+      });
+    }
+
+  } catch (err) {
+    console.error('Error al verificar pago con Stripe:', err);
+    res.status(500).json({ error: 'Error interno del servidor al verificar el pago con Stripe.' });
   }
 });
 

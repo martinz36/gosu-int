@@ -55,6 +55,13 @@ const runAutoMigrations = async () => {
     `);
     console.log('✅ Columnas de Cloudinary verificadas/agregadas a la tabla tenants.');
 
+    // 3.6. Agregar columnas de Stripe a la tabla tenants si no existen
+    await client.query(`
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_secret_key VARCHAR(512);
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_publishable_key VARCHAR(512);
+    `);
+    console.log('✅ Columnas de Stripe verificadas/agregadas a la tabla tenants.');
+
     // 4. Migrar estados antiguos de órdenes de producción a los nuevos estados
     await client.query(`
       UPDATE production_orders SET status = 'Proforma' WHERE status IN ('Quotation', 'Draft');

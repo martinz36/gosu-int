@@ -142,6 +142,8 @@ function App() {
     cloudinary_upload_preset: '',
     cloudinary_api_key: '',
     cloudinary_api_secret: '',
+    stripe_secret_key: '',
+    stripe_publishable_key: '',
     bank_name: '',
     bank_account_name: '',
     bank_account_number: '',
@@ -455,6 +457,8 @@ function App() {
         cloudinary_upload_preset: data.cloudinary_upload_preset || '',
         cloudinary_api_key: data.cloudinary_api_key || '',
         cloudinary_api_secret: data.cloudinary_api_secret || '',
+        stripe_secret_key: data.stripe_secret_key || '',
+        stripe_publishable_key: data.stripe_publishable_key || '',
         bank_name: data.bank_name || '',
         bank_account_name: data.bank_account_name || '',
         bank_account_number: data.bank_account_number || '',
@@ -578,7 +582,38 @@ function App() {
           setLoadingPublicPrint(false);
         });
     }
-  }, []);
+
+    // Manejar el retorno exitoso o cancelado de Stripe Checkout
+    const stripeSuccess = params.get('stripe_success');
+    const stripeCancel = params.get('stripe_cancel');
+    const orderId = params.get('order_id');
+    const sessionId = params.get('session_id');
+
+    if (stripeSuccess === 'true' && orderId && sessionId) {
+      const verifyPayment = async () => {
+        try {
+          console.log(`Verificando pago Stripe para pedido ${orderId}...`);
+          const res = await ordersApi.verifyStripePayment(orderId, sessionId);
+          if (res && res.success) {
+            alert('🎉 ¡Pago procesado con éxito! Tu pedido ha sido registrado como Pagado.');
+          } else {
+            alert('⚠️ El pago de Stripe aún no se ha reflejado. Lo verificaremos a la brevedad.');
+          }
+          await loadOrders();
+        } catch (err) {
+          console.error('Error verificando pago:', err);
+          alert(`❌ Error al verificar pago de Stripe: ${err.message}`);
+        } finally {
+          // Limpiar la URL de los parámetros para evitar ejecuciones repetidas en recargas de página
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      };
+      verifyPayment();
+    } else if (stripeCancel === 'true' && orderId) {
+      alert('⚠️ El proceso de pago por tarjeta de crédito fue cancelado o no se concretó.');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [loadOrders]);
 
   // Recargar desde servidor solo cuando cambia categoría
   useEffect(() => {
@@ -1787,15 +1822,20 @@ function App() {
     }
   };
 
-  const handleSimulateStripePayment = async () => {
+  const handleRealStripePayment = async () => {
     if (!createdOrder) return;
     setSimulatingStripePayment(true);
     try {
-      await ordersApi.payWithStripe(createdOrder.id);
-      setStripePaidSuccess(true);
-      await loadOrders();
+      // 1. Obtener la sesión de Stripe Checkout real desde el backend
+      const res = await ordersApi.payWithStripe(createdOrder.id, window.location.origin);
+      if (res && res.url) {
+        // 2. Redirigir al cliente al portal seguro de Stripe Checkout
+        window.location.href = res.url;
+      } else {
+        throw new Error('No se recibió la URL de redirección de Stripe.');
+      }
     } catch (err) {
-      alert(`❌ Error al procesar pago simulado: ${err.message}`);
+      alert(`❌ Error al iniciar pago con Stripe: ${err.message}`);
     } finally {
       setSimulatingStripePayment(false);
     }
@@ -4837,6 +4877,40 @@ function App() {
                       />
                     </div>
                   </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '20px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                        Stripe Publishable Key
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Escribe tu Stripe Publishable Key (pk_...)..."
+                        value={tenantSettings.stripe_publishable_key || ''}
+                        onChange={(e) => setTenantSettings(prev => ({ ...prev, stripe_publishable_key: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                        Clave pública de Stripe para inicializar el SDK en el frontend.
+                      </span>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                        Stripe Secret Key
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="Escribe tu Stripe Secret Key (sk_...)..."
+                        value={tenantSettings.stripe_secret_key || ''}
+                        onChange={(e) => setTenantSettings(prev => ({ ...prev, stripe_secret_key: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                        Clave secreta privada de Stripe para realizar cobros desde el servidor.
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Sección 2: Datos Bancarios */}
@@ -6799,7 +6873,7 @@ function App() {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#fff', margin: 0 }}>💳 Pago con Tarjeta (Stripe Sandbox)</h3>
+                    <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#fff', margin: 0 }}>💳 Pago con Tarjeta (Stripe Checkout)</h3>
                     <button onClick={() => setSelectedPaymentMethod('')} style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>
                       Cambiar método
                     </button>
@@ -6811,7 +6885,7 @@ function App() {
                       <div>
                         <h4 style={{ color: 'var(--green-neon)', fontSize: '16px', fontWeight: '800', margin: '0 0 4px' }}>¡Pago Completado con Éxito!</h4>
                         <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: 0 }}>
-                          La integración con Stripe procesó el cobro de forma exitosa y el estado de tu pedido se actualizó a <strong>Paid (Pagado)</strong> en tu panel de compras.
+                          La pasarela de Stripe procesó el cobro de forma exitosa y el estado de tu pedido se actualizó a <strong>Paid (Pagado)</strong> en tu panel de compras.
                         </p>
                       </div>
                       <button
@@ -6828,38 +6902,21 @@ function App() {
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                      <div>
-                        <label style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600', textTransform: 'uppercase' }}>Nombre en la Tarjeta</label>
-                        <input type="text" placeholder="Ej: John Doe" style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '6px', width: '100%', boxSizing: 'border-box', fontSize: '13px' }} />
-                      </div>
-                      <div>
-                        <label style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600', textTransform: 'uppercase' }}>Número de Tarjeta</label>
-                        <div style={{ position: 'relative' }}>
-                          <input type="text" placeholder="💳 4242 4242 4242 4242" style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '6px', width: '100%', boxSizing: 'border-box', fontSize: '13px', fontFamily: 'monospace' }} />
-                        </div>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600', textTransform: 'uppercase' }}>Vencimiento</label>
-                          <input type="text" placeholder="MM/AA" style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '6px', width: '100%', boxSizing: 'border-box', fontSize: '13px', textAlign: 'center' }} />
-                        </div>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600', textTransform: 'uppercase' }}>CVC / CVV</label>
-                          <input type="text" placeholder="123" style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '6px', width: '100%', boxSizing: 'border-box', fontSize: '13px', textAlign: 'center' }} />
-                        </div>
-                      </div>
-
-                      <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.1)', padding: '12px', borderRadius: '6px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                        🔒 Conexión segura encriptada mediante pasarela de Stripe. Al presionar pagar, se simulará la pasarela con éxito.
+                      <div style={{ padding: '20px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '8px', textAlign: 'center' }}>
+                        <span style={{ fontSize: '32px', display: 'block', marginBottom: '8px' }}>🔒</span>
+                        <p style={{ fontSize: '13px', color: '#fff', fontWeight: '600', margin: '0 0 4px 0' }}>Pasarela de Pago Segura</p>
+                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
+                          Serás redirigido al portal de pago encriptado de Stripe para ingresar tu tarjeta de forma 100% segura.
+                        </p>
                       </div>
 
                       <button
-                        onClick={handleSimulateStripePayment}
+                        onClick={handleRealStripePayment}
                         disabled={simulatingStripePayment}
                         className="btn-neon"
-                        style={{ width: '100%', padding: '12px', fontWeight: '800', fontSize: '13.5px' }}
+                        style={{ width: '100%', padding: '14px', fontWeight: '800', fontSize: '13.5px' }}
                       >
-                        {simulatingStripePayment ? '⏳ Procesando cobro Stripe...' : `Pagar $${parseFloat(createdOrder.total_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD`}
+                        {simulatingStripePayment ? '⏳ Creando sesión segura de Stripe...' : `Pagar con Tarjeta $${parseFloat(createdOrder.total_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD`}
                       </button>
                     </div>
                   )}
