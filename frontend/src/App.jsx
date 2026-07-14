@@ -41,6 +41,9 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [allProducts, setAllProducts] = useState([]); // cache completo para filtrado local
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [adminFilterCategory, setAdminFilterCategory] = useState('all');
+  const [adminFilterStockStatus, setAdminFilterStockStatus] = useState('all');
+  const [adminFilterFactory, setAdminFilterFactory] = useState('all');
   const [cart, setCart] = useState({});
   const [showCart, setShowCart] = useState(false);
   const [receiptUploaded, setReceiptUploaded] = useState(false);
@@ -233,7 +236,7 @@ function App() {
   const loadProducts = useCallback(async () => {
     try {
       const params = {};
-      if (selectedCategory !== 'all') params.category = selectedCategory;
+      if (!isAdmin && selectedCategory !== 'all') params.category = selectedCategory;
       // searchQuery ya NO va al servidor – se filtra localmente
       const data = await productsApi.getAll(params);
       setAllProducts(data);
@@ -241,7 +244,7 @@ function App() {
     } catch (err) {
       console.error('Error cargando productos:', err);
     }
-  }, [selectedCategory]);
+  }, [selectedCategory, isAdmin]);
 
   const loadOrders = useCallback(async () => {
     try {
@@ -442,21 +445,46 @@ function App() {
     loadProducts();
   }, [selectedCategory, currentUser, isSuperAdmin, loadProducts]);
 
-  // Filtrado local instantáneo cuando cambia el texto de búsqueda
+  // Filtrado local instantáneo cuando cambia el texto de búsqueda o filtros admin
   useEffect(() => {
-    if (!searchQuery.trim()) {
-      setProductList(allProducts);
-      return;
-    }
-    const q = searchQuery.toLowerCase();
-    setProductList(
-      allProducts.filter(p =>
+    let filtered = [...allProducts];
+
+    // 1. Filtrar por búsqueda de texto
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(p =>
         (p.name || '').toLowerCase().includes(q) ||
         (p.sku || '').toLowerCase().includes(q) ||
-        (p.description || '').toLowerCase().includes(q)
-      )
-    );
-  }, [searchQuery, allProducts]);
+        (p.commercial_description || '').toLowerCase().includes(q) ||
+        (p.factory_name || '').toLowerCase().includes(q) ||
+        (p.factory_sku || '').toLowerCase().includes(q)
+      );
+    }
+
+    // Filtros específicos para el Admin
+    if (isAdmin) {
+      // 2. Filtrar por categoría
+      if (adminFilterCategory !== 'all') {
+        filtered = filtered.filter(p => p.category === adminFilterCategory);
+      }
+
+      // 3. Filtrar por estado de stock
+      if (adminFilterStockStatus === 'out_of_stock') {
+        filtered = filtered.filter(p => (p.stock_physical_cases || 0) === 0);
+      } else if (adminFilterStockStatus === 'low_stock') {
+        filtered = filtered.filter(p => (p.stock_physical_cases || 0) > 0 && (p.stock_physical_cases || 0) < 10);
+      } else if (adminFilterStockStatus === 'in_production') {
+        filtered = filtered.filter(p => (p.stock_in_production_cases || 0) > 0);
+      }
+
+      // 4. Filtrar por fábrica
+      if (adminFilterFactory !== 'all') {
+        filtered = filtered.filter(p => p.factory_name === adminFilterFactory);
+      }
+    }
+
+    setProductList(filtered);
+  }, [searchQuery, allProducts, isAdmin, adminFilterCategory, adminFilterStockStatus, adminFilterFactory]);
 
   // Recargar según la tab activa
   useEffect(() => {
@@ -2371,9 +2399,13 @@ function App() {
           <div>
             <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '16px', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Catálogo Mayorista</h1>
+                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>
+                  {isAdmin ? '⚙️ Gestión de Productos' : '📂 Catálogo Mayorista'}
+                </h1>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                  Precios especiales para distribuidores despachados directamente de fábrica.
+                  {isAdmin
+                    ? 'Crea, edita, actualiza y monitorea los parámetros técnicos y costos confidenciales de tus productos.'
+                    : 'Precios especiales para distribuidores despachados directamente de fábrica.'}
                 </p>
               </div>
               <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -2383,27 +2415,29 @@ function App() {
                     className="btn-pink"
                     style={{ padding: '8px 16px', fontSize: '13px' }}
                   >
-                    {creatingProduct ? 'Cerrar Formulario' : '➕ Añadir Producto'}
+                    {creatingProduct ? 'Cerrar Formulario' : '➕ Registrar Producto'}
                   </button>
                 )}
-                <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '2px' }}>
-                  <button
-                    onClick={() => setCatalogViewMode('grid')}
-                    style={{ background: catalogViewMode === 'grid' ? 'var(--cyan-neon)' : 'transparent', color: catalogViewMode === 'grid' ? '#000' : '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
-                  >
-                    🔲 Vista Rejilla
-                  </button>
-                  <button
-                    onClick={() => setCatalogViewMode('list')}
-                    style={{ background: catalogViewMode === 'list' ? 'var(--cyan-neon)' : 'transparent', color: catalogViewMode === 'list' ? '#000' : '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
-                  >
-                    ≡ Vista Lista
-                  </button>
-                </div>
+                {!isAdmin && (
+                  <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '2px' }}>
+                    <button
+                      onClick={() => setCatalogViewMode('grid')}
+                      style={{ background: catalogViewMode === 'grid' ? 'var(--cyan-neon)' : 'transparent', color: catalogViewMode === 'grid' ? '#000' : '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                    >
+                      🔲 Vista Rejilla
+                    </button>
+                    <button
+                      onClick={() => setCatalogViewMode('list')}
+                      style={{ background: catalogViewMode === 'list' ? 'var(--cyan-neon)' : 'transparent', color: catalogViewMode === 'list' ? '#000' : '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                    >
+                      ≡ Vista Lista
+                    </button>
+                  </div>
+                )}
                 <input
                   type="text"
                   id="product-search"
-                  placeholder="Buscar producto..."
+                  placeholder="Buscar por SKU, Nombre..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 16px', borderRadius: '8px', width: '200px' }}
@@ -2760,46 +2794,247 @@ function App() {
               </div>
             )}
 
-            {/* Filtros de Categoría Dinámicos */}
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '24px', flexWrap: 'wrap' }}>
-              {[{ id: 'all', name: 'Ver Todos', slug: 'all' }, ...categoriesList].map(cat => (
-                <button
-                  key={cat.id || cat.slug}
-                  id={`filter-${cat.slug}`}
-                  onClick={() => setSelectedCategory(cat.slug)}
-                  style={{
-                    background: selectedCategory === cat.slug ? 'var(--cyan-neon)' : 'rgba(255,255,255,0.05)',
-                    color: selectedCategory === cat.slug ? '#000' : '#fff',
-                    border: 'none',
-                    padding: '8px 16px',
-                    borderRadius: '20px',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    textTransform: 'uppercase',
-                    transition: 'all 0.2s',
-                  }}
-                >
-                  {cat.name}
-                </button>
-              ))}
-            </div>
+            {isAdmin ? (
+              <div>
+                {/* Panel de Filtros Avanzados para Admin */}
+                <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>Categoría</label>
+                    <select
+                      value={adminFilterCategory}
+                      onChange={(e) => setAdminFilterCategory(e.target.value)}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '160px' }}
+                    >
+                      <option value="all">Todas las Categorías</option>
+                      {categoriesList.map(cat => (
+                        <option key={cat.id} value={cat.slug}>{cat.name}</option>
+                      ))}
+                    </select>
+                  </div>
 
-            {/* Banner de Descuentos */}
-            <div className="glass-panel" style={{ padding: '16px', marginBottom: '24px', borderLeft: '3px solid var(--pink-neon)' }}>
-              <span className="badge badge-pink" style={{ marginBottom: '8px' }}>Descuentos Automáticos por Volumen</span>
-              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                Comprar <strong>5+ cajas</strong> da 5% | <strong>10+ cajas</strong> da 10% | <strong>20+ cajas</strong> da 15% de descuento.
-                {currentUser?.client_category === 'wholesale_distributor' && <> + <strong>5% extra</strong> como Distribuidor Mayorista.</>}
-              </p>
-            </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>Estado del Inventario</label>
+                    <select
+                      value={adminFilterStockStatus}
+                      onChange={(e) => setAdminFilterStockStatus(e.target.value)}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '180px' }}
+                    >
+                      <option value="all">Todos los Stocks</option>
+                      <option value="out_of_stock">⚠️ Sin Stock Físico</option>
+                      <option value="low_stock">⚠️ Stock Bajo (&lt;10 cajas)</option>
+                      <option value="in_production">⚙️ En Producción activa</option>
+                    </select>
+                  </div>
 
-            {/* Renderizado de Catálogo según el Modo de Vista */}
-            {productList.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
-                {searchQuery ? `Sin resultados para "${searchQuery}"` : 'No hay productos disponibles.'}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>Fábrica Origen</label>
+                    <select
+                      value={adminFilterFactory}
+                      onChange={(e) => setAdminFilterFactory(e.target.value)}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '180px' }}
+                    >
+                      <option value="all">Todas las Fábricas</option>
+                      {(() => {
+                        const factories = allProducts
+                          .map(p => p.factory_name)
+                          .filter(name => name && name.trim() !== '');
+                        const uniqueFactories = Array.from(new Set(factories));
+                        return uniqueFactories.map(fac => (
+                          <option key={fac} value={fac}>{fac}</option>
+                        ));
+                      })()}
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'flex-end', marginLeft: 'auto', gap: '8px' }}>
+                    <button
+                      onClick={() => {
+                        setAdminFilterCategory('all');
+                        setAdminFilterStockStatus('all');
+                        setAdminFilterFactory('all');
+                        setSearchQuery('');
+                      }}
+                      className="btn-glass"
+                      style={{ padding: '8px 16px', fontSize: '12px', borderRadius: '8px', height: '36px' }}
+                    >
+                      Limpiar Filtros
+                    </button>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)', alignSelf: 'center', marginLeft: '8px' }}>
+                      Resultados: <strong>{productList.length}</strong> productos
+                    </span>
+                  </div>
+                </div>
+
+                {/* Tabla de Gestión Avanzada para Admin */}
+                {productList.length === 0 ? (
+                  <div className="glass-panel" style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
+                    No se encontraron productos con los filtros aplicados.
+                  </div>
+                ) : (
+                  <div className="glass-panel" style={{ overflowX: 'auto', padding: '0', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '1100px', fontSize: '13px' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.02)', fontWeight: '700' }}>
+                          <th style={{ padding: '12px' }}>Miniatura</th>
+                          <th style={{ padding: '12px' }}>Producto / SKU</th>
+                          <th style={{ padding: '12px' }}>Categoría</th>
+                          <th style={{ padding: '12px' }}>Detalles Técnicos</th>
+                          <th style={{ padding: '12px' }}>Fábrica & SKU</th>
+                          <th style={{ padding: '12px' }}>Costo Fábrica (USD)</th>
+                          <th style={{ padding: '12px' }}>Precio B2B (Caja)</th>
+                          <th style={{ padding: '12px' }}>Inventario Físico / Prod</th>
+                          <th style={{ padding: '12px', textAlign: 'center' }}>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {productList.map(product => {
+                          const costPerUnit = parseFloat(product.factory_cost_per_case_usd || 0);
+                          const units = parseInt(product.units_per_case) || 1;
+                          const calculatedCostPerCase = costPerUnit * units;
+                          
+                          return (
+                            <tr key={product.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.2s' }} className="table-row-hover">
+                              <td style={{ padding: '10px 12px' }}>
+                                {product.image_url ? (
+                                  <img src={product.image_url} alt={product.name} style={{ width: '40px', height: '40px', borderRadius: '6px', objectFit: 'contain', background: 'rgba(255,255,255,0.02)' }} />
+                                ) : (
+                                  <div style={{ width: '40px', height: '40px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📦</div>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <div style={{ fontWeight: '700', color: '#fff' }}>{product.name}</div>
+                                <div style={{ fontSize: '11px', color: 'var(--cyan-neon)', fontFamily: 'monospace', marginTop: '2px' }}>{product.sku}</div>
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <span className="badge badge-pink" style={{ fontSize: '9px', textTransform: 'uppercase' }}>{product.category}</span>
+                              </td>
+                              <td style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                {product.finished_measurements && <div>📏 {product.finished_measurements}</div>}
+                                {product.color && <div>🎨 {product.color}</div>}
+                                <div>📦 {product.units_per_case} uds / caja</div>
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <div style={{ fontWeight: '600', color: '#fff' }}>{product.factory_name || 'N/A'}</div>
+                                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{product.factory_sku || 'N/A'}</div>
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <div style={{ fontWeight: '700', color: 'var(--pink-neon)' }}>
+                                  ${calculatedCostPerCase.toFixed(2)} / caja
+                                </div>
+                                <div style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
+                                  ${costPerUnit.toFixed(4)} / unidad
+                                </div>
+                              </td>
+                              <td style={{ padding: '10px 12px', fontWeight: '700', color: 'var(--green-neon)', fontSize: '14px' }}>
+                                ${parseFloat(product.price_per_case_usd).toFixed(2)}
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <div style={{ fontWeight: '700', color: product.stock_physical_cases === 0 ? 'var(--pink-neon)' : product.stock_physical_cases < 10 ? 'var(--orange-neon)' : 'var(--green-neon)' }}>
+                                  {product.stock_physical_cases === 0 ? '⚠️ Agotado' : `${product.stock_physical_cases} cajas`}
+                                </div>
+                                {product.stock_in_production_cases > 0 && (
+                                  <div style={{ fontSize: '11px', color: 'var(--cyan-neon)', marginTop: '2px' }}>
+                                    ⚙️ {product.stock_in_production_cases} en producción
+                                  </div>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                                <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                  <button
+                                    onClick={() => {
+                                      setEditingProduct(product);
+                                      setCreatingProduct(false);
+                                      setNewProduct({
+                                        name: product.name,
+                                        sku: product.sku,
+                                        category: product.category,
+                                        image_url: product.image_url || '',
+                                        commercial_description: product.commercial_description || '',
+                                        price_per_case_usd: product.price_per_case_usd,
+                                        units_per_case: product.units_per_case,
+                                        finished_measurements: product.finished_measurements || '',
+                                        factory_name: product.factory_name || '',
+                                        factory_sku: product.factory_sku || '',
+                                        factory_cost_per_case_usd: product.factory_cost_per_case_usd || '',
+                                        pantone_codes: product.pantone_codes || '',
+                                        cut_measurements: product.cut_measurements || '',
+                                        fabrication_notes: product.fabrication_notes || '',
+                                        case_weight_kg: product.case_weight_kg,
+                                        case_length_cm: product.case_length_cm,
+                                        case_width_cm: product.case_width_cm,
+                                        case_height_cm: product.case_height_cm,
+                                        stock_physical_cases: product.stock_physical_cases || 0,
+                                        stock_in_production_cases: product.stock_in_production_cases || 0,
+                                        production_files_url: product.production_files_url || ''
+                                      });
+                                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                                    }}
+                                    className="btn-glass-neon"
+                                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                                    title="Editar parámetros del producto"
+                                  >
+                                    ✏️ Editar
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteProduct(product.id)}
+                                    className="btn-glass-pink"
+                                    style={{ padding: '6px 10px', fontSize: '12px' }}
+                                    title="Eliminar del catálogo"
+                                  >
+                                    🗑️
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
-            ) : catalogViewMode === 'grid' ? (
+            ) : (
+              <div>
+                {/* Filtros de Categoría Dinámicos */}
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '24px', flexWrap: 'wrap' }}>
+                  {[{ id: 'all', name: 'Ver Todos', slug: 'all' }, ...categoriesList].map(cat => (
+                    <button
+                      key={cat.id || cat.slug}
+                      id={`filter-${cat.slug}`}
+                      onClick={() => setSelectedCategory(cat.slug)}
+                      style={{
+                        background: selectedCategory === cat.slug ? 'var(--cyan-neon)' : 'rgba(255,255,255,0.05)',
+                        color: selectedCategory === cat.slug ? '#000' : '#fff',
+                        border: 'none',
+                        padding: '8px 16px',
+                        borderRadius: '20px',
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        textTransform: 'uppercase',
+                        transition: 'all 0.2s',
+                      }}
+                    >
+                      {cat.name}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Banner de Descuentos */}
+                <div className="glass-panel" style={{ padding: '16px', marginBottom: '24px', borderLeft: '3px solid var(--pink-neon)' }}>
+                  <span className="badge badge-pink" style={{ marginBottom: '8px' }}>Descuentos Automáticos por Volumen</span>
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                    Comprar <strong>5+ cajas</strong> da 5% | <strong>10+ cajas</strong> da 10% | <strong>20+ cajas</strong> da 15% de descuento.
+                    {currentUser?.client_category === 'wholesale_distributor' && <> + <strong>5% extra</strong> como Distribuidor Mayorista.</>}
+                  </p>
+                </div>
+
+                {/* Renderizado de Catálogo según el Modo de Vista */}
+                {productList.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
+                    {searchQuery ? `Sin resultados para "${searchQuery}"` : 'No hay productos disponibles.'}
+                  </div>
+                ) : catalogViewMode === 'grid' ? (
               <div className="catalog-grid">
                 {productList.map(product => {
                   const inCartQty = cart[product.id] || 0;
@@ -3222,6 +3457,8 @@ function App() {
                 </table>
               </div>
             )}
+          </div>
+        )}
           </div>
         )}
 
