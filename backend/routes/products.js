@@ -359,6 +359,35 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
 });
 
 // ============================================================
+// POST /api/products/bulk-delete (Solo Tenant Admin)
+// Elimina múltiples productos de forma masiva
+// ============================================================
+router.post('/bulk-delete', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { ids } = req.body;
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'Faltan los identificadores de productos a eliminar.' });
+  }
+
+  try {
+    const result = await pool.query(
+      'DELETE FROM products WHERE id = ANY($1) AND tenant_id = $2 RETURNING id',
+      [ids, tenant_id]
+    );
+
+    res.json({
+      message: 'Productos eliminados masivamente con éxito.',
+      deleted_count: result.rows.length,
+      deleted_ids: result.rows.map(r => r.id)
+    });
+  } catch (err) {
+    console.error('Error al eliminar productos de forma masiva:', err);
+    res.status(500).json({ error: 'Error interno del servidor al realizar la eliminación masiva.' });
+  }
+});
+
+// ============================================================
 // DELETE /api/products/:id  (Solo Tenant Admin)
 // ============================================================
 router.delete('/:id', requireAuth, requireTenantAdmin, async (req, res) => {

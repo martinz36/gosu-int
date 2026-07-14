@@ -44,6 +44,7 @@ function App() {
   const [adminFilterCategory, setAdminFilterCategory] = useState('all');
   const [adminFilterStockStatus, setAdminFilterStockStatus] = useState('all');
   const [adminFilterFactory, setAdminFilterFactory] = useState('all');
+  const [selectedProductIds, setSelectedProductIds] = useState([]);
   
   // Estados para Filtros en la vista de Inventario & Stock
   const [invSearchQuery, setInvSearchQuery] = useState('');
@@ -1270,6 +1271,20 @@ function App() {
     try {
       await productsApi.delete(id);
       alert('Producto eliminado con éxito.');
+      setSelectedProductIds(prev => prev.filter(pId => pId !== id));
+      await loadProducts();
+    } catch (err) {
+      alert(`❌ Error: ${err.message}`);
+    }
+  };
+
+  const handleBulkDeleteProducts = async () => {
+    if (selectedProductIds.length === 0) return;
+    if (!confirm(`¿Está seguro de eliminar los ${selectedProductIds.length} productos seleccionados del catálogo? Esta acción es irreversible.`)) return;
+    try {
+      await productsApi.bulkDelete(selectedProductIds);
+      alert('Productos eliminados masivamente con éxito.');
+      setSelectedProductIds([]);
       await loadProducts();
     } catch (err) {
       alert(`❌ Error: ${err.message}`);
@@ -3326,12 +3341,22 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'flex-end', marginLeft: 'auto', gap: '8px' }}>
+                    {selectedProductIds.length > 0 && (
+                      <button
+                        onClick={handleBulkDeleteProducts}
+                        className="btn-glass-pink"
+                        style={{ padding: '8px 16px', fontSize: '12px', borderRadius: '8px', height: '36px', display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 9, 187, 0.15)', border: '1px solid var(--pink-neon)', color: 'var(--pink-neon)', fontWeight: 'bold' }}
+                      >
+                        🗑️ Eliminar Seleccionados ({selectedProductIds.length})
+                      </button>
+                    )}
                     <button
                       onClick={() => {
                         setAdminFilterCategory('all');
                         setAdminFilterStockStatus('all');
                         setAdminFilterFactory('all');
                         setSearchQuery('');
+                        setSelectedProductIds([]);
                       }}
                       className="btn-glass"
                       style={{ padding: '8px 16px', fontSize: '12px', borderRadius: '8px', height: '36px' }}
@@ -3351,9 +3376,23 @@ function App() {
                   </div>
                 ) : (
                   <div className="glass-panel" style={{ overflowX: 'auto', padding: '0', border: '1px solid rgba(255,255,255,0.06)' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '1100px', fontSize: '13px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '1150px', fontSize: '13px' }}>
                       <thead>
                         <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.02)', fontWeight: '700' }}>
+                          <th style={{ padding: '12px', width: '40px', textAlign: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={productList.length > 0 && selectedProductIds.length === productList.length}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedProductIds(productList.map(p => p.id));
+                                } else {
+                                  setSelectedProductIds([]);
+                                }
+                              }}
+                              style={{ cursor: 'pointer' }}
+                            />
+                          </th>
                           <th style={{ padding: '12px' }}>Miniatura</th>
                           <th style={{ padding: '12px' }}>Producto / SKU</th>
                           <th style={{ padding: '12px' }}>Categoría</th>
@@ -3372,7 +3411,21 @@ function App() {
                           const calculatedCostPerCase = costPerUnit * units;
                           
                           return (
-                            <tr key={product.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.2s' }} className="table-row-hover">
+                            <tr key={product.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.2s', background: selectedProductIds.includes(product.id) ? 'rgba(0, 232, 255, 0.03)' : 'transparent' }} className="table-row-hover">
+                              <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedProductIds.includes(product.id)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedProductIds(prev => [...prev, product.id]);
+                                    } else {
+                                      setSelectedProductIds(prev => prev.filter(id => id !== product.id));
+                                    }
+                                  }}
+                                  style={{ cursor: 'pointer' }}
+                                />
+                              </td>
                               <td style={{ padding: '10px 12px' }}>
                                 {product.image_url ? (
                                   <img src={product.image_url} alt={product.name} style={{ width: '40px', height: '40px', borderRadius: '6px', objectFit: 'contain', background: 'rgba(255,255,255,0.02)' }} />

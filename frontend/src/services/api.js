@@ -104,6 +104,9 @@ export const products = {
   delete: (id) =>
     request('DELETE', `/api/products/${id}`),
 
+  bulkDelete: (ids) =>
+    request('POST', '/api/products/bulk-delete', { ids }),
+
   bulkUpload: (productsData) =>
     request('POST', '/api/products/bulk', { products: productsData }),
 
