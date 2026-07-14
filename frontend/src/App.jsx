@@ -1427,6 +1427,35 @@ function App() {
     }
   };
 
+  const handleUpdatePaymentStatus = async (orderId, paymentStatus, currentUrl) => {
+    let balance_receipt_url = currentUrl;
+    if (paymentStatus === 'Pagado' && !currentUrl) {
+      const inputUrl = prompt('Ingrese la URL del comprobante de pago / voucher (Opcional):');
+      if (inputUrl !== null) {
+        balance_receipt_url = inputUrl;
+      }
+    }
+    try {
+      await ordersApi.updatePayment(orderId, paymentStatus, balance_receipt_url);
+      alert('🎉 Estado de pago actualizado con éxito.');
+      await loadOrders();
+    } catch (err) {
+      alert(`❌ Error al actualizar pago: ${err.message}`);
+    }
+  };
+
+  const handleEditPaymentReceipt = async (order) => {
+    const inputUrl = prompt('Ingrese la URL del comprobante de pago / voucher:', order.balance_receipt_url || '');
+    if (inputUrl === null) return;
+    try {
+      await ordersApi.updatePayment(order.id, order.payment_status || 'Pagado', inputUrl);
+      alert('🎉 Comprobante de pago actualizado con éxito.');
+      await loadOrders();
+    } catch (err) {
+      alert(`❌ Error al actualizar comprobante: ${err.message}`);
+    }
+  };
+
   const handleExportPDF = (pOrder) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
@@ -3833,14 +3862,14 @@ function App() {
                   <table className="premium-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
-                        <th style={{ padding: '16px', minWidth: '110px' }}>N° Purchase Order</th>
-                        <th style={{ padding: '16px' }}>Fecha</th>
+                        <th style={{ padding: '16px' }}>PO</th>
+                        <th style={{ padding: '16px' }}>Fecha Creación</th>
                         {isAdmin && <th style={{ padding: '16px' }}>Cliente B2B</th>}
-                        <th style={{ padding: '16px', textAlign: 'right' }}>Cajas</th>
-                        <th style={{ padding: '16px', textAlign: 'right' }}>Volumen</th>
+                        <th style={{ padding: '16px', textAlign: 'right' }}>Volumen/Cajas</th>
                         <th style={{ padding: '16px', textAlign: 'right' }}>Total FOB</th>
-                        <th style={{ padding: '16px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Estado</th>
-                        <th style={{ padding: '16px', textAlign: 'center' }}>Acciones</th>
+                        <th style={{ padding: '16px' }}>Estado de Pago</th>
+                        <th style={{ padding: '16px' }}>Estado Logístico</th>
+                        <th style={{ padding: '16px', textAlign: 'center' }}>Acciones (Docs)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -3858,14 +3887,88 @@ function App() {
                               <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{order.client_name}</div>
                             </td>
                           )}
-                          <td style={{ padding: '16px', textAlign: 'right', fontWeight: '600' }}>
-                            {order.total_cases || 0}
-                          </td>
-                          <td style={{ padding: '16px', textAlign: 'right', color: 'var(--cyan-neon)' }}>
-                            {parseFloat(order.total_cbm || 0).toFixed(4)} CBM
+                          <td style={{ padding: '16px', textAlign: 'right' }}>
+                            <div style={{ fontWeight: '600', color: '#fff' }}>{order.total_cases || 0} cajas</div>
+                            <div style={{ fontSize: '11px', color: 'var(--cyan-neon)', marginTop: '2px' }}>{parseFloat(order.total_cbm || 0).toFixed(4)} CBM</div>
                           </td>
                           <td style={{ padding: '16px', textAlign: 'right', fontWeight: 'bold', color: 'var(--green-neon)' }}>
                             ${parseFloat(order.total_usd || order.total_amount_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td style={{ padding: '16px' }}>
+                            {isAdmin ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <select
+                                  value={order.payment_status || 'Pendiente'}
+                                  onChange={(e) => handleUpdatePaymentStatus(order.id, e.target.value, order.balance_receipt_url)}
+                                  style={{
+                                    background: 'rgba(0,0,0,0.3)',
+                                    border: '1px solid var(--border-color)',
+                                    color: order.payment_status === 'Pagado' ? 'var(--green-neon)' : order.payment_status === 'Crédito' ? 'var(--cyan-neon)' : 'var(--pink-neon)',
+                                    padding: '6px 10px',
+                                    borderRadius: '6px',
+                                    fontSize: '12px',
+                                    fontWeight: '700'
+                                  }}
+                                >
+                                  <option value="Pendiente" style={{ color: '#fff', background: '#121212' }}>🔴 Pendiente</option>
+                                  <option value="Pagado" style={{ color: '#fff', background: '#121212' }}>🟢 Pagado</option>
+                                  <option value="Crédito" style={{ color: '#fff', background: '#121212' }}>🔵 Crédito</option>
+                                </select>
+                                {order.payment_status === 'Pagado' && (
+                                  <>
+                                    {order.balance_receipt_url ? (
+                                      <div style={{ display: 'flex', gap: '4px' }}>
+                                        <a
+                                          href={order.balance_receipt_url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="btn-glass"
+                                          style={{ padding: '4px 8px', fontSize: '11px', textDecoration: 'none' }}
+                                          title="Ver Comprobante"
+                                        >
+                                          🔗
+                                        </a>
+                                        <button
+                                          onClick={() => handleEditPaymentReceipt(order)}
+                                          className="btn-glass"
+                                          style={{ padding: '4px 8px', fontSize: '11px' }}
+                                          title="Editar Comprobante"
+                                        >
+                                          ✏️
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        onClick={() => handleEditPaymentReceipt(order)}
+                                        className="btn-glass-pink"
+                                        style={{ padding: '4px 8px', fontSize: '11px' }}
+                                        title="Adjuntar Comprobante"
+                                      >
+                                        ➕ Doc
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            ) : (
+                              <span className={`badge ${
+                                order.payment_status === 'Pagado' ? 'badge-green' :
+                                order.payment_status === 'Crédito' ? 'badge-cyan' :
+                                'badge-red'
+                              }`} style={{ fontSize: '11px', padding: '4px 8px' }}>
+                                💰 {order.payment_status || 'Pendiente'}
+                                {order.payment_status === 'Pagado' && order.balance_receipt_url && (
+                                  <a
+                                    href={order.balance_receipt_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ marginLeft: '6px', color: '#fff', textDecoration: 'underline' }}
+                                  >
+                                    [Doc]
+                                  </a>
+                                )}
+                              </span>
+                            )}
                           </td>
                           <td style={{ padding: '16px' }}>
                             <span className={`badge ${

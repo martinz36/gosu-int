@@ -127,6 +127,9 @@ export const orders = {
   updateStatus: (id, status) =>
     request('PUT', `/api/orders/${id}/status`, { status }),
 
+  updatePayment: (id, payment_status, balance_receipt_url = null) =>
+    request('PUT', `/api/orders/${id}/payment`, { payment_status, balance_receipt_url }),
+
   payWithStripe: (id) =>
     request('POST', `/api/orders/${id}/pay-stripe`),
 

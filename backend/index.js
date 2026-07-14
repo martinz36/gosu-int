@@ -58,6 +58,18 @@ const runAutoMigrations = async () => {
     `);
     console.log('✅ Migraciones de estados de órdenes de producción completadas.');
 
+    // 5. Migrar estados antiguos de pago de sales_orders
+    await client.query(`
+      UPDATE sales_orders SET payment_status = 'Pendiente' WHERE payment_status = 'pending';
+    `);
+    await client.query(`
+      UPDATE sales_orders SET payment_status = 'Pagado' WHERE payment_status = 'paid';
+    `);
+    await client.query(`
+      UPDATE sales_orders SET payment_status = 'Pendiente' WHERE payment_status IS NULL OR payment_status = '';
+    `);
+    console.log('✅ Migraciones de estado de pago de ventas completadas.');
+
     client.release();
     console.log('🎉 Migraciones automáticas completadas.');
   } catch (err) {

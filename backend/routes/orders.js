@@ -309,6 +309,40 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
 });
 
 // ============================================================
+// PUT /api/orders/:id/payment  (Solo admin del Tenant)
+// Actualiza el estado de pago del pedido B2B y el comprobante.
+// ============================================================
+router.put('/:id/payment', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { id } = req.params;
+  const { payment_status, balance_receipt_url } = req.body;
+
+  const validPaymentStatuses = ['Pendiente', 'Pagado', 'Crédito'];
+  if (!validPaymentStatuses.includes(payment_status)) {
+    return res.status(400).json({ error: 'Estado de pago no válido.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE sales_orders 
+       SET payment_status=$1, balance_receipt_url=$2, updated_at=CURRENT_TIMESTAMP 
+       WHERE id=$3 AND tenant_id=$4 
+       RETURNING *`,
+      [payment_status, balance_receipt_url || null, id, tenant_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error al actualizar pago:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ============================================================
 // GET /api/orders/:id/invoice  (Descarga en caliente de Proforma/Invoice)
 // Retorna un layout HTML premium listo para guardar en PDF/Imprimir.
 // ============================================================
