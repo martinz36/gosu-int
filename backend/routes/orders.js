@@ -167,17 +167,23 @@ router.post('/', requireAuth, async (req, res) => {
     const count = parseInt(countResult.rows[0].count);
     const poNumber = `PO-${String(count + 1).padStart(4, '0')}`;
 
-    // 7. Insertar cabecera de orden en sales_orders
+    // 7. Insertar cabecera de orden en sales_orders (con incoterm del Tenant y estado logístico 'En Revisión')
+    const tenantInfo = await client.query(
+      'SELECT default_incoterm FROM tenants WHERE id = $1',
+      [tenant_id]
+    );
+    const tenantIncoterm = tenantInfo.rows[0]?.default_incoterm || 'FOB China';
+
     const insertOrderQuery = `
       INSERT INTO sales_orders (
         tenant_id, client_id, status, incoterm, company_name, tax_id, 
         billing_address, forwarder_address, subtotal_usd, discount_usd, total_usd, po_number
       )
-      VALUES ($1, $2, 'Proforma', $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      VALUES ($1, $2, 'En Revisión', $3, $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING *
     `;
     const orderResult = await client.query(insertOrderQuery, [
-      tenant_id, client_id, incoterm || 'FOB China',
+      tenant_id, client_id, tenantIncoterm,
       profile.company_name, profile.tax_id, profile.billing_address, profile.forwarder_address,
       subtotalUsd, totalDiscountUsd, finalTotalUsd, poNumber
     ]);
@@ -259,9 +265,9 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
-  const validStatuses = ['Draft', 'Proforma', 'Production', 'QC Inspection', 'Port', 'Transit', 'Delivered'];
+  const validStatuses = ['En Revisión', 'En Preparación', 'Enviado', 'Entregado'];
   if (!validStatuses.includes(status)) {
-    return res.status(400).json({ error: 'Estado no válido en la máquina de estados.' });
+    return res.status(400).json({ error: 'Estado no válido en la máquina de estados logísticos.' });
   }
 
   const client = await pool.connect();
@@ -923,8 +929,11 @@ router.post('/:id/pay-stripe', requireAuth, async (req, res) => {
     params.append('line_items[0][price_data][currency]', 'usd');
     params.append('line_items[0][price_data][product_data][name]', `Pedido B2B ${orderRef}`);
     
-    // Stripe requiere el monto en centavos
-    const amountCents = Math.round(parseFloat(order.total_usd) * 100);
+    // Stripe requiere el monto en centavos (con recargo de pasarela de 3.5% + 0.30 USD)
+    const orderTotal = parseFloat(order.total_usd);
+    const totalWithSurcharge = (orderTotal * 1.035) + 0.30;
+    const amountCents = Math.round(totalWithSurcharge * 100);
+
     params.append('line_items[0][price_data][unit_amount]', String(amountCents));
     params.append('line_items[0][quantity]', '1');
     params.append('metadata[order_id]', orderId);

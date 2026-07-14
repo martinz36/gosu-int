@@ -93,6 +93,25 @@ const runAutoMigrations = async () => {
     `);
     console.log('✅ Columnas stripe_session_id y credit_due_date agregadas a sales_orders.');
 
+    // 7. Agregar columna default_incoterm a tenants
+    await client.query(`
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS default_incoterm VARCHAR(100) DEFAULT 'FOB China';
+    `);
+    console.log('✅ Columna default_incoterm agregada a tenants.');
+
+    // 8. Unificar y migrar estados logísticos de sales_orders a los nuevos 4 estados simplificados
+    await client.query(`
+      UPDATE sales_orders 
+      SET status = CASE 
+        WHEN status IN ('Draft', 'Proforma', 'Port', 'QC Inspection', 'QC Control') THEN 'En Revisión'
+        WHEN status IN ('Production', 'Inventory') THEN 'En Preparación'
+        WHEN status IN ('Transit', 'Shipped') THEN 'Enviado'
+        WHEN status IN ('Delivered') THEN 'Entregado'
+        ELSE 'En Revisión'
+      END;
+    `);
+    console.log('✅ Migración de estados logísticos simplificados en sales_orders completada.');
+
     client.release();
     console.log('🎉 Migraciones automáticas completadas.');
   } catch (err) {

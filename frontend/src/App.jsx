@@ -149,7 +149,8 @@ function App() {
     bank_account_name: '',
     bank_account_number: '',
     bank_routing_number: '',
-    logo_url: ''
+    logo_url: '',
+    default_incoterm: 'FOB China'
   });
   const [savingSettings, setSavingSettings] = useState(false);
 
@@ -464,7 +465,8 @@ function App() {
         bank_account_name: data.bank_account_name || '',
         bank_account_number: data.bank_account_number || '',
         bank_routing_number: data.bank_routing_number || '',
-        logo_url: data.logo_url || ''
+        logo_url: data.logo_url || '',
+        default_incoterm: data.default_incoterm || 'FOB China'
       });
     } catch (err) {
       console.error('Error al cargar API keys del tenant:', err);
@@ -4047,17 +4049,42 @@ function App() {
                             </span>
                           </td>
                           <td style={{ padding: '16px' }}>
-                            <span className={`badge ${
-                              order.status === 'Draft' ? 'badge-pink' :
-                              order.status === 'Proforma' ? 'badge-cyan' :
-                              order.status === 'Production' ? 'badge-orange' :
-                              order.status === 'QC Inspection' ? 'badge-orange' :
-                              order.status === 'Port' ? 'badge-cyan' :
-                              order.status === 'Transit' ? 'badge-orange' :
-                              'badge-green'
-                            }`} style={{ fontSize: '11px', padding: '4px 8px' }}>
-                              {order.status}
-                            </span>
+                            {isAdmin ? (
+                              <select
+                                value={order.status}
+                                onChange={async (e) => {
+                                  try {
+                                    await ordersApi.updateStatus(order.id, e.target.value);
+                                    await loadOrders();
+                                  } catch(err) {
+                                    alert(`❌ Error al cambiar estado: ${err.message}`);
+                                  }
+                                }}
+                                style={{
+                                  background: 'rgba(0,0,0,0.3)',
+                                  border: '1px solid var(--border-color)',
+                                  color: order.status === 'Entregado' ? 'var(--green-neon)' : order.status === 'Enviado' ? 'var(--orange-neon)' : order.status === 'En Preparación' ? 'var(--cyan-neon)' : 'var(--pink-neon)',
+                                  padding: '6px 10px',
+                                  borderRadius: '6px',
+                                  fontSize: '12px',
+                                  fontWeight: '700'
+                                }}
+                              >
+                                <option value="En Revisión" style={{ color: '#fff', background: '#121212' }}>En Revisión</option>
+                                <option value="En Preparación" style={{ color: '#fff', background: '#121212' }}>En Preparación</option>
+                                <option value="Enviado" style={{ color: '#fff', background: '#121212' }}>Enviado</option>
+                                <option value="Entregado" style={{ color: '#fff', background: '#121212' }}>Entregado</option>
+                              </select>
+                            ) : (
+                              <span className={`badge ${
+                                order.status === 'En Revisión' ? 'badge-pink' :
+                                order.status === 'En Preparación' ? 'badge-cyan' :
+                                order.status === 'Enviado' ? 'badge-orange' :
+                                'badge-green'
+                              }`} style={{ fontSize: '11px', padding: '4px 8px' }}>
+                                {order.status}
+                              </span>
+                            )}
                           </td>
                           <td style={{ padding: '16px', textAlign: 'center' }}>
                             <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
@@ -5198,6 +5225,28 @@ function App() {
                       />
                       <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
                         Clave secreta privada de Stripe para realizar cobros desde el servidor.
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '20px' }}>
+                    <div style={{ maxWidth: '400px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                        Incoterm por Defecto (Logística B2B)
+                      </label>
+                      <select
+                        value={tenantSettings.default_incoterm || 'FOB China'}
+                        onChange={(e) => setTenantSettings(prev => ({ ...prev, default_incoterm: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontWeight: '700' }}
+                      >
+                        <option value="FOB China">FOB China</option>
+                        <option value="FOB Peru">FOB Peru</option>
+                        <option value="CIF">CIF (Cost, Insurance & Freight)</option>
+                        <option value="EXW">EXW (Ex Works)</option>
+                        <option value="EXW Peru">EXW Peru</option>
+                      </select>
+                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                        Incoterm predeterminado que se asignará automáticamente a todos los nuevos pedidos B2B creados por los clientes.
                       </span>
                     </div>
                   </div>
@@ -6606,18 +6655,6 @@ function App() {
 
                 {cartTotals.finalTotal >= MOA_LIMIT && (
                   <form onSubmit={handleCheckoutSubmit}>
-                    <div style={{ marginBottom: '14px' }}>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Incoterm de Exportación (FOB/CIF):</label>
-                      <select
-                        name="incoterm"
-                        defaultValue="FOB China"
-                        style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '6px', width: '100%', fontSize: '12px' }}
-                      >
-                        <option value="FOB China">FOB China (Free On Board - Puerto Origen)</option>
-                        <option value="CIF Puerto">CIF Puerto (Cost, Insurance & Freight - Puerto Destino)</option>
-                        <option value="EXW Planta">EXW Planta (Ex Works - Salida de Fábrica)</option>
-                      </select>
-                    </div>
 
                     <button
                       id="checkout-submit"
@@ -7192,12 +7229,30 @@ function App() {
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                      <div style={{ padding: '20px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '8px', textAlign: 'center' }}>
-                        <span style={{ fontSize: '32px', display: 'block', marginBottom: '8px' }}>🔒</span>
-                        <p style={{ fontSize: '13px', color: '#fff', fontWeight: '600', margin: '0 0 4px 0' }}>Pasarela de Pago Segura</p>
-                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
-                          Serás redirigido al portal de pago encriptado de Stripe para ingresar tu tarjeta de forma 100% segura.
-                        </p>
+                      <div style={{ padding: '20px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '8px' }}>
+                        <span style={{ fontSize: '32px', display: 'block', marginBottom: '8px', textAlign: 'center' }}>🔒</span>
+                        <p style={{ fontSize: '13px', color: '#fff', fontWeight: '600', margin: '0 0 8px 0', textAlign: 'center' }}>Pasarela de Pago Segura</p>
+                        
+                        {/* Advertencia y Desglose de Recargo */}
+                        <div style={{ padding: '10px 12px', background: 'rgba(255, 0, 127, 0.08)', borderLeft: '4px solid var(--pink-neon)', borderRadius: '4px', marginBottom: '14px', fontSize: '11.5px', color: '#fff', lineHeight: '1.5' }}>
+                          ⚠️ Se aplicará un recargo por transacción electrónica del 3.5% + $0.30 USD sobre el total de tu orden.
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '10px', marginBottom: '10px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>Monto FOB Pedido:</span>
+                            <span style={{ fontWeight: '600', color: '#fff' }}>${parseFloat(createdOrder.total_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>Comisión de Pasarela (3.5% + $0.30):</span>
+                            <span style={{ fontWeight: '600', color: 'var(--pink-neon)' }}>${((parseFloat(createdOrder.total_usd) * 0.035) + 0.30).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: '800' }}>
+                          <span style={{ color: 'var(--green-neon)' }}>Total a Pagar en Stripe:</span>
+                          <span style={{ color: 'var(--green-neon)' }}>${((parseFloat(createdOrder.total_usd) * 1.035) + 0.30).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
+                        </div>
                       </div>
 
                       <button
@@ -7206,7 +7261,7 @@ function App() {
                         className="btn-neon"
                         style={{ width: '100%', padding: '14px', fontWeight: '800', fontSize: '13.5px' }}
                       >
-                        {simulatingStripePayment ? '⏳ Creando sesión segura de Stripe...' : `Pagar con Tarjeta $${parseFloat(createdOrder.total_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD`}
+                        {simulatingStripePayment ? '⏳ Redirigiendo a Stripe...' : `Pagar con Tarjeta (Total: $${((parseFloat(createdOrder.total_usd) * 1.035) + 0.30).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD)`}
                       </button>
                     </div>
                   )}
@@ -7253,12 +7308,9 @@ function App() {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span className={`badge ${
-                    selectedOrderDetail.status === 'Draft' ? 'badge-pink' :
-                    selectedOrderDetail.status === 'Proforma' ? 'badge-cyan' :
-                    selectedOrderDetail.status === 'Production' ? 'badge-orange' :
-                    selectedOrderDetail.status === 'QC Inspection' ? 'badge-orange' :
-                    selectedOrderDetail.status === 'Port' ? 'badge-cyan' :
-                    selectedOrderDetail.status === 'Transit' ? 'badge-orange' :
+                    selectedOrderDetail.status === 'En Revisión' ? 'badge-pink' :
+                    selectedOrderDetail.status === 'En Preparación' ? 'badge-cyan' :
+                    selectedOrderDetail.status === 'Enviado' ? 'badge-orange' :
                     'badge-green'
                   }`} style={{ fontSize: '12px', padding: '6px 12px', height: 'fit-content' }}>
                     {selectedOrderDetail.status}
@@ -7279,13 +7331,10 @@ function App() {
                       }}
                       style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600' }}
                     >
-                      <option value="Draft">Draft (Borrador)</option>
-                      <option value="Proforma">Proforma Invoice</option>
-                      <option value="Production">Production (Fabricación)</option>
-                      <option value="QC Inspection">QC Inspection (Calidad)</option>
-                      <option value="Port">Port (FOB/CIF)</option>
-                      <option value="Transit">Transit (En Tránsito)</option>
-                      <option value="Delivered">Delivered (Entregado)</option>
+                      <option value="En Revisión">En Revisión</option>
+                      <option value="En Preparación">En Preparación</option>
+                      <option value="Enviado">Enviado</option>
+                      <option value="Entregado">Entregado</option>
                     </select>
                   )}
                 </div>
