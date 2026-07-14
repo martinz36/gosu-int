@@ -2588,7 +2588,7 @@ function App() {
                         />
                       </div>
                       <div>
-                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Costo de Fabricación por Caja (USD)</label>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Costo de Fabricación por Unidad / Pack (USD) <span style={{ color: 'var(--text-muted)', fontWeight: '400' }}>— el costo por caja se calcula automáticamente × unidades</span></label>
                         <input
                           type="number"
                           step="0.01"
@@ -2900,7 +2900,7 @@ function App() {
                                 <div style={{ color: 'var(--pink-neon)', fontWeight: '700', textTransform: 'uppercase', fontSize: '10px', letterSpacing: '0.5px' }}>Detalles de Producción en China</div>
                                 <div>🏭 Fábrica: <strong style={{ color: '#fff' }}>{product.factory_name || 'Sin asignar'}</strong></div>
                                 <div>🔖 SKU Proveedor: <strong style={{ color: '#fff' }}>{product.factory_sku || 'N/A'}</strong></div>
-                                <div>💰 Costo Fábrica: <strong style={{ color: 'var(--green-neon)' }}>${parseFloat(product.factory_cost_per_case_usd || 0).toFixed(2)} USD / caja</strong></div>
+                                <div>💰 Costo Fábrica: <strong style={{ color: 'var(--green-neon)' }}>${parseFloat(product.factory_cost_per_case_usd || 0).toFixed(4)} USD / unidad</strong> → <strong style={{ color: 'var(--cyan-neon)' }}>${(parseFloat(product.factory_cost_per_case_usd || 0) * (product.units_per_case || 1)).toFixed(2)} USD / caja</strong></div>
                                 <div>🎨 Pantone: <strong style={{ color: '#fff' }}>{product.pantone_codes || 'N/A'}</strong></div>
                                 <div>📐 Corte Fábrica: <strong style={{ color: '#fff' }}>{product.cut_measurements || 'N/A'}</strong></div>
                                 <div>⚙️ Stock en Producción: <strong style={{ color: 'var(--cyan-neon)' }}>{product.stock_in_production_cases || 0} cajas</strong></div>
@@ -3090,8 +3090,13 @@ function App() {
                                 <div style={{ fontWeight: '600', color: '#fff' }}>{product.factory_name || 'N/A'}</div>
                                 <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>SKU Proveedor: {product.factory_sku || 'N/A'}</div>
                               </td>
-                              <td style={{ padding: '10px 12px', fontWeight: '700', color: 'var(--pink-neon)' }}>
-                                ${parseFloat(product.factory_cost_per_case_usd || 0).toFixed(2)} USD
+                              <td style={{ padding: '10px 12px' }}>
+                                <div style={{ fontWeight: '700', color: 'var(--pink-neon)', fontSize: '12px' }}>
+                                  ${(parseFloat(product.factory_cost_per_case_usd || 0) * (product.units_per_case || 1)).toFixed(2)} USD / caja
+                                </div>
+                                <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                                  ${parseFloat(product.factory_cost_per_case_usd || 0).toFixed(4)} × {product.units_per_case || 1} uds.
+                                </div>
                               </td>
                               <td style={{ padding: '10px 12px', fontSize: '11.5px' }}>
                                 <div>{product.case_weight_kg} kg | {parseFloat(product.case_cbm).toFixed(5)} CBM</div>

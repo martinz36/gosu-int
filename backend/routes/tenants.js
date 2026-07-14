@@ -352,7 +352,8 @@ router.get('/current/dashboard', requireAuth, requireTenantAdmin, async (req, re
       p.name as product_name,
       p.sku as product_sku,
       p.category as product_category,
-      COALESCE(p.factory_cost_per_case_usd, 0) as factory_cost_per_case_usd
+      COALESCE(p.factory_cost_per_case_usd, 0) as factory_cost_per_case_usd,
+      COALESCE(p.units_per_case, 1) as units_per_case
     FROM sales_orders so
     JOIN sales_order_items soi ON soi.sales_order_id = so.id
     JOIN products p ON p.id = soi.product_id
@@ -386,7 +387,10 @@ router.get('/current/dashboard', requireAuth, requireTenantAdmin, async (req, re
       const qty = parseInt(r.qty_cases) || 0;
       const price = parseFloat(r.price_case_usd) || 0;
       const itemRevenue = qty * price;
-      const itemCost = qty * (parseFloat(r.factory_cost_per_case_usd) || 0);
+      // Costo real por case = costo_por_unidad * unidades_por_case
+      const unitsPerCase = parseInt(r.units_per_case) || 1;
+      const costPerCase = (parseFloat(r.factory_cost_per_case_usd) || 0) * unitsPerCase;
+      const itemCost = qty * costPerCase;
 
       totalSales += itemRevenue;
       totalCosts += itemCost;
