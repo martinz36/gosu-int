@@ -14,7 +14,7 @@ router.get('/', requireAuth, async (req, res) => {
 
   let query = `
     SELECT
-      so.id, so.status, so.incoterm, so.company_name, so.tax_id, 
+      so.id, so.po_number, so.status, so.incoterm, so.company_name, so.tax_id, 
       so.billing_address, so.forwarder_address, so.subtotal_usd, 
       so.discount_usd, so.shipping_cost_usd, so.total_usd,
       so.advance_payment_pct, so.deposit_paid_usd, so.deposit_receipt_url,
@@ -159,27 +159,27 @@ router.post('/', requireAuth, async (req, res) => {
       throw new Error(`Monto Mínimo de Orden no alcanzado. Orden mínima: $${moaLimit.toFixed(2)} USD. Total actual: $${finalTotalUsd.toFixed(2)} USD.`);
     }
 
-    // 6. Generar número secuencial de pedido (correlativo)
+    // 6. Generar número correlativo de PO por tenant (PO-0001, PO-0002...)
     const countResult = await client.query(
       'SELECT COUNT(*) FROM sales_orders WHERE tenant_id = $1',
       [tenant_id]
     );
     const count = parseInt(countResult.rows[0].count);
-    const orderNumber = `B2B-${(count + 1).toString().padStart(5, '0')}`;
+    const poNumber = `PO-${String(count + 1).padStart(4, '0')}`;
 
     // 7. Insertar cabecera de orden en sales_orders
     const insertOrderQuery = `
       INSERT INTO sales_orders (
         tenant_id, client_id, status, incoterm, company_name, tax_id, 
-        billing_address, forwarder_address, subtotal_usd, discount_usd, total_usd
+        billing_address, forwarder_address, subtotal_usd, discount_usd, total_usd, po_number
       )
-      VALUES ($1, $2, 'Proforma', $3, $4, $5, $6, $7, $8, $9, $10)
+      VALUES ($1, $2, 'Proforma', $3, $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING *
     `;
     const orderResult = await client.query(insertOrderQuery, [
       tenant_id, client_id, incoterm || 'FOB China',
       profile.company_name, profile.tax_id, profile.billing_address, profile.forwarder_address,
-      subtotalUsd, totalDiscountUsd, finalTotalUsd
+      subtotalUsd, totalDiscountUsd, finalTotalUsd, poNumber
     ]);
     const newOrder = orderResult.rows[0];
 

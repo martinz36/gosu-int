@@ -205,6 +205,13 @@ CREATE TABLE sales_orders (
   bl_number              VARCHAR(100),
   bl_document_url        VARCHAR(512),
   
+  -- Número Correlativo de Purchase Order (PO-0001, PO-0002...)
+  po_number              VARCHAR(20),
+  
+  -- Método y Estado de Pago
+  payment_method         VARCHAR(50),  -- 'bank_transfer' | 'stripe'
+  payment_status         VARCHAR(50) DEFAULT 'pending', -- 'pending' | 'paid'
+
   notes                  TEXT,
   created_at             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at             TIMESTAMP DEFAULT CURRENT_TIMESTAMP

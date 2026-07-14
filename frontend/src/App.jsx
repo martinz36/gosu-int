@@ -3247,7 +3247,7 @@ function App() {
                   <table className="premium-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
-                        <th style={{ padding: '16px' }}>ID Pedido</th>
+                        <th style={{ padding: '16px', minWidth: '110px' }}>N° Purchase Order</th>
                         <th style={{ padding: '16px' }}>Fecha</th>
                         {isAdmin && <th style={{ padding: '16px' }}>Cliente B2B</th>}
                         <th style={{ padding: '16px', textAlign: 'right' }}>Cajas</th>
@@ -3260,8 +3260,8 @@ function App() {
                     <tbody>
                       {clientOrders.map(order => (
                         <tr key={order.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }} className="table-row-hover">
-                          <td style={{ padding: '16px', fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--cyan-neon)' }}>
-                            #{order.id.split('-')[0].toUpperCase()}
+                          <td style={{ padding: '16px', fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--cyan-neon)', fontSize: '14px' }}>
+                            {order.po_number || `PO-????`}
                           </td>
                           <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>
                             {new Date(order.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
@@ -6018,7 +6018,7 @@ function App() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
                 <div>
                   <h2 style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: '18px', color: 'var(--cyan-neon)', margin: '0 0 4px 0' }}>
-                    📋 Detalle del Pedido #{selectedOrderDetail.id.split('-')[0].toUpperCase()}
+                    📋 {selectedOrderDetail.po_number || 'Purchase Order'} — Detalle del Pedido
                   </h2>
                   <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                     Fecha de Registro: {new Date(selectedOrderDetail.created_at).toLocaleString('es-ES')}
