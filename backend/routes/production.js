@@ -84,7 +84,7 @@ router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
       const { product_id, quantity_cases, cost_per_case_usd } = item;
       
       const productResult = await client.query(
-        'SELECT id, case_cbm FROM products WHERE id=$1 AND tenant_id=$2',
+        'SELECT id, case_cbm, units_per_case FROM products WHERE id=$1 AND tenant_id=$2',
         [product_id, tenant_id]
       );
       if (productResult.rows.length === 0) {
@@ -93,10 +93,14 @@ router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
       
       const product = productResult.rows[0];
       const qty = parseInt(quantity_cases) || 0;
-      const cost = parseFloat(cost_per_case_usd) || 0;
+      // cost_per_case_usd viene del frontend como costo por UNIDAD (factory_cost_per_unit_usd)
+      // El costo real por caja = costo_por_unidad * unidades_por_caja
+      const costPerUnit = parseFloat(cost_per_case_usd) || 0;
+      const unitsPerCase = parseInt(product.units_per_case) || 1;
+      const actualCostPerCase = costPerUnit * unitsPerCase;
       const caseCbm = parseFloat(product.case_cbm) || 0;
       
-      const itemCost = qty * cost;
+      const itemCost = qty * actualCostPerCase;
       const itemCbm = qty * caseCbm;
       
       totalCostUsd += itemCost;
@@ -105,7 +109,7 @@ router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
       validatedItems.push({
         product_id,
         quantity_cases: qty,
-        cost_per_case_usd: cost,
+        cost_per_case_usd: actualCostPerCase,  // guardamos el costo REAL por caja
         total_item_cost_usd: itemCost,
         item_cbm: itemCbm
       });
