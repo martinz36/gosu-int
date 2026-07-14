@@ -353,10 +353,12 @@ router.get('/current/dashboard', requireAuth, requireTenantAdmin, async (req, re
       p.sku as product_sku,
       p.category as product_category,
       COALESCE(p.factory_cost_per_case_usd, 0) as factory_cost_per_case_usd,
-      COALESCE(p.units_per_case, 1) as units_per_case
+      COALESCE(p.units_per_case, 1) as units_per_case,
+      COALESCE(bcp.destination_country, 'UNK') as destination_country
     FROM sales_orders so
     JOIN sales_order_items soi ON soi.sales_order_id = so.id
     JOIN products p ON p.id = soi.product_id
+    LEFT JOIN b2b_client_profiles bcp ON bcp.user_id = so.client_id
     WHERE so.tenant_id = $1
   `;
   const params = [tenant_id];
@@ -382,6 +384,8 @@ router.get('/current/dashboard', requireAuth, requireTenantAdmin, async (req, re
     const salesByDayMap = {};
     const salesByCategoryMap = {};
     const productsMap = {};
+
+    const salesByCountryMap = {};
 
     rows.forEach(r => {
       const qty = parseInt(r.qty_cases) || 0;
@@ -417,6 +421,16 @@ router.get('/current/dashboard', requireAuth, requireTenantAdmin, async (req, re
       productsMap[sku].sales += itemRevenue;
       productsMap[sku].cost += itemCost;
       productsMap[sku].profit += (itemRevenue - itemCost);
+
+      // Agrupar por país de destino (ISO-3)
+      const country = (r.destination_country || 'UNK').toUpperCase().trim();
+      if (country && country !== 'UNK') {
+        if (!salesByCountryMap[country]) {
+          salesByCountryMap[country] = { iso3: country, sales: 0, cases: 0 };
+        }
+        salesByCountryMap[country].sales += itemRevenue;
+        salesByCountryMap[country].cases += qty;
+      }
     });
 
     const totalProfit = totalSales - totalCosts;
@@ -427,6 +441,8 @@ router.get('/current/dashboard', requireAuth, requireTenantAdmin, async (req, re
     const top_products = Object.values(productsMap)
       .sort((a, b) => b.sales - a.sales)
       .slice(0, 5);
+    // sales_by_country: { ISO3: { iso3, sales, cases } }
+    const sales_by_country = salesByCountryMap;
 
     res.json({
       summary: {
@@ -437,7 +453,8 @@ router.get('/current/dashboard', requireAuth, requireTenantAdmin, async (req, re
       },
       sales_by_day,
       sales_by_category,
-      top_products
+      top_products,
+      sales_by_country
     });
   } catch (err) {
     console.error('Error al generar reporte de dashboard:', err);

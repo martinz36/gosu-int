@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import './App.css';
 import LoginPage from './components/LoginPage';
+import SalesMapWidget, { COUNTRY_OPTIONS, getCountryName } from './components/SalesMapWidget';
 import { auth, products as productsApi, orders as ordersApi, production as productionApi, tenants as tenantsApi, plans as plansApi, users as usersApi, audit as auditApi, config as configApi, pricingTiers as pricingTiersApi, API_URL } from './services/api';
 
 // Reglas de descuento (se obtendrán del backend en futuras versiones)
@@ -125,7 +126,8 @@ function App() {
     summary: { total_sales: 0, total_costs: 0, total_profit: 0, margin_percent: 0 },
     sales_by_day: [],
     sales_by_category: [],
-    top_products: []
+    top_products: [],
+    sales_by_country: null
   });
   const [dashboardFilter, setDashboardFilter] = useState('30days'); // '7days' | '30days' | 'thismonth' | 'thisyear' | 'custom'
   const [dashboardStartDate, setDashboardStartDate] = useState('');
@@ -4409,7 +4411,11 @@ function App() {
                   </div>
                 )}
               </div>
+            </div>
 
+            {/* Mapa de Ventas por País */}
+            <div style={{ marginBottom: '24px' }}>
+              <SalesMapWidget salesByCountry={dashboardData.sales_by_country} />
             </div>
 
             {/* Tabla / Ranking de Rentabilidad de Productos */}
@@ -4862,14 +4868,19 @@ function App() {
                       </div>
                       <div>
                         <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>País de Destino (Aduana) *</label>
-                        <input
-                          type="text"
+                        <select
                           required
-                          placeholder="Ej. Japón, España, México"
                           value={newClientForm.destination_country}
                           onChange={(e) => setNewClientForm(prev => ({ ...prev, destination_country: e.target.value }))}
                           style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                        />
+                        >
+                          <option value="" disabled style={{ background: '#1c1c24' }}>Selecciona un país...</option>
+                          {COUNTRY_OPTIONS.map(c => (
+                            <option key={c.code} value={c.code} style={{ background: '#1c1c24' }}>
+                              {c.name} ({c.code})
+                            </option>
+                          ))}
+                        </select>
                       </div>
                       <div>
                         <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Nivel de Precios B2B (Pricing Tier) *</label>
@@ -5030,7 +5041,7 @@ function App() {
                                 )}
                               </td>
                               <td style={{ padding: '14px 8px' }}>
-                                <span style={{ fontSize: '13px', color: 'var(--cyan-neon)' }}>📍 {client.destination_country}</span>
+                                <span style={{ fontSize: '13px', color: 'var(--cyan-neon)' }}>📍 {getCountryName(client.destination_country)}</span>
                               </td>
                               <td style={{ padding: '14px 8px' }}>
                                 <span className={`badge ${statusBadgeClass}`} style={{ fontSize: '10.5px', whiteSpace: 'nowrap' }}>
