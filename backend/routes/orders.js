@@ -83,11 +83,14 @@ router.post('/', requireAuth, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // 1. Obtener perfil B2B del cliente para datos fiscales y MOA
+    // 1. Obtener perfil B2B del cliente para datos fiscales y MOA (uniendo a su Pricing Tier)
     const profileResult = await client.query(
-      `SELECT company_name, tax_id, billing_address, forwarder_address, custom_moa_usd, client_category
-       FROM b2b_client_profiles
-       WHERE user_id = $1 AND tenant_id = $2`,
+      `SELECT p.company_name, p.tax_id, p.billing_address, p.forwarder_address,
+              COALESCE(pt.min_order_amount, 1000.00) as min_order_amount,
+              COALESCE(pt.discount_percentage, 0.00) as discount_percentage
+       FROM b2b_client_profiles p
+       LEFT JOIN pricing_tiers pt ON pt.id = p.pricing_tier_id
+       WHERE p.user_id = $1 AND p.tenant_id = $2`,
       [client_id, tenant_id]
     );
 
@@ -142,18 +145,15 @@ router.post('/', requireAuth, async (req, res) => {
     const volumeDiscountAmount = subtotalUsd * (volumeDiscountPct / 100);
     const subtotalAfterVolume = subtotalUsd - volumeDiscountAmount;
 
-    // b. Descuento por Categoría (Wholesale Distributor +5%)
-    let distributorDiscountPct = 0;
-    if (profile.client_category === 'wholesale_distributor') {
-      distributorDiscountPct = 5.00;
-    }
+    // b. Descuento por Pricing Tier comercial
+    const distributorDiscountPct = parseFloat(profile.discount_percentage) || 0.00;
     const distributorDiscountAmount = subtotalAfterVolume * (distributorDiscountPct / 100);
 
     const totalDiscountUsd = volumeDiscountAmount + distributorDiscountAmount;
     const finalTotalUsd = subtotalUsd - totalDiscountUsd;
 
     // 5. Validar MOA (Monto Mínimo de Orden)
-    const moaLimit = parseFloat(profile.custom_moa_usd) || 1000.00;
+    const moaLimit = parseFloat(profile.min_order_amount) || 1000.00;
     if (finalTotalUsd < moaLimit) {
       throw new Error(`Monto Mínimo de Orden no alcanzado. Orden mínima: $${moaLimit.toFixed(2)} USD. Total actual: $${finalTotalUsd.toFixed(2)} USD.`);
     }
@@ -650,6 +650,45 @@ router.get('/:id/packing-list', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Error al generar Packing List:', err);
     res.status(500).send('<h1>Error 500: Error interno al procesar el documento.</h1>');
+  }
+});
+
+// ============================================================
+// POST /api/orders/:id/pay-stripe (Autenticado, para Clientes B2B)
+// Simula o concreta el pago con tarjeta a través de Stripe.
+// Actualiza el estado de la orden a 'Paid' tras la confirmación.
+// ============================================================
+router.post('/:id/pay-stripe', requireAuth, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { id: orderId } = req.params;
+
+  try {
+    const orderRes = await pool.query(
+      'SELECT id, status FROM sales_orders WHERE id = $1 AND tenant_id = $2 AND client_id = $3',
+      [orderId, tenant_id, req.user.id]
+    );
+
+    if (orderRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    const order = orderRes.rows[0];
+    if (order.status === 'Paid') {
+      return res.status(400).json({ error: 'El pedido ya se encuentra pagado.' });
+    }
+
+    await pool.query(
+      "UPDATE sales_orders SET status = 'Paid', updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+      [orderId]
+    );
+
+    res.json({
+      success: true,
+      message: 'Pago con tarjeta simulado con éxito. Pedido actualizado a Pagado.'
+    });
+  } catch (err) {
+    console.error('Error al simular pago con Stripe:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 

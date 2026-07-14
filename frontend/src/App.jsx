@@ -47,6 +47,15 @@ function App() {
   const [docType, setDocType] = useState('invoice');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
 
+  // Estados para Modal de Selección de Pago Post-Checkout
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [createdOrder, setCreatedOrder] = useState(null);
+  const [bankDetails, setBankDetails] = useState(null);
+  const [loadingBankDetails, setLoadingBankDetails] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(''); // 'bank' | 'stripe'
+  const [simulatingStripePayment, setSimulatingStripePayment] = useState(false);
+  const [stripePaidSuccess, setStripePaidSuccess] = useState(false);
+
   // Formulario para nuevo Tenant / Edición
   const [newTenant, setNewTenant] = useState({
     name: '',
@@ -95,7 +104,14 @@ function App() {
   const [bulkResult, setBulkResult] = useState(null);
 
   // Estados para API Keys (json.pe y Resend)
-  const [tenantSettings, setTenantSettings] = useState({ whatsapp_api_key: '', resend_api_key: '' });
+  const [tenantSettings, setTenantSettings] = useState({ 
+    whatsapp_api_key: '', 
+    resend_api_key: '',
+    bank_name: '',
+    bank_account_name: '',
+    bank_account_number: '',
+    bank_routing_number: ''
+  });
   const [savingSettings, setSavingSettings] = useState(false);
 
   // Estados para el Dashboard / Control de Mando
@@ -301,7 +317,11 @@ function App() {
       const data = await tenantsApi.getCurrentSettings();
       setTenantSettings({
         whatsapp_api_key: data.whatsapp_api_key || '',
-        resend_api_key: data.resend_api_key || ''
+        resend_api_key: data.resend_api_key || '',
+        bank_name: data.bank_name || '',
+        bank_account_name: data.bank_account_name || '',
+        bank_account_number: data.bank_account_number || '',
+        bank_routing_number: data.bank_routing_number || ''
       });
     } catch (err) {
       console.error('Error al cargar API keys del tenant:', err);
@@ -1431,17 +1451,44 @@ function App() {
         qty_cases: i.qty,
       }));
 
-      await ordersApi.create(items, null, incoterm);
+      const res = await ordersApi.create(items, null, incoterm);
+      
+      // Intentar cargar la info bancaria del tenant de forma pública y segura
+      setLoadingBankDetails(true);
+      try {
+        const bankData = await tenantsApi.getCurrentBankDetails();
+        setBankDetails(bankData);
+      } catch (err) {
+        console.error('Error al cargar datos bancarios del tenant:', err);
+      } finally {
+        setLoadingBankDetails(false);
+      }
+
+      setCreatedOrder(res.order);
       setCart({});
-      setReceiptUploaded(false);
       setShowCart(false);
+      setSelectedPaymentMethod('');
+      setStripePaidSuccess(false);
+      setShowPaymentModal(true); // Mostrar modal de selección de pago
       await loadOrders();
-      setActiveTab('orders');
-      alert('🎉 Pedido B2B registrado con éxito en estado Proforma.');
     } catch (err) {
       alert(`❌ Error: ${err.message}`);
     } finally {
       setCheckoutLoading(false);
+    }
+  };
+
+  const handleSimulateStripePayment = async () => {
+    if (!createdOrder) return;
+    setSimulatingStripePayment(true);
+    try {
+      await ordersApi.payWithStripe(createdOrder.id);
+      setStripePaidSuccess(true);
+      await loadOrders();
+    } catch (err) {
+      alert(`❌ Error al procesar pago simulado: ${err.message}`);
+    } finally {
+      setSimulatingStripePayment(false);
     }
   };
 
@@ -4027,44 +4074,99 @@ function App() {
               )}
             </div>
 
-            {/* PANEL DE CONFIGURACIÓN DE API KEYS DE TERCEROS */}
+            {/* PANEL DE CONFIGURACIÓN DEL NEGOCIO & DATOS BANCARIOS */}
             <div className="glass-panel" style={{ padding: '24px', marginTop: '24px' }}>
               <h2 style={{ fontSize: '20px', fontWeight: '800', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '16px', marginBottom: '20px', color: 'var(--cyan-neon)' }}>
-                🔑 Llaves de API de Integraciones (WhatsApp & Resend)
+                ⚙️ Configuración del Negocio & Métodos de Pago
               </h2>
-              <form onSubmit={handleUpdateTenantSettings} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
-                      Token de json.pe (Conector de WhatsApp)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Escribe tu API Key de json.pe..."
-                      value={tenantSettings.whatsapp_api_key}
-                      onChange={(e) => setTenantSettings(prev => ({ ...prev, whatsapp_api_key: e.target.value }))}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
-                    <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                      Requerido para el envío automático de notificaciones de estados de pedido y proformas directamente a WhatsApp.
-                    </span>
-                  </div>
+              <form onSubmit={handleUpdateTenantSettings} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                
+                {/* Sección 1: API Keys */}
+                <div>
+                  <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#fff', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🔑 Integraciones Externas</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                        Token de json.pe (Conector de WhatsApp)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Escribe tu API Key de json.pe..."
+                        value={tenantSettings.whatsapp_api_key}
+                        onChange={(e) => setTenantSettings(prev => ({ ...prev, whatsapp_api_key: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                        Requerido para el envío automático de notificaciones de estados de pedido y proformas directamente a WhatsApp.
+                      </span>
+                    </div>
 
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
-                      API Key de Resend (Servicio de Correo)
-                    </label>
-                    <input
-                      type="password"
-                      placeholder="Escribe tu API Key de Resend (re_...)"
-                      value={tenantSettings.resend_api_key}
-                      onChange={(e) => setTenantSettings(prev => ({ ...prev, resend_api_key: e.target.value }))}
-                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                    />
-                    <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                      Clave de autorización de Resend para el envío automático de facturas, packing lists y correos de bienvenida B2B.
-                    </span>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                        API Key de Resend (Servicio de Correo)
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="Escribe tu API Key de Resend (re_...)"
+                        value={tenantSettings.resend_api_key}
+                        onChange={(e) => setTenantSettings(prev => ({ ...prev, resend_api_key: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                        Clave de autorización de Resend para el envío automático de facturas, packing lists y correos de bienvenida B2B.
+                      </span>
+                    </div>
                   </div>
+                </div>
+
+                {/* Sección 2: Datos Bancarios */}
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '20px' }}>
+                  <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#fff', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🏦 Cuenta Bancaria para Cobros por Transferencia B2B</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>Nombre del Banco</label>
+                      <input
+                        type="text"
+                        placeholder="Ej: Chase Bank, HSBC, Citibank"
+                        value={tenantSettings.bank_name}
+                        onChange={(e) => setTenantSettings(prev => ({ ...prev, bank_name: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>Titular de la Cuenta (Beneficiario)</label>
+                      <input
+                        type="text"
+                        placeholder="Ej: Gosu Accessories Ltd"
+                        value={tenantSettings.bank_account_name}
+                        onChange={(e) => setTenantSettings(prev => ({ ...prev, bank_account_name: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>Número de Cuenta / IBAN</label>
+                      <input
+                        type="text"
+                        placeholder="Ej: US1234567890"
+                        value={tenantSettings.bank_account_number}
+                        onChange={(e) => setTenantSettings(prev => ({ ...prev, bank_account_number: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>Código SWIFT / ABA / Ruta</label>
+                      <input
+                        type="text"
+                        placeholder="Ej: CHASEUS33XXX"
+                        value={tenantSettings.bank_routing_number}
+                        onChange={(e) => setTenantSettings(prev => ({ ...prev, bank_routing_number: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                  </div>
+                  <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>
+                    Estos datos se le presentarán a tus clientes B2B al momento de elegir el método de pago por transferencia.
+                  </span>
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
@@ -4074,7 +4176,7 @@ function App() {
                     className="btn-pink"
                     style={{ padding: '12px 32px', fontSize: '13px', fontWeight: '700' }}
                   >
-                    {savingSettings ? 'Guardando llaves...' : '💾 Guardar Llaves de API'}
+                    {savingSettings ? 'Guardando configuraciones...' : '💾 Guardar Configuración de Empresa'}
                   </button>
                 </div>
               </form>
@@ -5268,15 +5370,7 @@ function App() {
                         <option value="EXW Planta">EXW Planta (Ex Works - Salida de Fábrica)</option>
                       </select>
                     </div>
-                    <div style={{ marginBottom: '16px' }}>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Adjuntar comprobante de depósito (Opcional):</label>
-                      <input
-                        type="file"
-                        onChange={() => setReceiptUploaded(true)}
-                        style={{ display: 'block', width: '100%', fontSize: '12px', color: 'var(--text-secondary)' }}
-                      />
-                      {receiptUploaded && <p style={{ fontSize: '11px', color: 'var(--green-neon)', marginTop: '4px' }}>✓ Archivo listo</p>}
-                    </div>
+
                     <button
                       id="checkout-submit"
                       type="submit"
@@ -5716,6 +5810,192 @@ function App() {
                 style={{ padding: '10px 24px' }}
               >
                 Cerrar Panel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================== */}
+      {/* MODAL: SELECCIÓN DE PAGO (POST-CHECKOUT B2B)          */}
+      {/* ===================================================== */}
+      {showPaymentModal && createdOrder && (
+        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', zIndex: '250', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '550px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: '28px', position: 'relative', border: '1px solid var(--cyan-neon)' }}>
+            
+            <div style={{ borderBottom: '2px solid #333', paddingBottom: '12px', marginBottom: '20px', textAlign: 'center' }}>
+              <h2 style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: '18px', color: 'var(--cyan-neon)', margin: '0 0 6px 0' }}>
+                💳 Método de Pago del Pedido
+              </h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
+                Pedido: <strong style={{ color: '#fff' }}>#{createdOrder.id.split('-')[0].toUpperCase()}</strong> | Total: <strong style={{ color: 'var(--green-neon)' }}>${parseFloat(createdOrder.total_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</strong>
+              </p>
+            </div>
+
+            <div style={{ flexGrow: 1, overflowY: 'auto', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              
+              {!selectedPaymentMethod ? (
+                <>
+                  <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', textAlign: 'center', margin: '0 0 8px 0' }}>
+                    Selecciona tu método de pago preferido para procesar tu orden:
+                  </p>
+                  
+                  <button
+                    onClick={() => setSelectedPaymentMethod('bank')}
+                    className="btn-glass-cyan"
+                    style={{ width: '100%', padding: '16px', borderRadius: '12px', fontSize: '14px', fontWeight: '800', display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'center' }}
+                  >
+                    <span>🏦 Transferencia Bancaria Directa</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '400' }}>Paga offline a nuestras cuentas en el banco corporativo.</span>
+                  </button>
+
+                  <button
+                    onClick={() => setSelectedPaymentMethod('stripe')}
+                    className="btn-glass-neon"
+                    style={{ width: '100%', padding: '16px', borderRadius: '12px', fontSize: '14px', fontWeight: '800', display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'center' }}
+                  >
+                    <span>💳 Tarjeta de Crédito / Débito (Stripe)</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '400' }}>Procesa tu pago de forma instantánea y segura.</span>
+                  </button>
+                </>
+              ) : selectedPaymentMethod === 'bank' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#fff', margin: 0 }}>🏦 Cuentas de Transferencia Gosu</h3>
+                    <button onClick={() => setSelectedPaymentMethod('')} style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>
+                      Cambiar método
+                    </button>
+                  </div>
+
+                  {loadingBankDetails ? (
+                    <div style={{ textAlign: 'center', padding: '20px', color: 'var(--cyan-neon)' }}>⏳ Cargando datos bancarios del vendedor...</div>
+                  ) : bankDetails && bankDetails.bank_name ? (
+                    <div className="glass-panel" style={{ padding: '16px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px' }}>
+                        <div>
+                          <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '10px', textTransform: 'uppercase' }}>Banco Destinatario</span>
+                          <strong style={{ color: '#fff' }}>{bankDetails.bank_name}</strong>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '10px', textTransform: 'uppercase' }}>Titular de la Cuenta</span>
+                          <strong style={{ color: '#fff' }}>{bankDetails.bank_account_name}</strong>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '10px', textTransform: 'uppercase' }}>Número de Cuenta / IBAN</span>
+                          <strong style={{ color: 'var(--cyan-neon)', fontFamily: 'monospace', fontSize: '14px' }}>{bankDetails.bank_account_number}</strong>
+                        </div>
+                        <div>
+                          <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '10px', textTransform: 'uppercase' }}>Código SWIFT / ABA / Ruta</span>
+                          <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{bankDetails.bank_routing_number}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ padding: '16px', background: 'rgba(255, 92, 0, 0.05)', border: '1px solid rgba(255, 92, 0, 0.15)', borderRadius: '8px', fontSize: '12.5px', color: 'var(--orange-neon)' }}>
+                      ⚠️ No se han registrado datos de cuentas bancarias en la configuración del tenant actual. Por favor, comunícate con tu ejecutivo comercial para coordinar el pago.
+                    </div>
+                  )}
+
+                  <div style={{ padding: '12px', background: 'rgba(0, 232, 255, 0.03)', border: '1px solid rgba(0, 232, 255, 0.1)', borderRadius: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    ℹ️ Realiza la transferencia por el total indicado y comparte la constancia con tu agente comercial. Tu pedido permanecerá en estado <strong>Proforma</strong> hasta ser confirmado.
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setShowPaymentModal(false);
+                      setCreatedOrder(null);
+                      setActiveTab('orders');
+                    }}
+                    className="btn-pink"
+                    style={{ width: '100%', padding: '12px', fontWeight: '800' }}
+                  >
+                    ✓ Entendido, Ir a Mis Compras
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#fff', margin: 0 }}>💳 Pago con Tarjeta (Stripe Sandbox)</h3>
+                    <button onClick={() => setSelectedPaymentMethod('')} style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>
+                      Cambiar método
+                    </button>
+                  </div>
+
+                  {stripePaidSuccess ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: '20px 0', textAlign: 'center' }}>
+                      <span style={{ fontSize: '48px' }}>🎉</span>
+                      <div>
+                        <h4 style={{ color: 'var(--green-neon)', fontSize: '16px', fontWeight: '800', margin: '0 0 4px' }}>¡Pago Completado con Éxito!</h4>
+                        <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: 0 }}>
+                          La integración con Stripe procesó el cobro de forma exitosa y el estado de tu pedido se actualizó a <strong>Paid (Pagado)</strong> en tu panel de compras.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setShowPaymentModal(false);
+                          setCreatedOrder(null);
+                          setActiveTab('orders');
+                        }}
+                        className="btn-pink"
+                        style={{ padding: '10px 24px', width: '100%', fontWeight: '800' }}
+                      >
+                        Ir a Mis Compras B2B
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600', textTransform: 'uppercase' }}>Nombre en la Tarjeta</label>
+                        <input type="text" placeholder="Ej: John Doe" style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '6px', width: '100%', boxSizing: 'border-box', fontSize: '13px' }} />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600', textTransform: 'uppercase' }}>Número de Tarjeta</label>
+                        <div style={{ position: 'relative' }}>
+                          <input type="text" placeholder="💳 4242 4242 4242 4242" style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '6px', width: '100%', boxSizing: 'border-box', fontSize: '13px', fontFamily: 'monospace' }} />
+                        </div>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600', textTransform: 'uppercase' }}>Vencimiento</label>
+                          <input type="text" placeholder="MM/AA" style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '6px', width: '100%', boxSizing: 'border-box', fontSize: '13px', textAlign: 'center' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600', textTransform: 'uppercase' }}>CVC / CVV</label>
+                          <input type="text" placeholder="123" style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '6px', width: '100%', boxSizing: 'border-box', fontSize: '13px', textAlign: 'center' }} />
+                        </div>
+                      </div>
+
+                      <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.1)', padding: '12px', borderRadius: '6px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                        🔒 Conexión segura encriptada mediante pasarela de Stripe. Al presionar pagar, se simulará la pasarela con éxito.
+                      </div>
+
+                      <button
+                        onClick={handleSimulateStripePayment}
+                        disabled={simulatingStripePayment}
+                        className="btn-neon"
+                        style={{ width: '100%', padding: '12px', fontWeight: '800', fontSize: '13.5px' }}
+                      >
+                        {simulatingStripePayment ? '⏳ Procesando cobro Stripe...' : `Pagar $${parseFloat(createdOrder.total_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD`}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+            </div>
+
+            <div style={{ textAlign: 'right', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '16px' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPaymentModal(false);
+                  setCreatedOrder(null);
+                  setActiveTab('orders');
+                }}
+                className="btn-glass"
+                style={{ padding: '8px 24px', fontSize: '12px' }}
+              >
+                Cerrar
               </button>
             </div>
           </div>

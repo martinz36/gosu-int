@@ -125,6 +125,9 @@ export const orders = {
 
   updateStatus: (id, status) =>
     request('PUT', `/api/orders/${id}/status`, { status }),
+
+  payWithStripe: (id) =>
+    request('POST', `/api/orders/${id}/pay-stripe`),
 };
 
 // ============================================================
@@ -162,6 +165,9 @@ export const tenants = {
 
   updateCurrentSettings: (settingsData) =>
     request('PUT', '/api/tenants/current/settings', settingsData),
+
+  getCurrentBankDetails: () =>
+    request('GET', '/api/tenants/current/bank-details'),
 
   getCurrentDashboard: (params = {}) => {
     const qs = new URLSearchParams(params).toString();

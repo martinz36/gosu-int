@@ -27,10 +27,14 @@ CREATE TABLE tenants (
   name              VARCHAR(255) NOT NULL,
   slug              VARCHAR(100) NOT NULL UNIQUE,
   is_active         BOOLEAN NOT NULL DEFAULT TRUE,
-  whatsapp_api_key  VARCHAR(512),
-  resend_api_key    VARCHAR(512),
-  created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  whatsapp_api_key    VARCHAR(512),
+  resend_api_key      VARCHAR(512),
+  bank_name           VARCHAR(255),
+  bank_account_name   VARCHAR(255),
+  bank_account_number VARCHAR(255),
+  bank_routing_number VARCHAR(255),
+  created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_tenants_slug ON tenants(slug);

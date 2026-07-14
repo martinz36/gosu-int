@@ -243,7 +243,9 @@ router.get('/current/settings', requireAuth, requireTenantAdmin, async (req, res
 
   try {
     const result = await pool.query(
-      'SELECT id, name, slug, whatsapp_api_key, resend_api_key FROM tenants WHERE id = $1 AND deleted_at IS NULL',
+      `SELECT id, name, slug, whatsapp_api_key, resend_api_key, 
+              bank_name, bank_account_name, bank_account_number, bank_routing_number 
+       FROM tenants WHERE id = $1 AND deleted_at IS NULL`,
       [tenant_id]
     );
 
@@ -260,21 +262,39 @@ router.get('/current/settings', requireAuth, requireTenantAdmin, async (req, res
 
 // ============================================================
 // PUT /api/tenants/current/settings (Solo Tenant Admin)
-// Actualiza las API keys del tenant actual.
+// Actualiza las API keys y datos de transferencia del tenant actual.
 // ============================================================
 router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res) => {
   const { tenant_id } = req.user;
-  const { whatsapp_api_key, resend_api_key } = req.body;
+  const { 
+    whatsapp_api_key, 
+    resend_api_key,
+    bank_name,
+    bank_account_name,
+    bank_account_number,
+    bank_routing_number
+  } = req.body;
 
   try {
     const result = await pool.query(
       `UPDATE tenants
-       SET whatsapp_api_key = $1, resend_api_key = $2, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $3 AND deleted_at IS NULL
-       RETURNING id, name, slug, whatsapp_api_key, resend_api_key`,
+       SET whatsapp_api_key = $1, 
+           resend_api_key = $2, 
+           bank_name = $3, 
+           bank_account_name = $4, 
+           bank_account_number = $5, 
+           bank_routing_number = $6, 
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $7 AND deleted_at IS NULL
+       RETURNING id, name, slug, whatsapp_api_key, resend_api_key, 
+                 bank_name, bank_account_name, bank_account_number, bank_routing_number`,
       [
         whatsapp_api_key !== undefined && whatsapp_api_key !== null ? whatsapp_api_key.trim() : null,
         resend_api_key !== undefined && resend_api_key !== null ? resend_api_key.trim() : null,
+        bank_name !== undefined && bank_name !== null ? bank_name.trim() : null,
+        bank_account_name !== undefined && bank_account_name !== null ? bank_account_name.trim() : null,
+        bank_account_number !== undefined && bank_account_number !== null ? bank_account_number.trim() : null,
+        bank_routing_number !== undefined && bank_routing_number !== null ? bank_routing_number.trim() : null,
         tenant_id
       ]
     );
@@ -289,11 +309,15 @@ router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res
       req.user.name,
       tenant_id,
       'UPDATE_TENANT_API_KEYS',
-      { whatsapp_api_key_configured: !!whatsapp_api_key, resend_api_key_configured: !!resend_api_key }
+      { 
+        whatsapp_api_key_configured: !!whatsapp_api_key, 
+        resend_api_key_configured: !!resend_api_key,
+        bank_details_configured: !!bank_name
+      }
     );
 
     res.json({
-      message: 'Configuraciones de API actualizadas con éxito.',
+      message: 'Configuraciones de empresa actualizadas con éxito.',
       settings: result.rows[0]
     });
   } catch (err) {
@@ -411,6 +435,32 @@ router.get('/current/dashboard', requireAuth, requireTenantAdmin, async (req, re
   } catch (err) {
     console.error('Error al generar reporte de dashboard:', err);
     res.status(500).json({ error: 'Error interno del servidor al calcular métricas.' });
+  }
+});
+
+// ============================================================
+// GET /api/tenants/current/bank-details (Autenticado, para Clientes B2B)
+// Retorna la información pública y bancaria del tenant.
+// ============================================================
+router.get('/current/bank-details', requireAuth, async (req, res) => {
+  const { tenant_id } = req.user;
+
+  try {
+    const result = await pool.query(
+      `SELECT name, bank_name, bank_account_name, bank_account_number, bank_routing_number 
+       FROM tenants 
+       WHERE id = $1 AND deleted_at IS NULL`,
+      [tenant_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Empresa no encontrada.' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error al obtener datos bancarios del tenant:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
 
