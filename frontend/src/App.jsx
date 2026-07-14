@@ -44,6 +44,12 @@ function App() {
   const [adminFilterCategory, setAdminFilterCategory] = useState('all');
   const [adminFilterStockStatus, setAdminFilterStockStatus] = useState('all');
   const [adminFilterFactory, setAdminFilterFactory] = useState('all');
+  
+  // Estados para Filtros en la vista de Inventario & Stock
+  const [invSearchQuery, setInvSearchQuery] = useState('');
+  const [invFilterCategory, setInvFilterCategory] = useState('all');
+  const [invFilterStockStatus, setInvFilterStockStatus] = useState('all');
+  const [invFilterFactory, setInvFilterFactory] = useState('all');
   const [cart, setCart] = useState({});
   const [showCart, setShowCart] = useState(false);
   const [receiptUploaded, setReceiptUploaded] = useState(false);
@@ -237,6 +243,61 @@ function App() {
   const isSuperAdmin = currentUser?.role === 'super_admin';
   const isImpersonating = !!localStorage.getItem('gosu_superadmin_token');
   const isTenantImpersonating = !!localStorage.getItem('gosu_admin_token');
+
+  // Valuaciones e Inventario Filtrado
+  const pctTienda = (() => {
+    const t = pricingTiersList.find(x => x.tier_name.toLowerCase().includes('tienda'));
+    return t ? parseFloat(t.discount_percentage) : 35.00;
+  })();
+  const pctDist = (() => {
+    const t = pricingTiersList.find(x => x.tier_name.toLowerCase().includes('distrib') || x.tier_name.toLowerCase().includes('distribut'));
+    return t ? parseFloat(t.discount_percentage) : 40.00;
+  })();
+  const pctPartner = (() => {
+    const t = pricingTiersList.find(x => x.tier_name.toLowerCase().includes('partner'));
+    return t ? parseFloat(t.discount_percentage) : 70.00;
+  })();
+
+  const filteredInventoryList = allProducts.filter(p => {
+    if (invSearchQuery.trim()) {
+      const q = invSearchQuery.toLowerCase();
+      const match = (p.name || '').toLowerCase().includes(q) ||
+                    (p.sku || '').toLowerCase().includes(q) ||
+                    (p.commercial_description || '').toLowerCase().includes(q) ||
+                    (p.factory_name || '').toLowerCase().includes(q) ||
+                    (p.factory_sku || '').toLowerCase().includes(q);
+      if (!match) return false;
+    }
+    if (invFilterCategory !== 'all' && p.category !== invFilterCategory) {
+      return false;
+    }
+    if (invFilterStockStatus === 'in_stock') {
+      if ((p.stock_physical_cases || 0) <= 0) return false;
+    } else if (invFilterStockStatus === 'low_stock') {
+      if ((p.stock_physical_cases || 0) <= 0 || (p.stock_physical_cases || 0) >= 50) return false;
+    } else if (invFilterStockStatus === 'out_of_stock') {
+      if ((p.stock_physical_cases || 0) !== 0) return false;
+    } else if (invFilterStockStatus === 'in_production') {
+      if ((p.stock_in_production_cases || 0) === 0) return false;
+    }
+    if (invFilterFactory !== 'all' && p.factory_name !== invFilterFactory) {
+      return false;
+    }
+    return true;
+  });
+
+  const invTotals = filteredInventoryList.reduce((acc, p) => {
+    const stock = parseInt(p.stock_physical_cases) || 0;
+    const cost = parseFloat(p.factory_cost_per_case_usd) || 0;
+    const price = parseFloat(p.price_per_case_usd) || 0;
+
+    acc.cost += stock * cost;
+    acc.tienda += stock * price * (1 - pctTienda / 100);
+    acc.distributor += stock * price * (1 - pctDist / 100);
+    acc.partner += stock * price * (1 - pctPartner / 100);
+
+    return acc;
+  }, { cost: 0, tienda: 0, distributor: 0, partner: 0 });
 
   // -------------------------------------------------------
   // Carga de datos
@@ -4785,11 +4846,126 @@ function App() {
               </div>
             </div>
 
+            {/* Indicadores de Valuación de Inventario */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+              <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--orange-neon)', boxShadow: '0 0 10px rgba(255, 165, 0, 0.05)' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase' }}>Valuación de Costo (Fábrica)</span>
+                <h2 style={{ fontSize: '24px', margin: '8px 0 2px', fontWeight: '800', color: 'var(--orange-neon)' }}>
+                  ${invTotals.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </h2>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Costo base de producción</span>
+              </div>
+
+              <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--cyan-neon)', boxShadow: '0 0 10px rgba(0, 232, 255, 0.05)' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase' }}>Valor Tienda (desc: {pctTienda}%)</span>
+                <h2 style={{ fontSize: '24px', margin: '8px 0 2px', fontWeight: '800', color: 'var(--cyan-neon)' }}>
+                  ${invTotals.tienda.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </h2>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Venta a minoristas / Tiendas</span>
+              </div>
+
+              <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--pink-neon)', boxShadow: '0 0 10px rgba(255, 0, 127, 0.05)' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase' }}>Valor Distribuidor (desc: {pctDist}%)</span>
+                <h2 style={{ fontSize: '24px', margin: '8px 0 2px', fontWeight: '800', color: 'var(--pink-neon)' }}>
+                  ${invTotals.distributor.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </h2>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Venta a distribuidores B2B</span>
+              </div>
+
+              <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--green-neon)', boxShadow: '0 0 10px rgba(0, 230, 118, 0.05)' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase' }}>Valor Partner (desc: {pctPartner}%)</span>
+                <h2 style={{ fontSize: '24px', margin: '8px 0 2px', fontWeight: '800', color: 'var(--green-neon)' }}>
+                  ${invTotals.partner.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </h2>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Venta preferencial a Partners</span>
+              </div>
+            </div>
+
+            {/* Panel de Filtros para Inventario */}
+            <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>Buscar Producto</label>
+                <input
+                  type="text"
+                  placeholder="SKU, Nombre o Fábrica..."
+                  value={invSearchQuery}
+                  onChange={(e) => setInvSearchQuery(e.target.value)}
+                  style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', width: '220px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>Categoría</label>
+                <select
+                  value={invFilterCategory}
+                  onChange={(e) => setInvFilterCategory(e.target.value)}
+                  style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '160px' }}
+                >
+                  <option value="all">Todas las Categorías</option>
+                  {categoriesList.map(cat => (
+                    <option key={cat.id} value={cat.slug}>{cat.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>Estado del Inventario</label>
+                <select
+                  value={invFilterStockStatus}
+                  onChange={(e) => setInvFilterStockStatus(e.target.value)}
+                  style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '180px' }}
+                >
+                  <option value="all">Todos los Stocks</option>
+                  <option value="in_stock">✅ Con Stock Físico</option>
+                  <option value="low_stock">⚠️ Stock Bajo (&lt; 50 cajas)</option>
+                  <option value="out_of_stock">❌ Sin Stock Físico</option>
+                  <option value="in_production">⚙️ En Producción Activa</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>Fábrica Origen</label>
+                <select
+                  value={invFilterFactory}
+                  onChange={(e) => setInvFilterFactory(e.target.value)}
+                  style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '180px' }}
+                >
+                  <option value="all">Todas las Fábricas</option>
+                  {(() => {
+                    const factories = allProducts
+                      .map(p => p.factory_name)
+                      .filter(name => name && name.trim() !== '');
+                    const uniqueFactories = Array.from(new Set(factories));
+                    return uniqueFactories.map(fac => (
+                      <option key={fac} value={fac}>{fac}</option>
+                    ));
+                  })()}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'flex-end', marginLeft: 'auto', gap: '8px', alignSelf: 'stretch', paddingTop: '18px' }}>
+                {(invSearchQuery || invFilterCategory !== 'all' || invFilterStockStatus !== 'all' || invFilterFactory !== 'all') && (
+                  <button
+                    onClick={() => {
+                      setInvSearchQuery('');
+                      setInvFilterCategory('all');
+                      setInvFilterStockStatus('all');
+                      setInvFilterFactory('all');
+                    }}
+                    className="btn-glass-pink"
+                    style={{ padding: '8px 16px', fontSize: '12.5px' }}
+                  >
+                    🧹 Limpiar Filtros
+                  </button>
+                )}
+              </div>
+            </div>
+
             {/* Tabla Global de Inventario */}
             <div className="glass-panel" style={{ padding: '24px', overflowX: 'auto' }}>
-              {productList.length === 0 ? (
+              {filteredInventoryList.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                  No hay productos registrados en el catálogo para administrar.
+                  No se encontraron productos que coincidan con los filtros de inventario.
                 </div>
               ) : (
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13.5px', textAlign: 'left' }}>
@@ -4805,7 +4981,7 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {productList.map(product => {
+                    {filteredInventoryList.map(product => {
                       const hasPhysical = (product.stock_physical_cases || 0) > 0;
                       const hasProduction = (product.stock_in_production_cases || 0) > 0;
 
@@ -4830,11 +5006,22 @@ function App() {
                             <span className={hasPhysical ? 'badge badge-green' : 'badge badge-red'} style={{ fontSize: '12px', fontWeight: '800', padding: '6px 12px' }}>
                               {product.stock_physical_cases || 0} master cases
                             </span>
+                            <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '5px' }}>
+                              {((product.stock_physical_cases || 0) * (product.units_per_case || 1)).toLocaleString('en-US')} uds
+                            </span>
+                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-muted)' }}>
+                              ({product.units_per_case || 1} p/caja)
+                            </span>
                           </td>
                           <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                             <span className={hasProduction ? 'badge badge-orange' : 'badge'} style={{ fontSize: '12px', padding: '6px 12px', background: hasProduction ? 'rgba(255,165,0,0.1)' : 'rgba(255,255,255,0.03)', border: hasProduction ? '1px solid orange' : '1px solid rgba(255,255,255,0.08)' }}>
                               {product.stock_in_production_cases || 0} master cases
                             </span>
+                            {hasProduction && (
+                              <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '5px' }}>
+                                {((product.stock_in_production_cases || 0) * (product.units_per_case || 1)).toLocaleString('en-US')} uds
+                              </span>
+                            )}
                           </td>
                           <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                             <button
