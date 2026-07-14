@@ -360,7 +360,7 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
 
 // ============================================================
 // POST /api/products/bulk-delete (Solo Tenant Admin)
-// Elimina múltiples productos de forma masiva
+// Elimina múltiples productos de forma masiva (evitando violar restricciones históricas)
 // ============================================================
 router.post('/bulk-delete', requireAuth, requireTenantAdmin, async (req, res) => {
   const { tenant_id } = req.user;
@@ -371,15 +371,44 @@ router.post('/bulk-delete', requireAuth, requireTenantAdmin, async (req, res) =>
   }
 
   try {
-    const result = await pool.query(
-      'DELETE FROM products WHERE id = ANY($1) AND tenant_id = $2 RETURNING id',
+    // 1. Obtener nombres y SKUs de los productos para reporte
+    const productsInfoQuery = await pool.query(
+      'SELECT id, name, sku FROM products WHERE id = ANY($1) AND tenant_id = $2',
+      [ids, tenant_id]
+    );
+    const productsMap = {};
+    productsInfoQuery.rows.forEach(p => {
+      productsMap[p.id] = { name: p.name, sku: p.sku };
+    });
+
+    // 2. Comprobar referencias en sales_order_items y production_order_items
+    const referencedQuery = await pool.query(
+      `SELECT DISTINCT product_id FROM sales_order_items WHERE product_id = ANY($1) AND tenant_id = $2
+       UNION
+       SELECT DISTINCT product_id FROM production_order_items WHERE product_id = ANY($1) AND tenant_id = $2`,
       [ids, tenant_id]
     );
 
+    const referencedIds = referencedQuery.rows.map(r => r.product_id);
+    const deletableIds = ids.filter(id => !referencedIds.includes(id));
+
+    let deletedIds = [];
+    if (deletableIds.length > 0) {
+      const deleteResult = await pool.query(
+        'DELETE FROM products WHERE id = ANY($1) AND tenant_id = $2 RETURNING id',
+        [deletableIds, tenant_id]
+      );
+      deletedIds = deleteResult.rows.map(r => r.id);
+    }
+
+    const referencedProducts = referencedIds.map(id => productsMap[id] || { id, name: 'Producto referenciado', sku: 'N/A' });
+
     res.json({
-      message: 'Productos eliminados masivamente con éxito.',
-      deleted_count: result.rows.length,
-      deleted_ids: result.rows.map(r => r.id)
+      message: 'Proceso de eliminación masiva finalizado.',
+      deleted_count: deletedIds.length,
+      deleted_ids: deletedIds,
+      referenced_count: referencedIds.length,
+      referenced_products: referencedProducts
     });
   } catch (err) {
     console.error('Error al eliminar productos de forma masiva:', err);

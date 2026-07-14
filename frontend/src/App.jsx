@@ -1282,8 +1282,21 @@ function App() {
     if (selectedProductIds.length === 0) return;
     if (!confirm(`¿Está seguro de eliminar los ${selectedProductIds.length} productos seleccionados del catálogo? Esta acción es irreversible.`)) return;
     try {
-      await productsApi.bulkDelete(selectedProductIds);
-      alert('Productos eliminados masivamente con éxito.');
+      const res = await productsApi.bulkDelete(selectedProductIds);
+      
+      let msg = '';
+      if (res.deleted_count > 0) {
+        msg += `🎉 Se eliminaron exitosamente ${res.deleted_count} producto(s).\n\n`;
+      }
+      
+      if (res.referenced_count > 0) {
+        msg += `⚠️ ${res.referenced_count} producto(s) no se pudieron eliminar por tener historial de transacciones (ventas o producción):\n`;
+        res.referenced_products.forEach(p => {
+          msg += `- [${p.sku}] ${p.name}\n`;
+        });
+      }
+      
+      alert(msg || 'Operación completada.');
       setSelectedProductIds([]);
       await loadProducts();
     } catch (err) {
