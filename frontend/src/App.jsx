@@ -5091,158 +5091,184 @@ function App() {
                 ⚙️ Configuración del Negocio & Métodos de Pago
               </h2>
               <form onSubmit={handleUpdateTenantSettings} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                
-                {/* Sección 1: API Keys */}
-                <div>
-                  <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#fff', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🔑 Integraciones Externas</h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
-                        Token de json.pe (Conector de WhatsApp)
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Escribe tu API Key de json.pe..."
-                        value={tenantSettings.whatsapp_api_key}
-                        onChange={(e) => setTenantSettings(prev => ({ ...prev, whatsapp_api_key: e.target.value }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                        Requerido para el envío automático de notificaciones de estados de pedido y proformas directamente a WhatsApp.
-                      </span>
+                {/* Sección 1: Integraciones Externas */}
+                <div style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '24px' }}>
+                  <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#fff', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🔑 Integraciones Externas</h3>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    
+                    {/* A. NOTIFICACIONES (WhatsApp & Email) */}
+                    <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px', padding: '20px' }}>
+                      <h4 style={{ fontSize: '12px', fontWeight: '700', color: 'var(--cyan-neon)', marginBottom: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        💬 Notificaciones Automatizadas B2B (WhatsApp & Email)
+                      </h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                            Token de json.pe (Conector de WhatsApp)
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Escribe tu API Key de json.pe..."
+                            value={tenantSettings.whatsapp_api_key}
+                            onChange={(e) => setTenantSettings(prev => ({ ...prev, whatsapp_api_key: e.target.value }))}
+                            style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                          <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                            Requerido para el envío automático de notificaciones de estados de pedido y proformas directamente a WhatsApp.
+                          </span>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                            API Key de Resend (Servicio de Correo)
+                          </label>
+                          <input
+                            type="password"
+                            placeholder="Escribe tu API Key de Resend (re_...)"
+                            value={tenantSettings.resend_api_key}
+                            onChange={(e) => setTenantSettings(prev => ({ ...prev, resend_api_key: e.target.value }))}
+                            style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                          <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                            Clave de autorización de Resend para el envío automático de facturas, packing lists y correos de bienvenida B2B.
+                          </span>
+                        </div>
+                      </div>
                     </div>
 
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
-                        API Key de Resend (Servicio de Correo)
-                      </label>
-                      <input
-                        type="password"
-                        placeholder="Escribe tu API Key de Resend (re_...)"
-                        value={tenantSettings.resend_api_key}
-                        onChange={(e) => setTenantSettings(prev => ({ ...prev, resend_api_key: e.target.value }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                        Clave de autorización de Resend para el envío automático de facturas, packing lists y correos de bienvenida B2B.
-                      </span>
-                    </div>
-                  </div>
+                    {/* B. IMÁGENES & DOCUMENTOS (Cloudinary) */}
+                    <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px', padding: '20px' }}>
+                      <h4 style={{ fontSize: '12px', fontWeight: '700', color: 'var(--pink-neon)', marginBottom: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        ☁️ Almacenamiento en la Nube de Comprobantes & Logos (Cloudinary)
+                      </h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                            Cloudinary Cloud Name
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Escribe tu Cloud Name..."
+                            value={tenantSettings.cloudinary_cloud_name || ''}
+                            onChange={(e) => setTenantSettings(prev => ({ ...prev, cloudinary_cloud_name: e.target.value }))}
+                            style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                          <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                            Identificador único de tu cuenta de Cloudinary.
+                          </span>
+                        </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '20px' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
-                        Cloudinary Cloud Name
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Escribe tu Cloud Name..."
-                        value={tenantSettings.cloudinary_cloud_name || ''}
-                        onChange={(e) => setTenantSettings(prev => ({ ...prev, cloudinary_cloud_name: e.target.value }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                        Identificador único de tu cuenta de Cloudinary.
-                      </span>
-                    </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                            Cloudinary Unsigned Upload Preset
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Escribe tu Upload Preset..."
+                            value={tenantSettings.cloudinary_upload_preset || ''}
+                            onChange={(e) => setTenantSettings(prev => ({ ...prev, cloudinary_upload_preset: e.target.value }))}
+                            style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                          <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                            Preset de subida no firmado (unsigned) configurado en Cloudinary.
+                          </span>
+                        </div>
 
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
-                        Cloudinary Unsigned Upload Preset
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Escribe tu Upload Preset..."
-                        value={tenantSettings.cloudinary_upload_preset || ''}
-                        onChange={(e) => setTenantSettings(prev => ({ ...prev, cloudinary_upload_preset: e.target.value }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                        Preset de subida no firmado (unsigned) configurado en Cloudinary para permitir subidas desde el frontend.
-                      </span>
-                    </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                            Cloudinary API Key
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Escribe tu Cloudinary API Key..."
+                            value={tenantSettings.cloudinary_api_key || ''}
+                            onChange={(e) => setTenantSettings(prev => ({ ...prev, cloudinary_api_key: e.target.value }))}
+                            style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                        </div>
 
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
-                        Cloudinary API Key
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Escribe tu Cloudinary API Key..."
-                        value={tenantSettings.cloudinary_api_key || ''}
-                        onChange={(e) => setTenantSettings(prev => ({ ...prev, cloudinary_api_key: e.target.value }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
-                        Cloudinary API Secret
-                      </label>
-                      <input
-                        type="password"
-                        placeholder="Escribe tu Cloudinary API Secret..."
-                        value={tenantSettings.cloudinary_api_secret || ''}
-                        onChange={(e) => setTenantSettings(prev => ({ ...prev, cloudinary_api_secret: e.target.value }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '20px' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
-                        Stripe Publishable Key
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Escribe tu Stripe Publishable Key (pk_...)..."
-                        value={tenantSettings.stripe_publishable_key || ''}
-                        onChange={(e) => setTenantSettings(prev => ({ ...prev, stripe_publishable_key: e.target.value }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                        Clave pública de Stripe para inicializar el SDK en el frontend.
-                      </span>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                            Cloudinary API Secret
+                          </label>
+                          <input
+                            type="password"
+                            placeholder="Escribe tu Cloudinary API Secret..."
+                            value={tenantSettings.cloudinary_api_secret || ''}
+                            onChange={(e) => setTenantSettings(prev => ({ ...prev, cloudinary_api_secret: e.target.value }))}
+                            style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                        </div>
+                      </div>
                     </div>
 
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
-                        Stripe Secret Key
-                      </label>
-                      <input
-                        type="password"
-                        placeholder="Escribe tu Stripe Secret Key (sk_...)..."
-                        value={tenantSettings.stripe_secret_key || ''}
-                        onChange={(e) => setTenantSettings(prev => ({ ...prev, stripe_secret_key: e.target.value }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                        Clave secreta privada de Stripe para realizar cobros desde el servidor.
-                      </span>
-                    </div>
-                  </div>
+                    {/* C. PROCESADOR DE PAGOS (Stripe) */}
+                    <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px', padding: '20px' }}>
+                      <h4 style={{ fontSize: '12px', fontWeight: '700', color: 'var(--green-neon)', marginBottom: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        💳 Procesamiento de Pagos con Tarjeta (Stripe)
+                      </h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                            Stripe Publishable Key
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Escribe tu Stripe Publishable Key (pk_...)..."
+                            value={tenantSettings.stripe_publishable_key || ''}
+                            onChange={(e) => setTenantSettings(prev => ({ ...prev, stripe_publishable_key: e.target.value }))}
+                            style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                          <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                            Clave pública de Stripe para inicializar el SDK en el frontend.
+                          </span>
+                        </div>
 
-                  <div style={{ marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '20px' }}>
-                    <div style={{ maxWidth: '400px' }}>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
-                        Incoterm por Defecto (Logística B2B)
-                      </label>
-                      <select
-                        value={tenantSettings.default_incoterm || 'FOB China'}
-                        onChange={(e) => setTenantSettings(prev => ({ ...prev, default_incoterm: e.target.value }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontWeight: '700' }}
-                      >
-                        <option value="FOB China">FOB China</option>
-                        <option value="FOB Peru">FOB Peru</option>
-                        <option value="CIF">CIF (Cost, Insurance & Freight)</option>
-                        <option value="EXW">EXW (Ex Works)</option>
-                        <option value="EXW Peru">EXW Peru</option>
-                      </select>
-                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                        Incoterm predeterminado que se asignará automáticamente a todos los nuevos pedidos B2B creados por los clientes.
-                      </span>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                            Stripe Secret Key
+                          </label>
+                          <input
+                            type="password"
+                            placeholder="Escribe tu Stripe Secret Key (sk_...)..."
+                            value={tenantSettings.stripe_secret_key || ''}
+                            onChange={(e) => setTenantSettings(prev => ({ ...prev, stripe_secret_key: e.target.value }))}
+                            style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                          <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                            Clave secreta privada de Stripe para realizar cobros desde el servidor.
+                          </span>
+                        </div>
+                      </div>
                     </div>
+
+                    {/* D. LOGÍSTICA COMERCIAL */}
+                    <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px', padding: '20px' }}>
+                      <h4 style={{ fontSize: '12px', fontWeight: '700', color: 'var(--orange-neon)', marginBottom: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        🚢 Configuración Logística Comercial
+                      </h4>
+                      <div style={{ maxWidth: '400px' }}>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                          Incoterm por Defecto (Logística B2B)
+                        </label>
+                        <select
+                          value={tenantSettings.default_incoterm || 'FOB China'}
+                          onChange={(e) => setTenantSettings(prev => ({ ...prev, default_incoterm: e.target.value }))}
+                          style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontWeight: '700' }}
+                        >
+                          <option value="FOB China">FOB China</option>
+                          <option value="FOB Peru">FOB Peru</option>
+                          <option value="CIF">CIF (Cost, Insurance & Freight)</option>
+                          <option value="EXW">EXW (Ex Works)</option>
+                          <option value="EXW Peru">EXW Peru</option>
+                        </select>
+                        <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                          Incoterm predeterminado que se asignará automáticamente a todos los nuevos pedidos B2B creados por los clientes.
+                        </span>
+                      </div>
+                    </div>
+
                   </div>
                 </div>
 
