@@ -156,6 +156,11 @@ export const tenants = {
 
   updateCurrentSettings: (settingsData) =>
     request('PUT', '/api/tenants/current/settings', settingsData),
+
+  getCurrentDashboard: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request('GET', `/api/tenants/current/dashboard${qs ? `?${qs}` : ''}`);
+  },
 };
 
 // ============================================================

@@ -98,6 +98,18 @@ function App() {
   const [tenantSettings, setTenantSettings] = useState({ whatsapp_api_key: '', resend_api_key: '' });
   const [savingSettings, setSavingSettings] = useState(false);
 
+  // Estados para el Dashboard / Control de Mando
+  const [dashboardData, setDashboardData] = useState({
+    summary: { total_sales: 0, total_costs: 0, total_profit: 0, margin_percent: 0 },
+    sales_by_day: [],
+    sales_by_category: [],
+    top_products: []
+  });
+  const [dashboardFilter, setDashboardFilter] = useState('30days'); // '7days' | '30days' | 'thismonth' | 'thisyear' | 'custom'
+  const [dashboardStartDate, setDashboardStartDate] = useState('');
+  const [dashboardEndDate, setDashboardEndDate] = useState('');
+  const [loadingDashboard, setLoadingDashboard] = useState(false);
+
   // Formulario para Productos (con campos extendidos B2B)
   const [newProduct, setNewProduct] = useState({
     name: '',
@@ -300,6 +312,45 @@ function App() {
     }
   };
 
+  const loadDashboardData = useCallback(async () => {
+    if (!currentUser || isSuperAdmin || !isAdmin) return;
+    setLoadingDashboard(true);
+    try {
+      let start = '';
+      let end = '';
+
+      if (dashboardFilter === '7days') {
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+        start = d.toISOString().split('T')[0];
+      } else if (dashboardFilter === '30days') {
+        const d = new Date();
+        d.setDate(d.getDate() - 30);
+        start = d.toISOString().split('T')[0];
+      } else if (dashboardFilter === 'thismonth') {
+        const d = new Date();
+        start = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+      } else if (dashboardFilter === 'thisyear') {
+        const d = new Date();
+        start = `${d.getFullYear()}-01-01`;
+      } else if (dashboardFilter === 'custom') {
+        start = dashboardStartDate;
+        end = dashboardEndDate;
+      }
+
+      const params = {};
+      if (start) params.start_date = start;
+      if (end) params.end_date = end;
+
+      const data = await tenantsApi.getCurrentDashboard(params);
+      setDashboardData(data);
+    } catch (err) {
+      console.error('Error al cargar datos del dashboard:', err);
+    } finally {
+      setLoadingDashboard(false);
+    }
+  }, [currentUser, isSuperAdmin, isAdmin, dashboardFilter, dashboardStartDate, dashboardEndDate]);
+
   // Carga inicial cuando el usuario se autentifica
   useEffect(() => {
     if (!currentUser) return;
@@ -311,7 +362,14 @@ function App() {
         if (isSuperAdmin) {
           await loadTenants();
         } else {
-          await Promise.all([loadProducts(), loadOrders(), loadProduction(), loadCatalogConfig(), loadTenantSettings()]);
+          await Promise.all([
+            loadProducts(),
+            loadOrders(),
+            loadProduction(),
+            loadCatalogConfig(),
+            loadTenantSettings(),
+            loadDashboardData()
+          ]);
         }
       } catch (err) {
         setDataError('Error al cargar datos del servidor.');
@@ -321,7 +379,7 @@ function App() {
       }
     };
     loadAll();
-  }, [currentUser, isSuperAdmin, loadTenants, loadProducts, loadOrders, loadProduction, loadCatalogConfig, loadTenantSettings]);
+  }, [currentUser, isSuperAdmin, loadTenants, loadProducts, loadOrders, loadProduction, loadCatalogConfig, loadTenantSettings, loadDashboardData]);
 
   // Recargar desde servidor solo cuando cambia categoría
   useEffect(() => {
@@ -350,6 +408,7 @@ function App() {
     if (!currentUser) return;
     if (activeTab === 'orders') loadOrders();
     if (activeTab === 'admin') loadProduction();
+    if (activeTab === 'dashboard') loadDashboardData();
     if (activeTab === 'clients') {
       loadClients();
       loadPricingTiers();
@@ -361,7 +420,14 @@ function App() {
     if (['saas-tenants', 'saas-users', 'saas-billing', 'saas-audit'].includes(activeTab)) {
       loadTenants();
     }
-  }, [activeTab, currentUser, loadOrders, loadProduction, loadClients, loadPricingTiers, loadTenants, loadCatalogConfig, loadTenantSettings]);
+  }, [activeTab, currentUser, loadOrders, loadProduction, loadClients, loadPricingTiers, loadTenants, loadCatalogConfig, loadTenantSettings, loadDashboardData]);
+
+  // Recargar datos del dashboard cuando cambian los filtros
+  useEffect(() => {
+    if (activeTab === 'dashboard') {
+      loadDashboardData();
+    }
+  }, [activeTab, dashboardFilter, dashboardStartDate, dashboardEndDate, loadDashboardData]);
 
   // Aligerar la vista del Super Admin forzando la redirección de tab
   useEffect(() => {
@@ -1486,6 +1552,9 @@ function App() {
                 </span>
                 {isAdmin && (
                   <>
+                    <span className={`nav-link-btn ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
+                      📈 Control de Mando
+                    </span>
                     <span className={`nav-link-btn ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
                       🏭 Fábrica & Producción
                     </span>
@@ -1552,6 +1621,7 @@ function App() {
                 <span className={`mobile-nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>📜 Pedidos</span>
                 {isAdmin && (
                   <>
+                    <span className={`mobile-nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>📈 Dash</span>
                     <span className={`mobile-nav-item ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>🏭 Fábrica</span>
                     <span className={`mobile-nav-item ${activeTab === 'clients' ? 'active' : ''}`} onClick={() => setActiveTab('clients')}>👥 Clientes</span>
                     <span className={`mobile-nav-item ${activeTab === 'config' ? 'active' : ''}`} onClick={() => setActiveTab('config')}>⚙️ Config</span>
@@ -3861,6 +3931,281 @@ function App() {
                 </div>
               </form>
             </div>
+          </div>
+        )}
+
+        {/* ===================================================== */}
+        {/* TAB: DASHBOARD / CONTROL DE MANDO                     */}
+        {/* ===================================================== */}
+        {activeTab === 'dashboard' && isAdmin && !dataLoading && (
+          <div>
+            {/* Header del Dashboard */}
+            <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+              <div>
+                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>📈 Control de Mando Comercial</h1>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                  Monitorea el rendimiento financiero de tu empresa: ingresos, costos de fábrica, utilidad neta y productos líderes.
+                </p>
+              </div>
+
+              {/* Selector de Periodo */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px' }}>
+                <div className="btn-group" style={{ display: 'flex', background: 'rgba(255,255,255,0.03)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  {[
+                    { id: '7days', label: '7 Días' },
+                    { id: '30days', label: '30 Días' },
+                    { id: 'thismonth', label: 'Este Mes' },
+                    { id: 'thisyear', label: 'Este Año' },
+                    { id: 'custom', label: 'Personalizado' }
+                  ].map(filter => (
+                    <button
+                      key={filter.id}
+                      type="button"
+                      onClick={() => setDashboardFilter(filter.id)}
+                      className={dashboardFilter === filter.id ? 'btn-pink' : 'btn-glass'}
+                      style={{ padding: '6px 12px', fontSize: '11px', fontWeight: '700', border: 'none', borderRadius: '6px' }}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+
+                {dashboardFilter === 'custom' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(0,0,0,0.2)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                    <input
+                      type="date"
+                      value={dashboardStartDate}
+                      onChange={(e) => setDashboardStartDate(e.target.value)}
+                      style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '11px' }}
+                    />
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>a</span>
+                    <input
+                      type="date"
+                      value={dashboardEndDate}
+                      onChange={(e) => setDashboardEndDate(e.target.value)}
+                      style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '11px' }}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Tarjetas de Resumen Financiero */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+              
+              {/* Tarjeta 1: Ventas Totales */}
+              <div className="glass-panel" style={{ padding: '20px', position: 'relative', borderLeft: '4px solid var(--cyan-neon)' }}>
+                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>💰 Ventas Netas</span>
+                <strong style={{ display: 'block', fontSize: '24px', margin: '8px 0 2px 0', color: 'var(--cyan-neon)' }}>
+                  ${(dashboardData.summary?.total_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </strong>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Ingresos facturados a clientes B2B</span>
+              </div>
+
+              {/* Tarjeta 2: Costo de Ventas */}
+              <div className="glass-panel" style={{ padding: '20px', position: 'relative', borderLeft: '4px solid var(--orange-neon)' }}>
+                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>🏭 Costo de Producción</span>
+                <strong style={{ display: 'block', fontSize: '24px', margin: '8px 0 2px 0', color: 'var(--orange-neon)' }}>
+                  ${(dashboardData.summary?.total_costs || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </strong>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Costo FOB del fabricante de sleeves</span>
+              </div>
+
+              {/* Tarjeta 3: Utilidad */}
+              <div className="glass-panel" style={{ padding: '20px', position: 'relative', borderLeft: '4px solid var(--green-neon)' }}>
+                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>📈 Utilidad Neta</span>
+                <strong style={{ display: 'block', fontSize: '24px', margin: '8px 0 2px 0', color: 'var(--green-neon)' }}>
+                  ${(dashboardData.summary?.total_profit || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </strong>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Ganancia neta (Ventas - Costos)</span>
+              </div>
+
+              {/* Tarjeta 4: Margen */}
+              <div className="glass-panel" style={{ padding: '20px', position: 'relative', borderLeft: '4px solid var(--pink-neon)' }}>
+                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>📊 Margen de Ganancia</span>
+                <strong style={{ display: 'block', fontSize: '24px', margin: '8px 0 2px 0', color: 'var(--pink-neon)' }}>
+                  {(dashboardData.summary?.margin_percent || 0).toFixed(1)}%
+                </strong>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Retorno sobre ingresos totales</span>
+              </div>
+
+            </div>
+
+            {/* Sección de Gráficos */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px', marginBottom: '24px' }}>
+              
+              {/* Gráfico 1: Histórico de Ventas vs Costos (SVG Line/Area) */}
+              <div className="glass-panel" style={{ padding: '24px' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: '800', marginBottom: '20px', color: '#fff' }}>📉 Tendencia de Ingresos & Costos</h3>
+                {dashboardData.sales_by_day?.length === 0 ? (
+                  <div style={{ height: '220px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                    Sin datos en este rango de tiempo para graficar.
+                  </div>
+                ) : (
+                  <div>
+                    {(() => {
+                      const sales_by_day = dashboardData.sales_by_day || [];
+                      const maxVal = Math.max(...sales_by_day.map(d => Math.max(d.sales, d.cost)), 100) * 1.15;
+                      const width = 500;
+                      const height = 180;
+                      
+                      const buildPoints = (key) => {
+                        return sales_by_day.map((d, i) => {
+                          const x = (i / (sales_by_day.length - 1 || 1)) * width;
+                          const y = height - (d[key] / maxVal) * height;
+                          return `${x.toFixed(1)},${y.toFixed(1)}`;
+                        }).join(' ');
+                      };
+
+                      const salesPoints = buildPoints('sales');
+                      const costPoints = buildPoints('cost');
+
+                      const salesAreaPoints = salesPoints ? `0,${height} ${salesPoints} ${width},${height}` : '';
+                      const costAreaPoints = costPoints ? `0,${height} ${costPoints} ${width},${height}` : '';
+
+                      return (
+                        <div style={{ position: 'relative' }}>
+                          <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: '200px', overflow: 'visible' }}>
+                            <defs>
+                              <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="var(--cyan-neon)" stopOpacity="0.3"/>
+                                <stop offset="100%" stopColor="var(--cyan-neon)" stopOpacity="0.0"/>
+                              </linearGradient>
+                              <linearGradient id="costGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="var(--orange-neon)" stopOpacity="0.2"/>
+                                <stop offset="100%" stopColor="var(--orange-neon)" stopOpacity="0.0"/>
+                              </linearGradient>
+                            </defs>
+
+                            <line x1="0" y1={height/2} x2={width} y2={height/2} stroke="rgba(255,255,255,0.05)" strokeDasharray="3,3" />
+                            <line x1="0" y1={height} x2={width} y2={height} stroke="rgba(255,255,255,0.1)" />
+
+                            {costAreaPoints && <polygon points={costAreaPoints} fill="url(#costGrad)" />}
+                            {salesAreaPoints && <polygon points={salesAreaPoints} fill="url(#salesGrad)" />}
+
+                            {costPoints && <polyline points={costPoints} fill="none" stroke="var(--orange-neon)" strokeWidth="3" />}
+                            {salesPoints && <polyline points={salesPoints} fill="none" stroke="var(--cyan-neon)" strokeWidth="3" />}
+
+                            <text x="-10" y="15" fill="var(--text-secondary)" fontSize="10" textAnchor="end">${maxVal.toLocaleString('en-US', { maximumFractionDigits: 0 })}</text>
+                            <text x="-10" y={height/2 + 4} fill="var(--text-secondary)" fontSize="10" textAnchor="end">${(maxVal/2).toLocaleString('en-US', { maximumFractionDigits: 0 })}</text>
+                            <text x="-10" y={height} fill="var(--text-secondary)" fontSize="10" textAnchor="end">$0</text>
+                          </svg>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10px', fontSize: '10px', color: 'var(--text-secondary)' }}>
+                            <span>{sales_by_day[0]?.date}</span>
+                            <span>{sales_by_day[Math.floor(sales_by_day.length / 2)]?.date}</span>
+                            <span>{sales_by_day[sales_by_day.length - 1]?.date}</span>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', marginTop: '16px', fontSize: '12px' }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ display: 'inline-block', width: '12px', height: '12px', background: 'var(--cyan-neon)', borderRadius: '3px' }}></span>
+                              Ventas ($)
+                            </span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ display: 'inline-block', width: '12px', height: '12px', background: 'var(--orange-neon)', borderRadius: '3px' }}></span>
+                              Costo ($)
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+
+              {/* Gráfico 2: Ventas por Categoría (Barras Horizontales con Porcentajes) */}
+              <div className="glass-panel" style={{ padding: '24px' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: '800', marginBottom: '20px', color: '#fff' }}>📁 Ventas por Categoría de Producto</h3>
+                {dashboardData.sales_by_category?.length === 0 ? (
+                  <div style={{ height: '220px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                    Sin datos de categorías en este rango de tiempo.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                    {(() => {
+                      const categories = dashboardData.sales_by_category || [];
+                      const totalSalesVal = categories.reduce((sum, c) => sum + c.sales, 0) || 1;
+                      
+                      return categories.map((cat, idx) => {
+                        const pct = (cat.sales / totalSalesVal) * 100;
+                        const colors = ['var(--cyan-neon)', 'var(--pink-neon)', 'var(--green-neon)', 'var(--orange-neon)'];
+                        const color = colors[idx % colors.length];
+
+                        return (
+                          <div key={cat.category}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px', marginBottom: '6px' }}>
+                              <strong style={{ color: '#fff' }}>{cat.category}</strong>
+                              <span style={{ color: 'var(--text-secondary)' }}>
+                                ${cat.sales.toLocaleString('en-US', { maximumFractionDigits: 0 })} USD ({pct.toFixed(1)}%)
+                              </span>
+                            </div>
+                            <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '10px', height: '10px', overflow: 'hidden' }}>
+                              <div style={{ width: `${pct}%`, background: color, height: '100%', borderRadius: '10px', boxShadow: `0 0 8px ${color}` }}></div>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* Tabla / Ranking de Rentabilidad de Productos */}
+            <div className="glass-panel" style={{ padding: '24px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '800', marginBottom: '16px', color: '#fff' }}>🏆 Productos Líderes en Rentabilidad (Top 5)</h3>
+              
+              {dashboardData.top_products?.length === 0 ? (
+                <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                  Sin productos comercializados en el rango seleccionado.
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.02)' }}>
+                        <th style={{ padding: '12px' }}>Producto</th>
+                        <th style={{ padding: '12px' }}>SKU</th>
+                        <th style={{ padding: '12px', textAlign: 'center' }}>Cajas Vendidas</th>
+                        <th style={{ padding: '12px', textAlign: 'right' }}>Ventas Totales</th>
+                        <th style={{ padding: '12px', textAlign: 'right' }}>Costo Fábrica</th>
+                        <th style={{ padding: '12px', textAlign: 'right' }}>Utilidad</th>
+                        <th style={{ padding: '12px', textAlign: 'center' }}>Margen (%)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dashboardData.top_products.map((p, idx) => {
+                        const margin = p.sales > 0 ? (p.profit / p.sales) * 100 : 0;
+                        return (
+                          <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', transition: 'background 0.2s' }}>
+                            <td style={{ padding: '12px', fontWeight: '700', color: '#fff' }}>{p.name}</td>
+                            <td style={{ padding: '12px', fontFamily: 'monospace' }}>{p.sku}</td>
+                            <td style={{ padding: '12px', textAlign: 'center', fontWeight: '700' }}>{p.qty_cases} master</td>
+                            <td style={{ padding: '12px', textAlign: 'right', color: 'var(--cyan-neon)' }}>
+                              ${p.sales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                            <td style={{ padding: '12px', textAlign: 'right', color: 'var(--orange-neon)' }}>
+                              ${p.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                            <td style={{ padding: '12px', textAlign: 'right', color: 'var(--green-neon)', fontWeight: '700' }}>
+                              ${p.profit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                            <td style={{ padding: '12px', textAlign: 'center' }}>
+                              <span className="badge badge-green" style={{ fontSize: '11px', fontWeight: '800' }}>
+                                {margin.toFixed(1)}%
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
           </div>
         )}
 

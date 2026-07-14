@@ -302,4 +302,116 @@ router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res
   }
 });
 
+// ============================================================
+// GET /api/tenants/current/dashboard (Solo Tenant Admin)
+// Retorna estadísticas consolidadas para el panel de control.
+// ============================================================
+router.get('/current/dashboard', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { start_date, end_date } = req.query;
+
+  let query = `
+    SELECT 
+      so.id as order_id,
+      so.created_at,
+      so.subtotal_usd,
+      so.discount_usd,
+      so.shipping_cost_usd,
+      so.total_usd,
+      so.status,
+      soi.qty_cases,
+      soi.price_case_usd,
+      soi.total_item_usd,
+      p.name as product_name,
+      p.sku as product_sku,
+      p.category as product_category,
+      COALESCE(p.factory_cost_per_case_usd, 0) as factory_cost_per_case_usd
+    FROM sales_orders so
+    JOIN sales_order_items soi ON soi.sales_order_id = so.id
+    JOIN products p ON p.id = soi.product_id
+    WHERE so.tenant_id = $1
+  `;
+  const params = [tenant_id];
+
+  if (start_date) {
+    params.push(start_date);
+    query += ` AND so.created_at >= $${params.length}`;
+  }
+  if (end_date) {
+    params.push(end_date);
+    query += ` AND so.created_at <= $${params.length}`;
+  }
+
+  query += ` ORDER BY so.created_at ASC`;
+
+  try {
+    const result = await pool.query(query, params);
+    const rows = result.rows;
+
+    let totalSales = 0;
+    let totalCosts = 0;
+
+    const salesByDayMap = {};
+    const salesByCategoryMap = {};
+    const productsMap = {};
+
+    rows.forEach(r => {
+      const qty = parseInt(r.qty_cases) || 0;
+      const price = parseFloat(r.price_case_usd) || 0;
+      const itemRevenue = qty * price;
+      const itemCost = qty * (parseFloat(r.factory_cost_per_case_usd) || 0);
+
+      totalSales += itemRevenue;
+      totalCosts += itemCost;
+
+      const dateStr = new Date(r.created_at).toISOString().split('T')[0];
+      if (!salesByDayMap[dateStr]) {
+        salesByDayMap[dateStr] = { date: dateStr, sales: 0, cost: 0, profit: 0 };
+      }
+      salesByDayMap[dateStr].sales += itemRevenue;
+      salesByDayMap[dateStr].cost += itemCost;
+      salesByDayMap[dateStr].profit += (itemRevenue - itemCost);
+
+      const cat = r.product_category || 'Otros';
+      if (!salesByCategoryMap[cat]) {
+        salesByCategoryMap[cat] = { category: cat, sales: 0 };
+      }
+      salesByCategoryMap[cat].sales += itemRevenue;
+
+      const sku = r.product_sku;
+      if (!productsMap[sku]) {
+        productsMap[sku] = { name: r.product_name, sku: sku, qty_cases: 0, sales: 0, cost: 0, profit: 0 };
+      }
+      productsMap[sku].qty_cases += qty;
+      productsMap[sku].sales += itemRevenue;
+      productsMap[sku].cost += itemCost;
+      productsMap[sku].profit += (itemRevenue - itemCost);
+    });
+
+    const totalProfit = totalSales - totalCosts;
+    const marginPercent = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
+
+    const sales_by_day = Object.values(salesByDayMap);
+    const sales_by_category = Object.values(salesByCategoryMap);
+    const top_products = Object.values(productsMap)
+      .sort((a, b) => b.sales - a.sales)
+      .slice(0, 5);
+
+    res.json({
+      summary: {
+        total_sales: totalSales,
+        total_costs: totalCosts,
+        total_profit: totalProfit,
+        margin_percent: marginPercent
+      },
+      sales_by_day,
+      sales_by_category,
+      top_products
+    });
+  } catch (err) {
+    console.error('Error al generar reporte de dashboard:', err);
+    res.status(500).json({ error: 'Error interno del servidor al calcular métricas.' });
+  }
+});
+
 export default router;
