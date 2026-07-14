@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import pool from '../db/pool.js';
-import { requireAuth, requireSuperAdmin } from '../middleware/auth.js';
+import { requireAuth, requireSuperAdmin, requireTenantAdmin } from '../middleware/auth.js';
 import { logAudit } from '../utils/audit.js';
 
 const router = Router();
