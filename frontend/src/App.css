@@ -296,3 +296,18 @@
   width: 100%;
   box-sizing: border-box;
 }
+
+/* --- Product Navigation Link (Interconnection) --- */
+.product-nav-link {
+  color: #fff;
+  font-size: 14.5px;
+  font-weight: bold;
+  text-decoration: none;
+  transition: color 0.2s ease, text-decoration 0.2s ease;
+  cursor: pointer;
+}
+.product-nav-link:hover {
+  color: #22d3ee; /* cyan-400 equivalent */
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+}

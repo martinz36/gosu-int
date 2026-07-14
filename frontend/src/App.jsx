@@ -1227,6 +1227,37 @@ function App() {
     }
   };
 
+  const handleTriggerEditProduct = (product) => {
+    setActiveTab('catalog');
+    setEditingProduct(product);
+    setCreatingProduct(false);
+    setNewProduct({
+      name: product.name,
+      sku: product.sku,
+      category: product.category,
+      image_url: product.image_url || '',
+      commercial_description: product.commercial_description || '',
+      price_per_case_usd: product.price_per_case_usd,
+      units_per_case: product.units_per_case,
+      finished_measurements: product.finished_measurements || '',
+      factory_name: product.factory_name || '',
+      factory_sku: product.factory_sku || '',
+      factory_cost_per_case_usd: product.factory_cost_per_case_usd || '',
+      pantone_codes: product.pantone_codes || '',
+      cut_measurements: product.cut_measurements || '',
+      fabrication_notes: product.fabrication_notes || '',
+      production_files_url: product.production_files_url || '',
+      case_weight_kg: product.case_weight_kg || '',
+      case_length_cm: product.case_length_cm || '',
+      case_width_cm: product.case_width_cm || '',
+      case_height_cm: product.case_height_cm || '',
+      stock_physical_cases: product.stock_physical_cases || '',
+      stock_in_production_cases: product.stock_in_production_cases || '',
+      color: product.color || '',
+      brand: product.brand || ''
+    });
+  };
+
   const handleOpenKardex = async (product) => {
     setKardexProduct(product);
     setKardexModalOpen(true);
@@ -2041,7 +2072,7 @@ function App() {
             ) : (
               <>
                 <span className={`nav-link-btn ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>
-                  📂 Catálogo B2B
+                  📂 {isAdmin ? 'Productos' : 'Catálogo B2B'}
                 </span>
                 {!isAdmin && (
                   <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
@@ -5097,7 +5128,16 @@ function App() {
                             )}
                           </td>
                           <td style={{ padding: '12px 16px' }}>
-                            <strong style={{ color: '#fff', fontSize: '14.5px' }}>{product.name}</strong>
+                            <a
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                handleTriggerEditProduct(product);
+                              }}
+                              className="product-nav-link"
+                            >
+                              {product.name}
+                            </a>
                             {product.color && <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Color: {product.color}</span>}
                           </td>
                           <td style={{ padding: '12px 16px', fontFamily: 'monospace' }}>{product.sku}</td>
