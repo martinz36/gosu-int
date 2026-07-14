@@ -142,6 +142,12 @@ export const orders = {
   getStripeReceipt: (id) =>
     request('GET', `/api/orders/${id}/stripe-receipt`),
 
+  approvePayment: (id) =>
+    request('POST', `/api/orders/${id}/approve-payment`),
+
+  updateCreditDueDate: (id, credit_due_date) =>
+    request('PUT', `/api/orders/${id}/credit-due-date`, { credit_due_date }),
+
   sendWhatsApp: (id, number, origin) =>
     request('POST', `/api/orders/${id}/send-whatsapp`, { number, origin }),
 

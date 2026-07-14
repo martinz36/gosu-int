@@ -86,6 +86,13 @@ const runAutoMigrations = async () => {
     `);
     console.log('✅ Migraciones de estado de pago de ventas completadas.');
 
+    // 6. Agregar columnas stripe_session_id y credit_due_date a sales_orders
+    await client.query(`
+      ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS stripe_session_id VARCHAR(512);
+      ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS credit_due_date DATE;
+    `);
+    console.log('✅ Columnas stripe_session_id y credit_due_date agregadas a sales_orders.');
+
     client.release();
     console.log('🎉 Migraciones automáticas completadas.');
   } catch (err) {

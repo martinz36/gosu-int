@@ -58,6 +58,7 @@ function App() {
   const [cart, setCart] = useState({});
   const [showCart, setShowCart] = useState(false);
   const [receiptUploaded, setReceiptUploaded] = useState(false);
+  const [billingFilter, setBillingFilter] = useState('all'); // 'all' | 'pending' | 'review' | 'credit' | 'paid'
   const [selectedOrderForDoc, setSelectedOrderForDoc] = useState(null);
   const [docType, setDocType] = useState('invoice');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
@@ -1541,6 +1542,26 @@ function App() {
     }
   };
 
+  const handleApprovePayment = async (orderId) => {
+    if (!window.confirm('¿Está seguro de que desea aprobar el comprobante y marcar esta orden como Pagada?')) return;
+    try {
+      await ordersApi.approvePayment(orderId);
+      alert('🎉 Pago aprobado con éxito.');
+      await loadOrders();
+    } catch (err) {
+      alert(`❌ Error al aprobar pago: ${err.message}`);
+    }
+  };
+
+  const handleUpdateCreditDueDate = async (orderId, dateValue) => {
+    try {
+      await ordersApi.updateCreditDueDate(orderId, dateValue);
+      await loadOrders();
+    } catch (err) {
+      alert(`❌ Error al actualizar fecha de vencimiento: ${err.message}`);
+    }
+  };
+
   const handleExportPDF = (pOrder) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
@@ -2210,6 +2231,9 @@ function App() {
                     </span>
                     <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
                       📊 Registro de Ventas
+                    </span>
+                    <span className={`nav-link-btn ${activeTab === 'billing' ? 'active' : ''}`} onClick={() => setActiveTab('billing')}>
+                      💳 Cobranzas B2B
                     </span>
                     <span className={`nav-link-btn ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
                       🏭 Fábrica & Producción
@@ -4000,80 +4024,27 @@ function App() {
                             ${parseFloat(order.total_usd || order.total_amount_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                           </td>
                           <td style={{ padding: '16px' }}>
-                            {isAdmin ? (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <select
-                                  value={order.payment_status || 'Pendiente'}
-                                  onChange={(e) => handleUpdatePaymentStatus(order.id, e.target.value, order.balance_receipt_url)}
-                                  style={{
-                                    background: 'rgba(0,0,0,0.3)',
-                                    border: '1px solid var(--border-color)',
-                                    color: order.payment_status === 'Pagado' ? 'var(--green-neon)' : order.payment_status === 'Crédito' ? 'var(--cyan-neon)' : 'var(--pink-neon)',
-                                    padding: '6px 10px',
-                                    borderRadius: '6px',
-                                    fontSize: '12px',
-                                    fontWeight: '700'
-                                  }}
+                            <span className={`badge ${
+                              order.payment_status === 'Pagado' ? 'badge-green' :
+                              order.payment_status === 'Crédito' ? 'badge-cyan' :
+                              order.payment_status === 'En Revisión' ? 'badge-orange' :
+                              'badge-red'
+                            }`} style={{ fontSize: '11px', padding: '4px 8px' }}>
+                              {order.payment_status === 'Pagado' ? '🟢 Pagado' :
+                               order.payment_status === 'Crédito' ? '🔵 Crédito' :
+                               order.payment_status === 'En Revisión' ? '🟠 En Revisión' :
+                               '🔴 Pendiente'}
+                              {order.payment_status === 'Pagado' && order.balance_receipt_url && (
+                                <a
+                                  href={order.balance_receipt_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{ marginLeft: '6px', color: '#fff', textDecoration: 'underline' }}
                                 >
-                                  <option value="Pendiente" style={{ color: '#fff', background: '#121212' }}>🔴 Pendiente</option>
-                                  <option value="Pagado" style={{ color: '#fff', background: '#121212' }}>🟢 Pagado</option>
-                                  <option value="Crédito" style={{ color: '#fff', background: '#121212' }}>🔵 Crédito</option>
-                                </select>
-                                {order.payment_status === 'Pagado' && (
-                                  <>
-                                    {order.balance_receipt_url ? (
-                                      <div style={{ display: 'flex', gap: '4px' }}>
-                                        <a
-                                          href={order.balance_receipt_url}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="btn-glass"
-                                          style={{ padding: '4px 8px', fontSize: '11px', textDecoration: 'none' }}
-                                          title="Ver Comprobante"
-                                        >
-                                          🔗
-                                        </a>
-                                        <button
-                                          onClick={() => handleEditPaymentReceipt(order)}
-                                          className="btn-glass"
-                                          style={{ padding: '4px 8px', fontSize: '11px' }}
-                                          title="Editar Comprobante"
-                                        >
-                                          ✏️
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <button
-                                        onClick={() => handleEditPaymentReceipt(order)}
-                                        className="btn-glass-pink"
-                                        style={{ padding: '4px 8px', fontSize: '11px' }}
-                                        title="Adjuntar Comprobante"
-                                      >
-                                        ➕ Doc
-                                      </button>
-                                    )}
-                                  </>
-                                )}
-                              </div>
-                            ) : (
-                              <span className={`badge ${
-                                order.payment_status === 'Pagado' ? 'badge-green' :
-                                order.payment_status === 'Crédito' ? 'badge-cyan' :
-                                'badge-red'
-                              }`} style={{ fontSize: '11px', padding: '4px 8px' }}>
-                                💰 {order.payment_status || 'Pendiente'}
-                                {order.payment_status === 'Pagado' && order.balance_receipt_url && (
-                                  <a
-                                    href={order.balance_receipt_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    style={{ marginLeft: '6px', color: '#fff', textDecoration: 'underline' }}
-                                  >
-                                    [Doc]
-                                  </a>
-                                )}
-                              </span>
-                            )}
+                                  [Doc]
+                                </a>
+                              )}
+                            </span>
                           </td>
                           <td style={{ padding: '16px' }}>
                             <span className={`badge ${
@@ -4162,6 +4133,310 @@ function App() {
             )}
           </div>
         )}
+
+        {/* ===================================================== */}
+        {/* TAB: COBRANZAS B2B (Solo Admin)                       */}
+        {/* ===================================================== */}
+        {activeTab === 'billing' && isAdmin && !dataLoading && (() => {
+          // Filtrado local de órdenes
+          const filteredBillingOrders = clientOrders.filter(order => {
+            if (billingFilter === 'pending') return order.payment_status === 'Pendiente';
+            if (billingFilter === 'review') return order.payment_status === 'En Revisión';
+            if (billingFilter === 'credit') return order.payment_status === 'Crédito';
+            if (billingFilter === 'paid') return order.payment_status === 'Pagado';
+            return true;
+          });
+
+          // Cálculos de KPIs
+          const totalPaid = clientOrders
+            .filter(o => o.payment_status === 'Pagado')
+            .reduce((acc, o) => acc + parseFloat(o.total_usd || 0), 0);
+
+          const totalCredit = clientOrders
+            .filter(o => o.payment_status === 'Crédito')
+            .reduce((acc, o) => acc + parseFloat(o.total_usd || 0), 0);
+
+          const pendingReviews = clientOrders.filter(o => o.payment_status === 'En Revisión').length;
+
+          // Helper para comprobar si una fecha de crédito está vencida
+          const isCreditOverdue = (dueDateStr) => {
+            if (!dueDateStr) return false;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const dueDate = new Date(dueDateStr);
+            dueDate.setHours(0, 0, 0, 0);
+            return dueDate < today;
+          };
+
+          return (
+            <div>
+              {/* Tarjetas de Métricas de Cobranza */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+                <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--green-neon)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '600', marginBottom: '4px' }}>💰 Total Recaudado / Cobrado</div>
+                  <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--green-neon)' }}>
+                    ${totalPaid.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Pagos liquidados por Stripe y transferencias aprobadas.</div>
+                </div>
+
+                <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--cyan-neon)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '600', marginBottom: '4px' }}>🔵 Crédito Comercial Vigente</div>
+                  <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--cyan-neon)' }}>
+                    ${totalCredit.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Cuentas B2B por cobrar con vencimiento pactado.</div>
+                </div>
+
+                <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--orange-neon)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '600', marginBottom: '4px' }}>🟠 Vouchers en Revisión</div>
+                  <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--orange-neon)' }}>
+                    {pendingReviews} {pendingReviews === 1 ? 'pedido' : 'pedidos'}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Transferencias bancarias pendientes de validación.</div>
+                </div>
+              </div>
+
+              {/* Título y Controles de Filtros */}
+              <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
+                  <div>
+                    <h1 style={{ fontSize: '24px', margin: '0 0 4px', fontWeight: '800', color: '#fff' }}>💳 Control de Cobranzas B2B</h1>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
+                      Gestiona la conciliación de transferencias, aprueba comprobantes de pago y define vencimientos de créditos comerciales.
+                    </p>
+                  </div>
+
+                  {/* Filtros rápidos */}
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => setBillingFilter('all')}
+                      className={billingFilter === 'all' ? 'btn-neon' : 'btn-glass'}
+                      style={{ padding: '8px 16px', fontSize: '12px' }}
+                    >
+                      Todos
+                    </button>
+                    <button
+                      onClick={() => setBillingFilter('review')}
+                      className={billingFilter === 'review' ? 'btn-neon-orange' : 'btn-glass'}
+                      style={{ padding: '8px 16px', fontSize: '12px', borderColor: billingFilter === 'review' ? 'var(--orange-neon)' : '' }}
+                    >
+                      🟠 Por Revisar ({pendingReviews})
+                    </button>
+                    <button
+                      onClick={() => setBillingFilter('credit')}
+                      className={billingFilter === 'credit' ? 'btn-neon-cyan' : 'btn-glass'}
+                      style={{ padding: '8px 16px', fontSize: '12px', borderColor: billingFilter === 'credit' ? 'var(--cyan-neon)' : '' }}
+                    >
+                      🔵 Créditos
+                    </button>
+                    <button
+                      onClick={() => setBillingFilter('paid')}
+                      className={billingFilter === 'paid' ? 'btn-neon-green' : 'btn-glass'}
+                      style={{ padding: '8px 16px', fontSize: '12px', borderColor: billingFilter === 'paid' ? 'var(--green-neon)' : '' }}
+                    >
+                      🟢 Cobradas
+                    </button>
+                  </div>
+                </div>
+
+                {/* Tabla de Cobranzas */}
+                {filteredBillingOrders.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)', fontSize: '13.5px' }}>
+                    No se encontraron registros de cobros bajo este filtro.
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', textAlign: 'left' }}>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>PO</th>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Cliente B2B</th>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'right' }}>Total FOB</th>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Método</th>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Estado de Pago</th>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Vencimiento Crédito</th>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'center' }}>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredBillingOrders.map(order => {
+                          const isOverdue = order.payment_status === 'Crédito' && isCreditOverdue(order.credit_due_date);
+                          return (
+                            <tr key={order.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: isOverdue ? 'rgba(255,0,0,0.02)' : 'transparent' }}>
+                              <td style={{ padding: '14px 16px' }}>
+                                <button
+                                  onClick={() => {
+                                    setSelectedOrderDetail(order);
+                                    setShowOrderDetailModal(true);
+                                  }}
+                                  style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', fontWeight: '800', cursor: 'pointer', padding: 0, textDecoration: 'underline', fontFamily: 'monospace' }}
+                                >
+                                  {order.po_number || 'PO-????'}
+                                </button>
+                              </td>
+                              <td style={{ padding: '14px 16px' }}>
+                                <div style={{ color: '#fff', fontWeight: '600', fontSize: '12.5px' }}>{order.company_name}</div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{order.client_name}</div>
+                              </td>
+                              <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 'bold', color: 'var(--green-neon)', fontSize: '13px' }}>
+                                ${parseFloat(order.total_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                              <td style={{ padding: '14px 16px', fontSize: '12px', color: '#fff' }}>
+                                {order.payment_method === 'stripe' ? (
+                                  <span style={{ color: 'var(--cyan-neon)', fontWeight: '600' }}>💳 Tarjeta (Stripe)</span>
+                                ) : order.payment_method === 'transfer' ? (
+                                  <span style={{ color: '#fff' }}>🏦 Transferencia</span>
+                                ) : (
+                                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '14px 16px' }}>
+                                <span className={`badge ${
+                                  order.payment_status === 'Pagado' ? 'badge-green' :
+                                  order.payment_status === 'Crédito' ? 'badge-cyan' :
+                                  order.payment_status === 'En Revisión' ? 'badge-orange' :
+                                  'badge-red'
+                                }`} style={{ fontSize: '11px', padding: '4px 8px' }}>
+                                  {order.payment_status === 'Pagado' ? '🟢 Pagado' :
+                                   order.payment_status === 'Crédito' ? '🔵 Crédito' :
+                                   order.payment_status === 'En Revisión' ? '🟠 En Revisión' :
+                                   '🔴 Pendiente'}
+                                </span>
+                              </td>
+                              <td style={{ padding: '14px 16px' }}>
+                                {order.payment_status === 'Crédito' ? (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <input
+                                      type="date"
+                                      value={order.credit_due_date ? order.credit_due_date.substring(0, 10) : ''}
+                                      onChange={(e) => handleUpdateCreditDueDate(order.id, e.target.value)}
+                                      style={{
+                                        background: '#121212',
+                                        border: isOverdue ? '1px solid var(--pink-neon)' : '1px solid var(--border-color)',
+                                        color: isOverdue ? 'var(--pink-neon)' : '#fff',
+                                        padding: '4px 8px',
+                                        borderRadius: '6px',
+                                        fontSize: '12px',
+                                        outline: 'none',
+                                        fontWeight: isOverdue ? '800' : '400'
+                                      }}
+                                    />
+                                    {isOverdue && (
+                                      <span style={{ color: 'var(--pink-neon)', fontSize: '12px', fontWeight: '800', animation: 'pulse 1.5s infinite' }} title="¡Vencido!">
+                                        ⚠️
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>—</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                                <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                                  {/* Mostrar botón para ver comprobante si existe */}
+                                  {order.balance_receipt_url && (
+                                    <a
+                                      href={order.balance_receipt_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="btn-glass"
+                                      style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--cyan-neon)', borderColor: 'var(--cyan-neon)', background: 'rgba(0, 232, 255, 0.05)', display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}
+                                      title={order.payment_method === 'stripe' ? 'Ver Recibo de Stripe' : 'Ver Comprobante de Transferencia'}
+                                    >
+                                      🧾
+                                    </a>
+                                  )}
+
+                                  {/* Acciones de Aprobación de Transferencias */}
+                                  {order.payment_status === 'En Revisión' && (
+                                    <button
+                                      onClick={() => handleApprovePayment(order.id)}
+                                      className="btn-neon"
+                                      style={{ padding: '6px 12px', fontSize: '11.5px', background: 'rgba(0, 232, 80, 0.2)', color: 'var(--green-neon)', borderColor: 'var(--green-neon)', fontWeight: '800' }}
+                                      title="Aprobar Pago"
+                                    >
+                                      ✔️ Aprobar
+                                    </button>
+                                  )}
+
+                                  {/* Si está pagado por Stripe pero no guardó la URL del recibo localmente */}
+                                  {!order.balance_receipt_url && order.payment_method === 'stripe' && (
+                                    <button
+                                      onClick={() => handleViewStripeReceipt(order.id)}
+                                      className="btn-glass"
+                                      style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--cyan-neon)', borderColor: 'var(--cyan-neon)', background: 'rgba(0, 232, 255, 0.05)' }}
+                                      title="Recuperar Recibo Stripe"
+                                    >
+                                      💳
+                                    </button>
+                                  )}
+
+                                  {/* Permite asignar comprobante manual a órdenes Pendientes o Créditos */}
+                                  {(order.payment_status === 'Pendiente' || order.payment_status === 'Crédito') && (
+                                    <>
+                                      {order.payment_status === 'Pendiente' ? (
+                                        <button
+                                          onClick={async () => {
+                                            if (window.confirm('¿Desea otorgar una línea de crédito a este pedido?')) {
+                                              try {
+                                                await ordersApi.updatePayment(order.id, 'Crédito', null);
+                                                alert('🎉 Crédito comercial otorgado con éxito.');
+                                                await loadOrders();
+                                              } catch (err) {
+                                                alert(`Error: ${err.message}`);
+                                              }
+                                            }
+                                          }}
+                                          className="btn-glass-neon"
+                                          style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--cyan-neon)', borderColor: 'var(--cyan-neon)' }}
+                                          title="Otorgar Crédito Comercial"
+                                        >
+                                          🔵 Otorgar Crédito
+                                        </button>
+                                      ) : (
+                                        <button
+                                          onClick={async () => {
+                                            if (window.confirm('¿Desea quitar el crédito de este pedido y retornarlo a Pendiente?')) {
+                                              try {
+                                                await ordersApi.updatePayment(order.id, 'Pendiente', null);
+                                                alert('🎉 Crédito removido con éxito.');
+                                                await loadOrders();
+                                              } catch (err) {
+                                                alert(`Error: ${err.message}`);
+                                              }
+                                            }
+                                          }}
+                                          className="btn-glass"
+                                          style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--pink-neon)', borderColor: 'var(--pink-neon)' }}
+                                          title="Quitar Crédito Comercial"
+                                        >
+                                          🔴 Quitar Crédito
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => handleEditPaymentReceipt(order)}
+                                        className="btn-glass-pink"
+                                        style={{ padding: '6px 10px', fontSize: '11px' }}
+                                        title={order.payment_status === 'Crédito' ? 'Registrar Pago / Liquidar Crédito' : 'Registrar Pago Manual'}
+                                      >
+                                        ➕ Registrar Pago
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ===================================================== */}
         {/* TAB 3: FÁBRICA & PRODUCCIÓN (Solo Admin)              */}

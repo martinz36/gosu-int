@@ -19,7 +19,7 @@ router.get('/', requireAuth, async (req, res) => {
       so.discount_usd, so.shipping_cost_usd, so.total_usd,
       so.advance_payment_pct, so.deposit_paid_usd, so.deposit_receipt_url,
       so.balance_paid_usd, so.balance_receipt_url, so.bl_number, so.bl_document_url,
-      so.notes, so.created_at, so.payment_status, so.payment_method,
+      so.notes, so.created_at, so.payment_status, so.payment_method, so.stripe_session_id, so.credit_due_date,
       u.name as client_name, u.email as client_email,
       SUM(soi.qty_cases * p.case_cbm) as total_cbm,
       SUM(soi.qty_cases) as total_cases,
@@ -317,12 +317,27 @@ router.put('/:id/payment', requireAuth, requireTenantAdmin, async (req, res) => 
   const { id } = req.params;
   const { payment_status, balance_receipt_url } = req.body;
 
-  const validPaymentStatuses = ['Pendiente', 'Pagado', 'Crédito'];
+  const validPaymentStatuses = ['Pendiente', 'En Revisión', 'Pagado', 'Crédito'];
   if (!validPaymentStatuses.includes(payment_status)) {
     return res.status(400).json({ error: 'Estado de pago no válido.' });
   }
 
   try {
+    // Verificar si la orden fue pagada por Stripe
+    const checkOrder = await pool.query(
+      'SELECT payment_method, payment_status FROM sales_orders WHERE id = $1 AND tenant_id = $2',
+      [id, tenant_id]
+    );
+
+    if (checkOrder.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    const order = checkOrder.rows[0];
+    if (order.payment_method === 'stripe') {
+      return res.status(400).json({ error: 'Las órdenes pagadas a través de Stripe son electrónicas e inalterables manualmente.' });
+    }
+
     const result = await pool.query(
       `UPDATE sales_orders 
        SET payment_status=$1, balance_receipt_url=$2, updated_at=CURRENT_TIMESTAMP 
@@ -331,14 +346,98 @@ router.put('/:id/payment', requireAuth, requireTenantAdmin, async (req, res) => 
       [payment_status, balance_receipt_url || null, id, tenant_id]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Pedido no encontrado.' });
-    }
-
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Error al actualizar pago:', err);
     res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ============================================================
+// POST /api/orders/:id/approve-payment (Solo admin del Tenant)
+// Aprueba el voucher de pago de transferencia para una orden, cambiando el estado a "Pagado".
+// ============================================================
+router.post('/:id/approve-payment', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { id } = req.params;
+
+  try {
+    const checkOrder = await pool.query(
+      'SELECT id, payment_status, payment_method, balance_receipt_url FROM sales_orders WHERE id = $1 AND tenant_id = $2',
+      [id, tenant_id]
+    );
+
+    if (checkOrder.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    const order = checkOrder.rows[0];
+    if (order.payment_method === 'stripe') {
+      return res.status(400).json({ error: 'Las órdenes de Stripe no requieren aprobación manual.' });
+    }
+
+    const result = await pool.query(
+      `UPDATE sales_orders 
+       SET payment_status = 'Pagado', updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $1 AND tenant_id = $2 
+       RETURNING *`,
+      [id, tenant_id]
+    );
+
+    // Guardar auditoría de la aprobación
+    await pool.query(
+      `INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, old_value, new_value)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [tenant_id, req.user.id, 'APPROVE_PAYMENT_SUCCESS', 'sales_orders', id, order.payment_status, 'Pagado']
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error al aprobar pago:', err);
+    res.status(500).json({ error: 'Error interno del servidor al aprobar el pago.' });
+  }
+});
+
+// ============================================================
+// PUT /api/orders/:id/credit-due-date (Solo admin del Tenant)
+// Establece o actualiza la fecha de vencimiento límite de cobro para pedidos a Crédito.
+// ============================================================
+router.put('/:id/credit-due-date', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { id } = req.params;
+  const { credit_due_date } = req.body;
+
+  try {
+    const checkOrder = await pool.query(
+      'SELECT id, payment_status, credit_due_date FROM sales_orders WHERE id = $1 AND tenant_id = $2',
+      [id, tenant_id]
+    );
+
+    if (checkOrder.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    const order = checkOrder.rows[0];
+
+    const result = await pool.query(
+      `UPDATE sales_orders 
+       SET credit_due_date = $1, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $2 AND tenant_id = $3 
+       RETURNING *`,
+      [credit_due_date || null, id, tenant_id]
+    );
+
+    // Guardar auditoría
+    await pool.query(
+      `INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, old_value, new_value)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [tenant_id, req.user.id, 'UPDATE_CREDIT_DUE_DATE', 'sales_orders', id, order.credit_due_date, credit_due_date || null]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error al actualizar fecha de vencimiento:', err);
+    res.status(500).json({ error: 'Error interno del servidor al actualizar la fecha de vencimiento.' });
   }
 });
 
@@ -849,6 +948,12 @@ router.post('/:id/pay-stripe', requireAuth, async (req, res) => {
       return res.status(502).json({ error: `Error de Stripe: ${sessionData.error?.message || 'Error desconocido'}` });
     }
 
+    // Guardar stripe_session_id en la base de datos para consultas directas instantáneas
+    await pool.query(
+      'UPDATE sales_orders SET stripe_session_id = $1 WHERE id = $2 AND tenant_id = $3',
+      [sessionData.id, orderId, tenant_id]
+    );
+
     res.json({
       success: true,
       url: sessionData.url,
@@ -969,7 +1074,7 @@ router.get('/:id/stripe-receipt', requireAuth, async (req, res) => {
   try {
     // 1. Obtener la orden y validar pertenencia
     const orderRes = await pool.query(
-      'SELECT id, payment_status, payment_method, balance_receipt_url, client_id FROM sales_orders WHERE id = $1 AND tenant_id = $2',
+      'SELECT id, payment_status, payment_method, balance_receipt_url, stripe_session_id, client_id FROM sales_orders WHERE id = $1 AND tenant_id = $2',
       [orderId, tenant_id]
     );
 
@@ -987,8 +1092,8 @@ router.get('/:id/stripe-receipt', requireAuth, async (req, res) => {
       return res.json({ success: true, url: order.balance_receipt_url });
     }
 
-    if (order.payment_method !== 'stripe') {
-      return res.status(400).json({ error: 'Este pedido no fue pagado mediante Stripe.' });
+    if (order.payment_method !== 'stripe' && !order.stripe_session_id) {
+      return res.status(400).json({ error: 'Este pedido no posee un registro de pago Stripe iniciado.' });
     }
 
     // 2. Obtener las credenciales de Stripe del Tenant
@@ -1006,36 +1111,55 @@ router.get('/:id/stripe-receipt', requireAuth, async (req, res) => {
     const { stripe_secret_key } = tenantRes.rows[0];
     const authHeader = 'Basic ' + Buffer.from(stripe_secret_key + ':').toString('base64');
 
-    // 3. Consultar sesiones recientes de Stripe Checkout para encontrar la correspondiente al pedido
-    console.log(`Buscando sesión de Stripe Checkout para el pedido ${orderId}...`);
-    const stripeResponse = await fetch('https://api.stripe.com/v1/checkout/sessions?limit=50&expand[]=data.payment_intent.latest_charge', {
-      method: 'GET',
-      headers: {
-        'Authorization': authHeader
+    let receiptUrl = null;
+
+    // 3. Si posee stripe_session_id, consultar de manera directa (instantáneo)
+    if (order.stripe_session_id) {
+      console.log(`Recuperando directamente recibo de sesión Stripe: ${order.stripe_session_id}...`);
+      const directResponse = await fetch(`https://api.stripe.com/v1/checkout/sessions/${order.stripe_session_id}?expand=payment_intent.latest_charge`, {
+        method: 'GET',
+        headers: {
+          'Authorization': authHeader
+        }
+      });
+
+      if (directResponse.ok) {
+        const sessionData = await directResponse.json();
+        receiptUrl = sessionData.payment_intent?.latest_charge?.receipt_url;
       }
-    });
-
-    const listData = await stripeResponse.json();
-    if (!stripeResponse.ok) {
-      console.error('Error de Stripe API al listar sesiones:', listData);
-      return res.status(502).json({ error: `Error de Stripe: ${listData.error?.message || 'Error desconocido'}` });
     }
 
-    // Buscar sesión con metadata de order_id coincidente
-    const session = listData.data?.find(s => s.metadata?.order_id === orderId);
-
-    if (!session) {
-      return res.status(404).json({ error: 'No se encontró ninguna sesión de pago de Stripe para este pedido en el servidor de pasarela.' });
-    }
-
-    const receiptUrl = session.payment_intent?.latest_charge?.receipt_url;
+    // Fallback: Si no tiene stripe_session_id o la consulta directa falló, buscar por listado de metadata
     if (!receiptUrl) {
-      return res.status(404).json({ error: 'La transacción de Stripe no posee una URL de recibo disponible en este momento.' });
+      console.log(`Buscando sesión por listado de metadata para el pedido ${orderId}...`);
+      const stripeResponse = await fetch('https://api.stripe.com/v1/checkout/sessions?limit=50&expand[]=data.payment_intent.latest_charge', {
+        method: 'GET',
+        headers: {
+          'Authorization': authHeader
+        }
+      });
+
+      const listData = await stripeResponse.json();
+      if (stripeResponse.ok) {
+        const session = listData.data?.find(s => s.metadata?.order_id === orderId);
+        if (session) {
+          receiptUrl = session.payment_intent?.latest_charge?.receipt_url;
+          // Aprovechamos de guardar el stripe_session_id para agilizar consultas futuras
+          await pool.query(
+            'UPDATE sales_orders SET stripe_session_id = $1 WHERE id = $2',
+            [session.id, orderId]
+          );
+        }
+      }
+    }
+
+    if (!receiptUrl) {
+      return res.status(404).json({ error: 'No se encontró la URL de recibo de Stripe para esta orden en la pasarela.' });
     }
 
     // Actualizar base de datos local para persistir la URL del recibo
     await pool.query(
-      'UPDATE sales_orders SET balance_receipt_url = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      'UPDATE sales_orders SET balance_receipt_url = $1, payment_status = \'Pagado\', updated_at = CURRENT_TIMESTAMP WHERE id = $2',
       [receiptUrl, orderId]
     );
 
@@ -1336,10 +1460,10 @@ router.post('/:id/upload-voucher', requireAuth, async (req, res) => {
 
     const uploadedUrl = cloudData.secure_url;
 
-    // 4. Guardar URL en Neon
+    // 4. Guardar URL en Neon y establecer el estado de pago "En Revisión"
     const updateResult = await pool.query(
       `UPDATE sales_orders 
-       SET balance_receipt_url=$1, payment_status='Pagado', updated_at=CURRENT_TIMESTAMP 
+       SET balance_receipt_url=$1, payment_status='En Revisión', payment_method='transfer', updated_at=CURRENT_TIMESTAMP 
        WHERE id=$2 AND tenant_id=$3 
        RETURNING *`,
       [uploadedUrl, id, tenant_id]
