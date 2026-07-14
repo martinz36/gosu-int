@@ -244,6 +244,7 @@ router.get('/current/settings', requireAuth, requireTenantAdmin, async (req, res
   try {
     const result = await pool.query(
       `SELECT id, name, slug, whatsapp_api_key, resend_api_key, 
+              cloudinary_cloud_name, cloudinary_upload_preset, cloudinary_api_key, cloudinary_api_secret,
               bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url 
        FROM tenants WHERE id = $1 AND deleted_at IS NULL`,
       [tenant_id]
@@ -269,6 +270,10 @@ router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res
   const { 
     whatsapp_api_key, 
     resend_api_key,
+    cloudinary_cloud_name,
+    cloudinary_upload_preset,
+    cloudinary_api_key,
+    cloudinary_api_secret,
     bank_name,
     bank_account_name,
     bank_account_number,
@@ -281,18 +286,27 @@ router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res
       `UPDATE tenants
        SET whatsapp_api_key = $1, 
            resend_api_key = $2, 
-           bank_name = $3, 
-           bank_account_name = $4, 
-           bank_account_number = $5, 
-           bank_routing_number = $6, 
-           logo_url = $7,
+           cloudinary_cloud_name = $3,
+           cloudinary_upload_preset = $4,
+           cloudinary_api_key = $5,
+           cloudinary_api_secret = $6,
+           bank_name = $7, 
+           bank_account_name = $8, 
+           bank_account_number = $9, 
+           bank_routing_number = $10, 
+           logo_url = $11,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $8 AND deleted_at IS NULL
+       WHERE id = $12 AND deleted_at IS NULL
        RETURNING id, name, slug, whatsapp_api_key, resend_api_key, 
+                 cloudinary_cloud_name, cloudinary_upload_preset, cloudinary_api_key, cloudinary_api_secret,
                  bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url`,
       [
         whatsapp_api_key !== undefined && whatsapp_api_key !== null ? whatsapp_api_key.trim() : null,
         resend_api_key !== undefined && resend_api_key !== null ? resend_api_key.trim() : null,
+        cloudinary_cloud_name !== undefined && cloudinary_cloud_name !== null ? cloudinary_cloud_name.trim() : null,
+        cloudinary_upload_preset !== undefined && cloudinary_upload_preset !== null ? cloudinary_upload_preset.trim() : null,
+        cloudinary_api_key !== undefined && cloudinary_api_key !== null ? cloudinary_api_key.trim() : null,
+        cloudinary_api_secret !== undefined && cloudinary_api_secret !== null ? cloudinary_api_secret.trim() : null,
         bank_name !== undefined && bank_name !== null ? bank_name.trim() : null,
         bank_account_name !== undefined && bank_account_name !== null ? bank_account_name.trim() : null,
         bank_account_number !== undefined && bank_account_number !== null ? bank_account_number.trim() : null,

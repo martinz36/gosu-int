@@ -46,6 +46,15 @@ const runAutoMigrations = async () => {
     `);
     console.log('✅ Columna must_change_password verificada/agregada.');
 
+    // 3.5. Agregar columnas de Cloudinary a la tabla tenants si no existen
+    await client.query(`
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS cloudinary_cloud_name VARCHAR(255);
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS cloudinary_upload_preset VARCHAR(255);
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS cloudinary_api_key VARCHAR(255);
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS cloudinary_api_secret VARCHAR(255);
+    `);
+    console.log('✅ Columnas de Cloudinary verificadas/agregadas a la tabla tenants.');
+
     // 4. Migrar estados antiguos de órdenes de producción a los nuevos estados
     await client.query(`
       UPDATE production_orders SET status = 'Proforma' WHERE status IN ('Quotation', 'Draft');
@@ -117,7 +126,7 @@ app.use((req, res, next) => {
 // ============================================================
 // Body Parser
 // ============================================================
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 // ============================================================
 // Rutas

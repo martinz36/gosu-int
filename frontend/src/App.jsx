@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import LoginPage from './components/LoginPage';
 import SalesMapWidget, { COUNTRY_OPTIONS, getCountryName } from './components/SalesMapWidget';
@@ -131,10 +131,17 @@ function App() {
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkResult, setBulkResult] = useState(null);
 
+  const [activeUploadOrderId, setActiveUploadOrderId] = useState(null);
+  const fileInputRef = useRef(null);
+
   // Estados para API Keys (json.pe y Resend)
   const [tenantSettings, setTenantSettings] = useState({ 
     whatsapp_api_key: '', 
     resend_api_key: '',
+    cloudinary_cloud_name: '',
+    cloudinary_upload_preset: '',
+    cloudinary_api_key: '',
+    cloudinary_api_secret: '',
     bank_name: '',
     bank_account_name: '',
     bank_account_number: '',
@@ -444,6 +451,10 @@ function App() {
       setTenantSettings({
         whatsapp_api_key: data.whatsapp_api_key || '',
         resend_api_key: data.resend_api_key || '',
+        cloudinary_cloud_name: data.cloudinary_cloud_name || '',
+        cloudinary_upload_preset: data.cloudinary_upload_preset || '',
+        cloudinary_api_key: data.cloudinary_api_key || '',
+        cloudinary_api_secret: data.cloudinary_api_secret || '',
         bank_name: data.bank_name || '',
         bank_account_name: data.bank_account_name || '',
         bank_account_number: data.bank_account_number || '',
@@ -1456,6 +1467,30 @@ function App() {
     }
   };
 
+  const handleUploadPaymentReceipt = async (orderId, file) => {
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      alert('❌ Error: El archivo supera el límite de tamaño de 10 MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64Data = reader.result;
+      try {
+        alert('📤 Subiendo comprobante a Cloudinary...');
+        await ordersApi.uploadVoucher(orderId, base64Data, file.type);
+        alert('🎉 Comprobante de pago subido e integrado con éxito.');
+        await loadOrders();
+      } catch (err) {
+        alert(`❌ Error al subir comprobante: ${err.message}`);
+      }
+    };
+    reader.onerror = () => {
+      alert('❌ Error al leer el archivo local.');
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleExportPDF = (pOrder) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
@@ -2100,6 +2135,11 @@ function App() {
               </>
             ) : (
               <>
+                {isAdmin && (
+                  <span className={`nav-link-btn ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
+                    📈 DashBoard
+                  </span>
+                )}
                 <span className={`nav-link-btn ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>
                   📂 {isAdmin ? 'Productos' : 'Catálogo B2B'}
                 </span>
@@ -2110,9 +2150,6 @@ function App() {
                 )}
                 {isAdmin && (
                   <>
-                    <span className={`nav-link-btn ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
-                      📈 Control de Mando
-                    </span>
                     <span className={`nav-link-btn ${activeTab === 'inventory' ? 'active' : ''}`} onClick={() => setActiveTab('inventory')}>
                       📦 Inventario & Stock
                     </span>
@@ -3838,6 +3875,19 @@ function App() {
         {/* ===================================================== */}
         {activeTab === 'orders' && !dataLoading && (
           <div>
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+              accept="image/*,application/pdf"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file && activeUploadOrderId) {
+                  handleUploadPaymentReceipt(activeUploadOrderId, file);
+                }
+                e.target.value = '';
+              }}
+            />
             <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
               <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>
                 {isAdmin ? '📊 Registro de Ventas B2B' : 'Bóveda de Documentos B2B'}
@@ -3996,6 +4046,40 @@ function App() {
                               >
                                 👁️
                               </button>
+                              {/* Botón de Comprobante / Subida a Cloudinary */}
+                              {order.balance_receipt_url ? (
+                                <a
+                                  href={order.balance_receipt_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="btn-glass"
+                                  style={{ padding: '6px 10px', fontSize: '12px', background: 'rgba(0, 232, 255, 0.15)', border: '1px solid var(--cyan-neon)', color: 'var(--cyan-neon)', display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}
+                                  title="Ver Comprobante de Pago (Cloudinary)"
+                                >
+                                  🧾
+                                </a>
+                              ) : order.payment_method === 'stripe' ? (
+                                <button
+                                  onClick={() => alert(`💳 Pago Electrónico Stripe:\n\n- PO: ${order.po_number || 'PO-????'}\n- Estado: Completado & Verificado\n- Pasarela: Stripe Gateway\n\nEl pago ha sido procesado directamente con Tarjeta de Crédito de forma segura.`)}
+                                  className="btn-glass"
+                                  style={{ padding: '6px 10px', fontSize: '12px', background: 'rgba(0, 232, 255, 0.15)', border: '1px solid var(--cyan-neon)', color: 'var(--cyan-neon)' }}
+                                  title="Pago con Tarjeta (Stripe Verificado)"
+                                >
+                                  💳
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    setActiveUploadOrderId(order.id);
+                                    fileInputRef.current.click();
+                                  }}
+                                  className="btn-glass"
+                                  style={{ padding: '6px 10px', fontSize: '12px', background: 'rgba(255, 9, 187, 0.15)', border: '1px solid var(--pink-neon)', color: 'var(--pink-neon)' }}
+                                  title="Subir Comprobante a Cloudinary"
+                                >
+                                  📤
+                                </button>
+                              )}
                               <button
                                 onClick={() => handleShareWhatsApp(order)}
                                 className="btn-glass"
@@ -4691,6 +4775,66 @@ function App() {
                       <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
                         Clave de autorización de Resend para el envío automático de facturas, packing lists y correos de bienvenida B2B.
                       </span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '20px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                        Cloudinary Cloud Name
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Escribe tu Cloud Name..."
+                        value={tenantSettings.cloudinary_cloud_name || ''}
+                        onChange={(e) => setTenantSettings(prev => ({ ...prev, cloudinary_cloud_name: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                        Identificador único de tu cuenta de Cloudinary.
+                      </span>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                        Cloudinary Unsigned Upload Preset
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Escribe tu Upload Preset..."
+                        value={tenantSettings.cloudinary_upload_preset || ''}
+                        onChange={(e) => setTenantSettings(prev => ({ ...prev, cloudinary_upload_preset: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                        Preset de subida no firmado (unsigned) configurado en Cloudinary para permitir subidas desde el frontend.
+                      </span>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                        Cloudinary API Key
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Escribe tu Cloudinary API Key..."
+                        value={tenantSettings.cloudinary_api_key || ''}
+                        onChange={(e) => setTenantSettings(prev => ({ ...prev, cloudinary_api_key: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                        Cloudinary API Secret
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="Escribe tu Cloudinary API Secret..."
+                        value={tenantSettings.cloudinary_api_secret || ''}
+                        onChange={(e) => setTenantSettings(prev => ({ ...prev, cloudinary_api_secret: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
                     </div>
                   </div>
                 </div>

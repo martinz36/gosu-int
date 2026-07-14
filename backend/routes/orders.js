@@ -1025,4 +1025,100 @@ router.post('/:id/send-email', requireAuth, requireTenantAdmin, async (req, res)
   }
 });
 
+// ============================================================
+// POST /api/orders/:id/upload-voucher (Solo admin del Tenant o Cliente B2B dueño del pedido)
+// Sube el comprobante de pago a Cloudinary usando las credenciales del Tenant y lo guarda en Neon.
+// ============================================================
+router.post('/:id/upload-voucher', requireAuth, async (req, res) => {
+  const { tenant_id, role, id: userId } = req.user;
+  const { id } = req.params;
+  const { fileData, mimeType } = req.body; // fileData contains base64 string
+
+  if (!fileData) {
+    return res.status(400).json({ error: 'Falta el archivo en formato Base64.' });
+  }
+
+  try {
+    // 1. Obtener la orden y validar pertenencia
+    const orderQuery = await pool.query(
+      'SELECT client_id, payment_status, balance_receipt_url FROM sales_orders WHERE id=$1 AND tenant_id=$2',
+      [id, tenant_id]
+    );
+
+    if (orderQuery.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    const order = orderQuery.rows[0];
+    if (role === 'b2b_client' && order.client_id !== userId) {
+      return res.status(403).json({ error: 'Acceso denegado a este pedido.' });
+    }
+
+    // 2. Obtener credenciales de Cloudinary del Tenant
+    const tenantQuery = await pool.query(
+      'SELECT cloudinary_cloud_name, cloudinary_upload_preset, cloudinary_api_key, cloudinary_api_secret FROM tenants WHERE id=$1',
+      [tenant_id]
+    );
+
+    const tenant = tenantQuery.rows[0];
+    if (!tenant.cloudinary_cloud_name || !tenant.cloudinary_upload_preset) {
+      return res.status(400).json({ error: 'Cloudinary no está configurado para esta empresa. Por favor configure las credenciales en Configuración.' });
+    }
+
+    // 3. Subir a Cloudinary
+    const cloudName = tenant.cloudinary_cloud_name;
+    const uploadPreset = tenant.cloudinary_upload_preset;
+
+    const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`;
+    
+    const uploadPayload = {
+      file: fileData.startsWith('data:') ? fileData : `data:${mimeType || 'image/jpeg'};base64,${fileData}`,
+      upload_preset: uploadPreset
+    };
+
+    console.log(`Subiendo comprobante a Cloudinary (${cloudName})...`);
+    const cloudResponse = await fetch(cloudinaryUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(uploadPayload)
+    });
+
+    const cloudData = await cloudResponse.json();
+    if (!cloudResponse.ok) {
+      console.error('Error de Cloudinary API:', cloudData);
+      return res.status(502).json({ error: `Cloudinary error: ${cloudData.error?.message || 'Error desconocido'}` });
+    }
+
+    const uploadedUrl = cloudData.secure_url;
+
+    // 4. Guardar URL en Neon
+    const updateResult = await pool.query(
+      `UPDATE sales_orders 
+       SET balance_receipt_url=$1, payment_status='Pagado', updated_at=CURRENT_TIMESTAMP 
+       WHERE id=$2 AND tenant_id=$3 
+       RETURNING *`,
+      [uploadedUrl, id, tenant_id]
+    );
+
+    // Guardar auditoría
+    await pool.query(
+      `INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, old_value, new_value)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [tenant_id, req.user.id, 'UPLOAD_SALES_ORDER_VOUCHER', 'sales_orders', id, order.balance_receipt_url, uploadedUrl]
+    );
+
+    res.json({
+      message: 'Comprobante de pago subido e integrado con éxito.',
+      order: updateResult.rows[0],
+      url: uploadedUrl
+    });
+
+  } catch (err) {
+    console.error('Error al subir comprobante a Cloudinary:', err);
+    res.status(500).json({ error: 'Error interno del servidor al procesar el archivo.' });
+  }
+});
+
 export default router;

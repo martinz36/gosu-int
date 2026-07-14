@@ -130,6 +130,9 @@ export const orders = {
   updatePayment: (id, payment_status, balance_receipt_url = null) =>
     request('PUT', `/api/orders/${id}/payment`, { payment_status, balance_receipt_url }),
 
+  uploadVoucher: (id, fileData, mimeType) =>
+    request('POST', `/api/orders/${id}/upload-voucher`, { fileData, mimeType }),
+
   payWithStripe: (id) =>
     request('POST', `/api/orders/${id}/pay-stripe`),
 
