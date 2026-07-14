@@ -33,6 +33,7 @@ CREATE TABLE tenants (
   bank_account_name   VARCHAR(255),
   bank_account_number VARCHAR(255),
   bank_routing_number VARCHAR(255),
+  logo_url            VARCHAR(512),
   created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

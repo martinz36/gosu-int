@@ -244,7 +244,7 @@ router.get('/current/settings', requireAuth, requireTenantAdmin, async (req, res
   try {
     const result = await pool.query(
       `SELECT id, name, slug, whatsapp_api_key, resend_api_key, 
-              bank_name, bank_account_name, bank_account_number, bank_routing_number 
+              bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url 
        FROM tenants WHERE id = $1 AND deleted_at IS NULL`,
       [tenant_id]
     );
@@ -262,7 +262,7 @@ router.get('/current/settings', requireAuth, requireTenantAdmin, async (req, res
 
 // ============================================================
 // PUT /api/tenants/current/settings (Solo Tenant Admin)
-// Actualiza las API keys y datos de transferencia del tenant actual.
+// Actualiza las API keys, datos de transferencia y marca del tenant actual.
 // ============================================================
 router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res) => {
   const { tenant_id } = req.user;
@@ -272,7 +272,8 @@ router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res
     bank_name,
     bank_account_name,
     bank_account_number,
-    bank_routing_number
+    bank_routing_number,
+    logo_url
   } = req.body;
 
   try {
@@ -284,10 +285,11 @@ router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res
            bank_account_name = $4, 
            bank_account_number = $5, 
            bank_routing_number = $6, 
+           logo_url = $7,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $7 AND deleted_at IS NULL
+       WHERE id = $8 AND deleted_at IS NULL
        RETURNING id, name, slug, whatsapp_api_key, resend_api_key, 
-                 bank_name, bank_account_name, bank_account_number, bank_routing_number`,
+                 bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url`,
       [
         whatsapp_api_key !== undefined && whatsapp_api_key !== null ? whatsapp_api_key.trim() : null,
         resend_api_key !== undefined && resend_api_key !== null ? resend_api_key.trim() : null,
@@ -295,6 +297,7 @@ router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res
         bank_account_name !== undefined && bank_account_name !== null ? bank_account_name.trim() : null,
         bank_account_number !== undefined && bank_account_number !== null ? bank_account_number.trim() : null,
         bank_routing_number !== undefined && bank_routing_number !== null ? bank_routing_number.trim() : null,
+        logo_url !== undefined && logo_url !== null ? logo_url.trim() : null,
         tenant_id
       ]
     );
@@ -447,7 +450,7 @@ router.get('/current/bank-details', requireAuth, async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT name, bank_name, bank_account_name, bank_account_number, bank_routing_number 
+      `SELECT name, bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url 
        FROM tenants 
        WHERE id = $1 AND deleted_at IS NULL`,
       [tenant_id]

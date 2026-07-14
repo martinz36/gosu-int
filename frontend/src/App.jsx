@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import './App.css';
 import LoginPage from './components/LoginPage';
-import { auth, products as productsApi, orders as ordersApi, production as productionApi, tenants as tenantsApi, plans as plansApi, users as usersApi, audit as auditApi, config as configApi, pricingTiers as pricingTiersApi } from './services/api';
+import { auth, products as productsApi, orders as ordersApi, production as productionApi, tenants as tenantsApi, plans as plansApi, users as usersApi, audit as auditApi, config as configApi, pricingTiers as pricingTiersApi, API_URL } from './services/api';
 
 // Reglas de descuento (se obtendrán del backend en futuras versiones)
 const VOLUME_DISCOUNTS = [
@@ -50,11 +50,16 @@ function App() {
   // Estados para Modal de Selección de Pago Post-Checkout
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [createdOrder, setCreatedOrder] = useState(null);
+
+  // Estados para Modal de Detalle de Pedido (Rediseño Listado)
+  const [selectedOrderDetail, setSelectedOrderDetail] = useState(null);
+  const [showOrderDetailModal, setShowOrderDetailModal] = useState(false);
   const [bankDetails, setBankDetails] = useState(null);
   const [loadingBankDetails, setLoadingBankDetails] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(''); // 'bank' | 'stripe'
   const [simulatingStripePayment, setSimulatingStripePayment] = useState(false);
   const [stripePaidSuccess, setStripePaidSuccess] = useState(false);
+  const [tenantPublicInfo, setTenantPublicInfo] = useState(null);
 
   // Formulario para nuevo Tenant / Edición
   const [newTenant, setNewTenant] = useState({
@@ -110,7 +115,8 @@ function App() {
     bank_name: '',
     bank_account_name: '',
     bank_account_number: '',
-    bank_routing_number: ''
+    bank_routing_number: '',
+    logo_url: ''
   });
   const [savingSettings, setSavingSettings] = useState(false);
 
@@ -311,6 +317,16 @@ function App() {
     }
   }, [currentUser, isSuperAdmin, isAdmin, loadClients, loadPricingTiers]);
 
+  const loadTenantPublicInfo = useCallback(async () => {
+    if (!currentUser || isSuperAdmin || isAdmin) return;
+    try {
+      const publicData = await tenantsApi.getCurrentBankDetails();
+      setTenantPublicInfo(publicData);
+    } catch (err) {
+      console.error('Error al cargar marca/logo del tenant:', err);
+    }
+  }, [currentUser, isSuperAdmin, isAdmin]);
+
   const loadTenantSettings = useCallback(async () => {
     if (!currentUser || isSuperAdmin || !isAdmin) return;
     try {
@@ -321,7 +337,8 @@ function App() {
         bank_name: data.bank_name || '',
         bank_account_name: data.bank_account_name || '',
         bank_account_number: data.bank_account_number || '',
-        bank_routing_number: data.bank_routing_number || ''
+        bank_routing_number: data.bank_routing_number || '',
+        logo_url: data.logo_url || ''
       });
     } catch (err) {
       console.error('Error al cargar API keys del tenant:', err);
@@ -391,7 +408,7 @@ function App() {
       try {
         if (isSuperAdmin) {
           await loadTenants();
-        } else {
+        } else if (isAdmin) {
           await Promise.all([
             loadProducts(),
             loadOrders(),
@@ -399,6 +416,12 @@ function App() {
             loadCatalogConfig(),
             loadTenantSettings(),
             loadDashboardData()
+          ]);
+        } else {
+          await Promise.all([
+            loadProducts(),
+            loadOrders(),
+            loadTenantPublicInfo()
           ]);
         }
       } catch (err) {
@@ -409,7 +432,7 @@ function App() {
       }
     };
     loadAll();
-  }, [currentUser, isSuperAdmin, loadTenants, loadProducts, loadOrders, loadProduction, loadCatalogConfig, loadTenantSettings, loadDashboardData]);
+  }, [currentUser, isSuperAdmin, isAdmin, loadTenants, loadProducts, loadOrders, loadProduction, loadCatalogConfig, loadTenantSettings, loadDashboardData, loadTenantPublicInfo]);
 
   // Recargar desde servidor solo cuando cambia categoría
   useEffect(() => {
@@ -1434,6 +1457,10 @@ function App() {
 
   const cartTotals = getCartTotals();
 
+  const activeLogoUrl = isSuperAdmin 
+    ? null 
+    : (isAdmin ? tenantSettings.logo_url : tenantPublicInfo?.logo_url);
+
   // -------------------------------------------------------
   // Checkout
   // -------------------------------------------------------
@@ -1647,12 +1674,20 @@ function App() {
       <div className="layout-wrapper" style={{ marginTop: (isImpersonating || isTenantImpersonating) ? '43px' : 0 }}>
         {/* Sidebar Lateral */}
         <aside className="premium-sidebar">
-          <div style={{ marginBottom: '32px', textAlign: 'center' }}>
-            <h1 className="logo-text" style={{ margin: 0, fontSize: '20px' }}>
-              {isSuperAdmin ? 'GOSU SAAS' : currentUser.tenant_name?.toUpperCase() || 'GOSU B2B'}
-            </h1>
+          <div style={{ marginBottom: '32px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+            {activeLogoUrl ? (
+              <img 
+                src={activeLogoUrl} 
+                alt="Logo" 
+                style={{ maxHeight: '55px', maxWidth: '100%', objectFit: 'contain', borderRadius: '8px', padding: '4px' }} 
+              />
+            ) : (
+              <h1 className="logo-text" style={{ margin: 0, fontSize: '20px' }}>
+                {isSuperAdmin ? 'GOSU SAAS' : currentUser.tenant_name?.toUpperCase() || 'GOSU B2B'}
+              </h1>
+            )}
             {!isSuperAdmin && (
-              <span className="badge badge-cyan" style={{ fontSize: '9px', marginTop: '6px' }}>{currentUser.tenant_slug}</span>
+              <span className="badge badge-cyan" style={{ fontSize: '9px' }}>{currentUser.tenant_slug}</span>
             )}
           </div>
 
@@ -1731,9 +1766,13 @@ function App() {
           <header className="premium-header">
             {/* Logo en versión mobile */}
             <div className="mobile-only-logo" style={{ display: 'none' }}>
-              <span className="logo-text" style={{ fontSize: '16px', fontWeight: '900' }}>
-                {isSuperAdmin ? 'GOSU SAAS' : currentUser.tenant_name?.toUpperCase() || 'GOSU B2B'}
-              </span>
+              {activeLogoUrl ? (
+                <img src={activeLogoUrl} alt="Logo" style={{ maxHeight: '35px', objectFit: 'contain' }} />
+              ) : (
+                <span className="logo-text" style={{ fontSize: '16px', fontWeight: '900' }}>
+                  {isSuperAdmin ? 'GOSU SAAS' : currentUser.tenant_name?.toUpperCase() || 'GOSU B2B'}
+                </span>
+              )}
             </div>
             <div className="premium-header-content">
               {!isSuperAdmin && (
@@ -3203,130 +3242,75 @@ function App() {
                 {!isAdmin && <button className="btn-neon" onClick={() => setActiveTab('catalog')}>Ir al Catálogo Comercial</button>}
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                {clientOrders.map(order => {
-                  const token = localStorage.getItem('gosu_token');
-                  
-                  return (
-                    <div key={order.id} className="glass-panel" style={{ padding: '24px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px', marginBottom: '16px' }}>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Pedido</span>
-                            <h3 style={{ fontSize: '20px', fontWeight: '800', color: '#fff', fontFamily: 'monospace', margin: 0 }}>
-                              #{order.id.split('-')[0].toUpperCase()}
-                            </h3>
-                          </div>
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                            Fecha: {new Date(order.created_at).toLocaleString('es-ES')}
-                          </span>
+              <div className="glass-panel" style={{ padding: '0', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="premium-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
+                        <th style={{ padding: '16px' }}>ID Pedido</th>
+                        <th style={{ padding: '16px' }}>Fecha</th>
+                        {isAdmin && <th style={{ padding: '16px' }}>Cliente B2B</th>}
+                        <th style={{ padding: '16px', textAlign: 'right' }}>Cajas</th>
+                        <th style={{ padding: '16px', textAlign: 'right' }}>Volumen</th>
+                        <th style={{ padding: '16px', textAlign: 'right' }}>Total FOB</th>
+                        <th style={{ padding: '16px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Estado</th>
+                        <th style={{ padding: '16px', textAlign: 'center' }}>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {clientOrders.map(order => (
+                        <tr key={order.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }} className="table-row-hover">
+                          <td style={{ padding: '16px', fontFamily: 'monospace', fontWeight: 'bold', color: 'var(--cyan-neon)' }}>
+                            #{order.id.split('-')[0].toUpperCase()}
+                          </td>
+                          <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>
+                            {new Date(order.created_at).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          </td>
                           {isAdmin && (
-                            <div style={{ fontSize: '11.5px', color: 'var(--cyan-neon)', marginTop: '4px' }}>
-                              Cliente B2B: <strong>{order.company_name}</strong> ({order.client_name})
-                            </div>
+                            <td style={{ padding: '16px' }}>
+                              <div style={{ fontWeight: '600', color: '#fff' }}>{order.company_name}</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{order.client_name}</div>
+                            </td>
                           )}
-                        </div>
-                        
-                        <div style={{ textAlign: 'right' }}>
-                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block' }}>Total FOB</span>
-                          <strong style={{ fontSize: '20px', color: 'var(--green-neon)' }}>
-                            ${parseFloat(order.total_usd || order.total_amount_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
-                          </strong>
-                          {parseFloat(order.discount_usd) > 0 && (
-                            <div style={{ fontSize: '10.5px', color: 'var(--pink-neon)' }}>
-                              Descuento aplicado: ${parseFloat(order.discount_usd).toFixed(2)} USD
-                            </div>
-                          )}
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                          <span className={`badge ${
-                            order.status === 'Draft' ? 'badge-pink' :
-                            order.status === 'Proforma' ? 'badge-cyan' :
-                            order.status === 'Production' ? 'badge-orange' :
-                            order.status === 'QC Inspection' ? 'badge-orange' :
-                            order.status === 'Port' ? 'badge-cyan' :
-                            order.status === 'Transit' ? 'badge-orange' :
-                            'badge-green'
-                          }`} style={{ fontSize: '11.5px', padding: '6px 12px' }}>
-                            {order.status}
-                          </span>
-
-                          {/* Admin: cambiar estado del pedido */}
-                          {isAdmin && (
-                            <select
-                              value={order.status}
-                              onChange={async (e) => {
-                                try {
-                                  await ordersApi.updateStatus(order.id, e.target.value);
-                                  await loadOrders();
-                                } catch(err) {
-                                  alert(`❌ Error al cambiar estado: ${err.message}`);
-                                }
+                          <td style={{ padding: '16px', textAlign: 'right', fontWeight: '600' }}>
+                            {order.total_cases || 0}
+                          </td>
+                          <td style={{ padding: '16px', textAlign: 'right', color: 'var(--cyan-neon)' }}>
+                            {parseFloat(order.total_cbm || 0).toFixed(4)} CBM
+                          </td>
+                          <td style={{ padding: '16px', textAlign: 'right', fontWeight: 'bold', color: 'var(--green-neon)' }}>
+                            ${parseFloat(order.total_usd || order.total_amount_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td style={{ padding: '16px' }}>
+                            <span className={`badge ${
+                              order.status === 'Draft' ? 'badge-pink' :
+                              order.status === 'Proforma' ? 'badge-cyan' :
+                              order.status === 'Production' ? 'badge-orange' :
+                              order.status === 'QC Inspection' ? 'badge-orange' :
+                              order.status === 'Port' ? 'badge-cyan' :
+                              order.status === 'Transit' ? 'badge-orange' :
+                              'badge-green'
+                            }`} style={{ fontSize: '11px', padding: '4px 8px' }}>
+                              {order.status}
+                            </span>
+                          </td>
+                          <td style={{ padding: '16px', textAlign: 'center' }}>
+                            <button
+                              onClick={() => {
+                                setSelectedOrderDetail(order);
+                                setShowOrderDetailModal(true);
                               }}
-                              style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600' }}
+                              className="btn-glass-cyan"
+                              style={{ padding: '6px 14px', fontSize: '12px' }}
                             >
-                              <option value="Draft">Draft (Borrador)</option>
-                              <option value="Proforma">Proforma Invoice</option>
-                              <option value="Production">Production (Fabricación)</option>
-                              <option value="QC Inspection">QC Inspection (Calidad)</option>
-                              <option value="Port">Port (FOB/CIF)</option>
-                              <option value="Transit">Transit (En Tránsito)</option>
-                              <option value="Delivered">Delivered (Entregado)</option>
-                            </select>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Logística y Detalle del Pedido */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
-                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px' }}>Incoterm</span>
-                          <strong style={{ color: '#fff' }}>{order.incoterm || 'FOB China'}</strong>
-                        </div>
-                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px' }}>Volumen Cubierto</span>
-                          <strong style={{ color: 'var(--cyan-neon)' }}>{parseFloat(order.total_cbm || 0).toFixed(4)} CBM</strong>
-                        </div>
-                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px' }}>Cajas Totales</span>
-                          <strong style={{ color: '#fff' }}>{order.total_cases || 0} master cases</strong>
-                        </div>
-                      </div>
-
-                      {/* Items del pedido */}
-                      <div style={{ marginBottom: '20px', background: 'rgba(0,0,0,0.15)', padding: '14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.02)' }}>
-                        <h4 style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Productos del Lote Comercial:</h4>
-                        <ul style={{ listStyle: 'none', paddingLeft: '0', margin: 0 }}>
-                          {order.items?.map((item, idx) => (
-                            <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.02)', fontSize: '13px' }}>
-                              <span>{item.name} <em style={{ fontSize: '11px', color: 'var(--text-secondary)', fontStyle: 'normal' }}>(SKU: {item.sku})</em></span>
-                              <strong>{item.qty_cases} {item.qty_cases === 1 ? 'Caja master' : 'Cajas master'}</strong>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      {/* Descarga Directa de Documentos en Nueva Pestaña */}
-                      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                        <button 
-                          className="btn-glass" 
-                          onClick={() => window.open(`/api/orders/${order.id}/invoice?token=${token}`, '_blank')}
-                          style={{ padding: '8px 16px', fontSize: '12.5px', fontWeight: '700' }}
-                        >
-                          📄 Commercial Invoice / Proforma (PDF)
-                        </button>
-                        <button 
-                          className="btn-glass-pink" 
-                          onClick={() => window.open(`/api/orders/${order.id}/packing-list?token=${token}`, '_blank')}
-                          style={{ padding: '8px 16px', fontSize: '12.5px', fontWeight: '700' }}
-                        >
-                          📦 Packing List Oficial (PDF)
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                              👁️ Ver Detalle
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>
@@ -4167,6 +4151,26 @@ function App() {
                   <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>
                     Estos datos se le presentarán a tus clientes B2B al momento de elegir el método de pago por transferencia.
                   </span>
+                </div>
+
+                {/* Sección 3: Marca Blanca (Whitelabel) */}
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '20px' }}>
+                  <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#fff', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🎨 Identidad de Marca Blanca (Whitelabel)</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>URL del Logo de la Empresa (PNG/SVG recomendado)</label>
+                      <input
+                        type="url"
+                        placeholder="Ej: https://miempresa.com/assets/logo.png"
+                        value={tenantSettings.logo_url}
+                        onChange={(e) => setTenantSettings(prev => ({ ...prev, logo_url: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                        Este logo reemplazará el nombre de la empresa en la barra lateral del sistema B2B y se incluirá en los documentos PDF generados (Invoice y Packing List).
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
@@ -5996,6 +6000,199 @@ function App() {
                 style={{ padding: '8px 24px', fontSize: '12px' }}
               >
                 Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================== */}
+      {/* MODAL: DETALLE DE PEDIDO (POPUP DETALLE B2B)          */}
+      {/* ===================================================== */}
+      {showOrderDetailModal && selectedOrderDetail && (
+        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', zIndex: '200', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: '28px', position: 'relative', border: '1px solid var(--cyan-neon)' }}>
+            <button onClick={() => { setShowOrderDetailModal(false); setSelectedOrderDetail(null); }} style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}>×</button>
+            
+            <div style={{ borderBottom: '2px solid #333', paddingBottom: '12px', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+                <div>
+                  <h2 style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: '18px', color: 'var(--cyan-neon)', margin: '0 0 4px 0' }}>
+                    📋 Detalle del Pedido #{selectedOrderDetail.id.split('-')[0].toUpperCase()}
+                  </h2>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                    Fecha de Registro: {new Date(selectedOrderDetail.created_at).toLocaleString('es-ES')}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span className={`badge ${
+                    selectedOrderDetail.status === 'Draft' ? 'badge-pink' :
+                    selectedOrderDetail.status === 'Proforma' ? 'badge-cyan' :
+                    selectedOrderDetail.status === 'Production' ? 'badge-orange' :
+                    selectedOrderDetail.status === 'QC Inspection' ? 'badge-orange' :
+                    selectedOrderDetail.status === 'Port' ? 'badge-cyan' :
+                    selectedOrderDetail.status === 'Transit' ? 'badge-orange' :
+                    'badge-green'
+                  }`} style={{ fontSize: '12px', padding: '6px 12px', height: 'fit-content' }}>
+                    {selectedOrderDetail.status}
+                  </span>
+
+                  {/* Admin: cambiar estado directamente */}
+                  {isAdmin && (
+                    <select
+                      value={selectedOrderDetail.status}
+                      onChange={async (e) => {
+                        try {
+                          await ordersApi.updateStatus(selectedOrderDetail.id, e.target.value);
+                          setSelectedOrderDetail(prev => ({ ...prev, status: e.target.value }));
+                          await loadOrders();
+                        } catch(err) {
+                          alert(`❌ Error al cambiar estado: ${err.message}`);
+                        }
+                      }}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600' }}
+                    >
+                      <option value="Draft">Draft (Borrador)</option>
+                      <option value="Proforma">Proforma Invoice</option>
+                      <option value="Production">Production (Fabricación)</option>
+                      <option value="QC Inspection">QC Inspection (Calidad)</option>
+                      <option value="Port">Port (FOB/CIF)</option>
+                      <option value="Transit">Transit (En Tránsito)</option>
+                      <option value="Delivered">Delivered (Entregado)</option>
+                    </select>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ flexGrow: 1, overflowY: 'auto', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', textTransform: 'uppercase' }}>Incoterm de Compra</span>
+                  <strong style={{ color: '#fff', fontSize: '13px' }}>{selectedOrderDetail.incoterm || 'FOB China'}</strong>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', textTransform: 'uppercase' }}>Volumen Cubierto</span>
+                  <strong style={{ color: 'var(--cyan-neon)', fontSize: '13px' }}>{parseFloat(selectedOrderDetail.total_cbm || 0).toFixed(4)} CBM</strong>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', textTransform: 'uppercase' }}>Cajas Totales</span>
+                  <strong style={{ color: '#fff', fontSize: '13px' }}>{selectedOrderDetail.total_cases || 0} master cases</strong>
+                </div>
+              </div>
+
+              <div className="glass-panel" style={{ padding: '16px', background: 'rgba(0,0,0,0.2)' }}>
+                <h4 style={{ fontSize: '12px', color: 'var(--cyan-neon)', margin: '0 0 10px 0', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🏢 Información B2B & Fiscal</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', fontSize: '12.5px' }}>
+                  <div>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Razón Social:</span>
+                    <strong>{selectedOrderDetail.company_name}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Identificación Fiscal:</span>
+                    <strong>{selectedOrderDetail.tax_id}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Facturación:</span>
+                    <span style={{ color: 'var(--text-secondary)' }}>{selectedOrderDetail.billing_address}</span>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block' }}>Forwarder en China:</span>
+                    <span style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: '11px' }}>{selectedOrderDetail.forwarder_address}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Productos del Lote Comercial:</h4>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.01)' }}>
+                        <th style={{ padding: '8px', textAlign: 'left' }}>SKU</th>
+                        <th style={{ padding: '8px', textAlign: 'left' }}>Producto</th>
+                        <th style={{ padding: '8px', textAlign: 'right' }}>Cajas Master</th>
+                        <th style={{ padding: '8px', textAlign: 'right' }}>Packs Totales</th>
+                        <th style={{ padding: '8px', textAlign: 'right' }}>Precio Caja</th>
+                        <th style={{ padding: '8px', textAlign: 'right' }}>Subtotal Item</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedOrderDetail.items?.map((item, idx) => (
+                        <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                          <td style={{ padding: '8px', fontFamily: 'monospace', color: 'var(--cyan-neon)' }}>{item.sku}</td>
+                          <td style={{ padding: '8px', color: '#fff' }}>{item.name}</td>
+                          <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>{item.qty_cases}</td>
+                          <td style={{ padding: '8px', textAlign: 'right', color: 'var(--text-secondary)' }}>
+                            {item.qty_cases * (item.units_per_case || 1)} uds.
+                          </td>
+                          <td style={{ padding: '8px', textAlign: 'right' }}>${parseFloat(item.price_case_usd).toFixed(2)}</td>
+                          <td style={{ padding: '8px', textAlign: 'right', fontWeight: '600', color: 'var(--green-neon)' }}>
+                            ${parseFloat(item.total_item_usd).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <div style={{ width: '100%', maxWidth: '300px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Subtotal:</span>
+                    <strong style={{ color: '#fff' }}>${parseFloat(selectedOrderDetail.subtotal_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</strong>
+                  </div>
+                  {parseFloat(selectedOrderDetail.discount_usd) > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--pink-neon)' }}>
+                      <span>Descuentos:</span>
+                      <strong>-${parseFloat(selectedOrderDetail.discount_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</strong>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', paddingTop: '8px', fontSize: '15px' }}>
+                    <span style={{ color: 'var(--green-neon)', fontWeight: 'bold' }}>Total FOB:</span>
+                    <strong style={{ color: 'var(--green-neon)' }}>${parseFloat(selectedOrderDetail.total_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '16px' }}>
+                <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Descarga de Documentación Oficial:</h4>
+                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                  <button 
+                    className="btn-glass" 
+                    onClick={() => {
+                      const token = localStorage.getItem('gosu_token');
+                      window.open(`${API_URL}/api/orders/${selectedOrderDetail.id}/invoice?token=${token}`, '_blank');
+                    }}
+                    style={{ padding: '10px 20px', fontSize: '13px', fontWeight: '700' }}
+                  >
+                    📄 Commercial Invoice / Proforma (PDF)
+                  </button>
+                  <button 
+                    className="btn-glass-pink" 
+                    onClick={() => {
+                      const token = localStorage.getItem('gosu_token');
+                      window.open(`${API_URL}/api/orders/${selectedOrderDetail.id}/packing-list?token=${token}`, '_blank');
+                    }}
+                    style={{ padding: '10px 20px', fontSize: '13px', fontWeight: '700' }}
+                  >
+                    📦 Packing List Oficial (PDF)
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+            <div style={{ textAlign: 'right', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '16px' }}>
+              <button
+                type="button"
+                onClick={() => { setShowOrderDetailModal(false); setSelectedOrderDetail(null); }}
+                className="btn-glass"
+                style={{ padding: '10px 24px' }}
+              >
+                Cerrar Panel
               </button>
             </div>
           </div>

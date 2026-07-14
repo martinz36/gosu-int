@@ -2,7 +2,8 @@
 // api.js — Cliente centralizado para la API de Gosu Int
 // ============================================================
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE = API_URL;
 
 // Obtener el token guardado
 const getToken = () => localStorage.getItem('gosu_token');

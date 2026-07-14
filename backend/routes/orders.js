@@ -32,7 +32,8 @@ router.get('/', requireAuth, async (req, res) => {
         'price_case_usd', soi.price_case_usd,
         'discount_pct', soi.discount_pct,
         'total_item_usd', soi.total_item_usd,
-        'case_cbm', p.case_cbm
+        'case_cbm', p.case_cbm,
+        'units_per_case', p.units_per_case
       ) ORDER BY p.name) AS items
     FROM sales_orders so
     JOIN users u ON u.id = so.client_id
@@ -318,7 +319,7 @@ router.get('/:id/invoice', requireAuth, async (req, res) => {
   try {
     // 1. Obtener la cabecera
     const orderQuery = `
-      SELECT so.*, u.name as client_name, u.email as client_email, t.name as tenant_name
+      SELECT so.*, u.name as client_name, u.email as client_email, t.name as tenant_name, t.logo_url as tenant_logo_url
       FROM sales_orders so
       JOIN users u ON u.id = so.client_id
       JOIN tenants t ON t.id = so.tenant_id
@@ -359,126 +360,165 @@ router.get('/:id/invoice', requireAuth, async (req, res) => {
       <head>
         <meta charset="UTF-8">
         <title>Commercial Invoice - ${order.id.split('-')[0].toUpperCase()}</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
         <style>
-          body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #222; margin: 0; padding: 40px; font-size: 13px; line-height: 1.5; }
+          body {
+            font-family: 'Outfit', sans-serif;
+            background: #09090b;
+            color: #e2e8f0;
+            margin: 0;
+            padding: 40px 20px;
+            font-size: 13.5px;
+            line-height: 1.6;
+          }
+          .invoice-card {
+            max-width: 900px;
+            margin: 0 auto;
+            background: rgba(15, 15, 20, 0.7);
+            border: 1px solid rgba(0, 232, 255, 0.15);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-radius: 16px;
+            padding: 40px;
+            box-sizing: border-box;
+          }
           .header-table { width: 100%; border-collapse: collapse; margin-bottom: 40px; }
-          .logo { font-size: 26px; font-weight: 900; letter-spacing: 1px; color: #000; }
-          .invoice-title { font-size: 22px; font-weight: 800; text-align: right; text-transform: uppercase; }
-          .metadata-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-          .metadata-table td { padding: 4px 0; vertical-align: top; }
-          .section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 12px; letter-spacing: 0.5px; }
+          .logo-img { max-height: 60px; max-width: 250px; object-fit: contain; }
+          .logo-text { font-size: 26px; font-weight: 800; letter-spacing: 1px; color: #00e8ff; text-shadow: 0 0 12px rgba(0, 232, 255, 0.4); }
+          .invoice-title { font-size: 28px; font-weight: 800; text-align: right; text-transform: uppercase; color: #ff007f; text-shadow: 0 0 12px rgba(255, 0, 127, 0.4); }
+          .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; border-bottom: 2px solid rgba(0, 232, 255, 0.2); padding-bottom: 6px; margin-bottom: 12px; letter-spacing: 1px; color: #00e8ff; }
           .items-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-          .items-table th { background: #f5f5f5; font-weight: 700; text-transform: uppercase; font-size: 11px; padding: 10px; border-bottom: 1px solid #ddd; text-align: left; }
-          .items-table td { padding: 10px; border-bottom: 1px solid #eee; }
-          .totals-table { width: 40%; margin-left: 60%; border-collapse: collapse; margin-top: 20px; }
-          .totals-table td { padding: 6px 10px; }
-          .totals-table tr.grand-total { font-weight: 800; border-top: 2px solid #000; border-bottom: 2px solid #000; font-size: 15px; }
-          .footer-note { margin-top: 80px; border-top: 1px solid #ddd; padding-top: 20px; font-size: 11px; color: #666; text-align: center; }
-          .print-btn { background: #000; color: #fff; border: none; padding: 10px 20px; font-weight: 700; border-radius: 4px; cursor: pointer; display: block; margin: 0 auto 30px auto; }
-          @media print { .print-btn { display: none; } body { padding: 0; } }
+          .items-table th { background: rgba(255, 255, 255, 0.02); color: #fff; font-weight: 700; text-transform: uppercase; font-size: 10px; padding: 12px 10px; border-bottom: 1.5px solid rgba(0, 232, 255, 0.3); text-align: left; }
+          .items-table td { padding: 12px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); color: #cbd5e1; }
+          .totals-table { width: 45%; margin-left: 55%; border-collapse: collapse; margin-top: 20px; }
+          .totals-table td { padding: 8px 10px; }
+          .totals-table tr.grand-total { font-weight: 800; border-top: 2px solid #ff007f; border-bottom: 2px solid #ff007f; font-size: 17px; color: #ff007f; }
+          .footer-note { margin-top: 60px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 20px; font-size: 11px; color: #71717a; text-align: center; }
+          .print-btn { background: linear-gradient(135deg, #00e8ff, #ff007f); color: #fff; border: none; padding: 12px 32px; font-weight: 800; border-radius: 8px; cursor: pointer; display: block; margin: 0 auto 30px auto; box-shadow: 0 4px 15px rgba(255, 0, 127, 0.4); text-transform: uppercase; font-size: 11px; letter-spacing: 1px; transition: transform 0.2s; }
+          .print-btn:hover { transform: scale(1.03); }
+          .mono { font-family: 'Share Tech Mono', monospace; }
+          @media print {
+            body { background: #fff; color: #000; padding: 0; }
+            .invoice-card { border: none; box-shadow: none; padding: 0; background: transparent; }
+            .logo-text { color: #000; text-shadow: none; }
+            .invoice-title { color: #000; text-shadow: none; }
+            .section-title { color: #000; border-bottom: 2px solid #000; }
+            .items-table th { background: #f4f4f5; color: #000; border-bottom: 2.5px solid #000; }
+            .items-table td { border-bottom: 1px solid #e4e4e7; color: #000; }
+            .totals-table tr.grand-total { border-top: 2.5px solid #000; border-bottom: 2.5px solid #000; color: #000; }
+            .print-btn { display: none; }
+            .logo-img { filter: grayscale(1) contrast(1.2); }
+          }
         </style>
       </head>
       <body>
         <button class="print-btn" onclick="window.print()">🖨️ Imprimir / Guardar como PDF</button>
         
-        <table class="header-table">
-          <tr>
-            <td>
-              <div class="logo">${order.tenant_name.toUpperCase()} B2B</div>
-              <div style="margin-top: 6px; color: #555;">Export Department - China Office</div>
-            </td>
-            <td style="text-align: right;">
-              <div class="invoice-title">Commercial Invoice</div>
-              <div style="margin-top: 6px; font-weight: 700;">No: ${order.id.split('-')[0].toUpperCase()}</div>
-              <div style="color: #555;">Fecha: ${new Date(order.created_at).toLocaleDateString('es-ES')}</div>
-            </td>
-          </tr>
-        </table>
-
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
-          <tr>
-            <td style="width: 50%; padding-right: 20px; vertical-align: top;">
-              <div class="section-title">Exporter / Manufacturer</div>
-              <strong>${order.tenant_name} Co., Ltd.</strong><br>
-              Shenzhen High-Tech Industrial Park, Nanshan,<br>
-              Shenzhen, Guangdong, China<br>
-              Contact: export@${order.tenant_name.toLowerCase().replace(/\s+/g, '')}.com
-            </td>
-            <td style="width: 50%; padding-left: 20px; vertical-align: top;">
-              <div class="section-title">Importer / Buyer (B2B Client)</div>
-              <strong>${order.company_name}</strong><br>
-              Tax ID: ${order.tax_id}<br>
-              Dirección: ${order.billing_address}<br>
-              Contacto: ${order.client_name} (${order.client_email})
-            </td>
-          </tr>
-        </table>
-
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
-          <tr>
-            <td style="width: 50%; padding-right: 20px; vertical-align: top;">
-              <div class="section-title">Logistics & Shipping Details</div>
-              Incoterm: <strong>${order.incoterm || 'FOB China'}</strong><br>
-              Forwarder en China:<br>
-              <span style="font-family: monospace; font-size: 11px;">${order.forwarder_address}</span>
-            </td>
-            <td style="width: 50%; padding-left: 20px; vertical-align: top;">
-              <div class="section-title">Payment terms</div>
-              Condición: <strong>30% Deposit / 70% Balance</strong><br>
-              Depósito: ${order.status !== 'Proforma' ? 'Confirmado' : 'Pendiente'}<br>
-              Status General: <strong>${order.status}</strong>
-            </td>
-          </tr>
-        </table>
-
-        <div class="section-title">Lote de Insumos / Catálogo Comercial</div>
-        <table class="items-table">
-          <thead>
+        <div class="invoice-card">
+          <table class="header-table">
             <tr>
-              <th>SKU</th>
-              <th>Descripción del Producto</th>
-              <th style="text-align: right;">Cajas Master</th>
-              <th style="text-align: right;">Precio Caja (USD)</th>
-              <th style="text-align: right;">Dcto %</th>
-              <th style="text-align: right;">Total Item (USD)</th>
+              <td>
+                <div class="logo-container">
+                  ${order.tenant_logo_url ? `<img src="${order.tenant_logo_url}" class="logo-img" />` : `<div class="logo-text">${order.tenant_name.toUpperCase()} B2B</div>`}
+                </div>
+                <div style="margin-top: 8px; color: #a1a1aa; font-size: 12.5px;">Export Department - China Office</div>
+              </td>
+              <td style="text-align: right;">
+                <div class="invoice-title">Commercial Invoice</div>
+                <div style="margin-top: 8px; font-weight: 800; font-size: 15px;" class="mono">No: ${order.id.split('-')[0].toUpperCase()}</div>
+                <div style="color: #a1a1aa; font-size: 12.5px;">Fecha: ${new Date(order.created_at).toLocaleDateString('es-ES')}</div>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            ${items.map(item => `
+          </table>
+
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+            <tr>
+              <td style="width: 50%; padding-right: 20px; vertical-align: top; box-sizing: border-box;">
+                <div class="section-title">Exporter / Manufacturer</div>
+                <strong style="color: #fff;">${order.tenant_name} Co., Ltd.</strong><br>
+                Shenzhen High-Tech Industrial Park, Nanshan,<br>
+                Shenzhen, Guangdong, China<br>
+                Contact: export@${order.tenant_name.toLowerCase().replace(/\s+/g, '')}.com
+              </td>
+              <td style="width: 50%; padding-left: 20px; vertical-align: top; box-sizing: border-box;">
+                <div class="section-title">Importer / Buyer (B2B Client)</div>
+                <strong style="color: #fff;">${order.company_name}</strong><br>
+                Tax ID: ${order.tax_id}<br>
+                Dirección: ${order.billing_address}<br>
+                Contacto: ${order.client_name} (${order.client_email})
+              </td>
+            </tr>
+          </table>
+
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+            <tr>
+              <td style="width: 50%; padding-right: 20px; vertical-align: top; box-sizing: border-box;">
+                <div class="section-title">Logistics & Shipping Details</div>
+                Incoterm: <strong style="color: #fff;">${order.incoterm || 'FOB China'}</strong><br>
+                Forwarder en China:<br>
+                <span class="mono" style="font-size: 11.5px; color: #a1a1aa;">${order.forwarder_address}</span>
+              </td>
+              <td style="width: 50%; padding-left: 20px; vertical-align: top; box-sizing: border-box;">
+                <div class="section-title">Payment terms</div>
+                Condición: <strong>30% Deposit / 70% Balance</strong><br>
+                Depósito: ${order.status !== 'Proforma' ? '<span style="color: #4ade80;">✓ Confirmado</span>' : '<span style="color: #fb923c;">⚠️ Pendiente</span>'}<br>
+                Status General: <strong style="text-transform: uppercase; color: #00e8ff;">${order.status}</strong>
+              </td>
+            </tr>
+          </table>
+
+          <div class="section-title">Lote de Insumos / Catálogo Comercial</div>
+          <table class="items-table">
+            <thead>
               <tr>
-                <td style="font-family: monospace; font-weight: 700;">${item.product_sku}</td>
-                <td>${item.product_name} <br><span style="font-size: 10px; color: #666;">(${item.units_per_case} packs/caja)</span></td>
-                <td style="text-align: right;">${item.qty_cases}</td>
-                <td style="text-align: right;">$${parseFloat(item.price_case_usd).toFixed(2)}</td>
-                <td style="text-align: right;">${parseFloat(item.discount_pct).toFixed(1)}%</td>
-                <td style="text-align: right; font-weight: 600;">$${parseFloat(item.total_item_usd).toFixed(2)}</td>
+                <th>SKU</th>
+                <th>Descripción del Producto</th>
+                <th style="text-align: right;">Cajas Master</th>
+                <th style="text-align: right;">Precio Caja (USD)</th>
+                <th style="text-align: right;">Dcto %</th>
+                <th style="text-align: right;">Total Item (USD)</th>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              ${items.map(item => `
+                <tr>
+                  <td class="mono" style="font-weight: 700; color: #00e8ff;">${item.product_sku}</td>
+                  <td><span style="color: #fff; font-weight: 600;">${item.product_name}</span><br><span style="font-size: 10.5px; color: #71717a;">(${item.units_per_case} packs/caja)</span></td>
+                  <td style="text-align: right; font-weight: 700; color: #fff;">${item.qty_cases}</td>
+                  <td style="text-align: right;">$${parseFloat(item.price_case_usd).toFixed(2)}</td>
+                  <td style="text-align: right;">${parseFloat(item.discount_pct).toFixed(1)}%</td>
+                  <td style="text-align: right; font-weight: 600; color: #fff;">$${parseFloat(item.total_item_usd).toFixed(2)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
 
-        <table class="totals-table">
-          <tr>
-            <td>Subtotal Bruto:</td>
-            <td style="text-align: right;">$${subtotal.toFixed(2)}</td>
-          </tr>
-          <tr>
-            <td>Descuentos Aplicados:</td>
-            <td style="text-align: right; color: red;">-$${discount.toFixed(2)}</td>
-          </tr>
-          <tr>
-            <td>Gastos Envío China:</td>
-            <td style="text-align: right;">$${shipping.toFixed(2)}</td>
-          </tr>
-          <tr class="grand-total">
-            <td>Total FOB (USD):</td>
-            <td style="text-align: right;">$${total.toFixed(2)}</td>
-          </tr>
-        </table>
+          <table class="totals-table">
+            <tr>
+              <td style="color: #a1a1aa;">Subtotal Bruto:</td>
+              <td style="text-align: right; font-weight: 600;">$${subtotal.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td style="color: #a1a1aa;">Descuentos Aplicados:</td>
+              <td style="text-align: right; color: #f43f5e; font-weight: 600;">-$${discount.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td style="color: #a1a1aa;">Gastos Envío China:</td>
+              <td style="text-align: right; font-weight: 600;">$${shipping.toFixed(2)}</td>
+            </tr>
+            <tr class="grand-total">
+              <td>Total FOB (USD):</td>
+              <td style="text-align: right;">$${total.toFixed(2)}</td>
+            </tr>
+          </table>
 
-        <div class="footer-note">
-          Esta es una Factura Comercial emitida digitalmente para comercio internacional B2B.<br>
-          Gosu Accessories - Todos los derechos reservados.
+          <div class="footer-note">
+            Esta es una Factura Comercial emitida digitalmente para comercio internacional B2B.<br>
+            ${order.tenant_name} Co., Ltd. - Todos los derechos reservados.
+          </div>
         </div>
       </body>
       </html>
@@ -500,7 +540,7 @@ router.get('/:id/packing-list', requireAuth, async (req, res) => {
   try {
     // 1. Obtener la cabecera
     const orderQuery = `
-      SELECT so.*, u.name as client_name, u.email as client_email, t.name as tenant_name
+      SELECT so.*, u.name as client_name, u.email as client_email, t.name as tenant_name, t.logo_url as tenant_logo_url
       FROM sales_orders so
       JOIN users u ON u.id = so.client_id
       JOIN tenants t ON t.id = so.tenant_id
@@ -544,105 +584,146 @@ router.get('/:id/packing-list', requireAuth, async (req, res) => {
       <head>
         <meta charset="UTF-8">
         <title>Packing List - ${order.id.split('-')[0].toUpperCase()}</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
         <style>
-          body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #222; margin: 0; padding: 40px; font-size: 13px; line-height: 1.5; }
+          body {
+            font-family: 'Outfit', sans-serif;
+            background: #09090b;
+            color: #e2e8f0;
+            margin: 0;
+            padding: 40px 20px;
+            font-size: 13.5px;
+            line-height: 1.6;
+          }
+          .invoice-card {
+            max-width: 950px;
+            margin: 0 auto;
+            background: rgba(15, 15, 20, 0.7);
+            border: 1px solid rgba(0, 232, 255, 0.15);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-radius: 16px;
+            padding: 40px;
+            box-sizing: border-box;
+          }
           .header-table { width: 100%; border-collapse: collapse; margin-bottom: 40px; }
-          .logo { font-size: 26px; font-weight: 900; letter-spacing: 1px; color: #000; }
-          .invoice-title { font-size: 22px; font-weight: 800; text-align: right; text-transform: uppercase; }
-          .section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 12px; letter-spacing: 0.5px; }
+          .logo-img { max-height: 60px; max-width: 250px; object-fit: contain; }
+          .logo-text { font-size: 26px; font-weight: 800; letter-spacing: 1px; color: #00e8ff; text-shadow: 0 0 12px rgba(0, 232, 255, 0.4); }
+          .invoice-title { font-size: 28px; font-weight: 800; text-align: right; text-transform: uppercase; color: #ff007f; text-shadow: 0 0 12px rgba(255, 0, 127, 0.4); }
+          .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; border-bottom: 2px solid rgba(0, 232, 255, 0.2); padding-bottom: 6px; margin-bottom: 12px; letter-spacing: 1px; color: #00e8ff; }
           .items-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-          .items-table th { background: #f5f5f5; font-weight: 700; text-transform: uppercase; font-size: 11px; padding: 10px; border-bottom: 1px solid #ddd; text-align: left; }
-          .items-table td { padding: 10px; border-bottom: 1px solid #eee; }
-          .summary-box { background: #fafafa; border: 1px solid #eee; padding: 16px; border-radius: 6px; margin-top: 30px; font-size: 14px; }
-          .footer-note { margin-top: 80px; border-top: 1px solid #ddd; padding-top: 20px; font-size: 11px; color: #666; text-align: center; }
-          .print-btn { background: #000; color: #fff; border: none; padding: 10px 20px; font-weight: 700; border-radius: 4px; cursor: pointer; display: block; margin: 0 auto 30px auto; }
-          @media print { .print-btn { display: none; } body { padding: 0; } }
+          .items-table th { background: rgba(255, 255, 255, 0.02); color: #fff; font-weight: 700; text-transform: uppercase; font-size: 10px; padding: 12px 10px; border-bottom: 1.5px solid rgba(0, 232, 255, 0.3); text-align: left; }
+          .items-table td { padding: 12px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); color: #cbd5e1; }
+          .summary-box { background: rgba(255,255,255,0.01); border: 1px solid rgba(255, 255, 255, 0.06); padding: 20px; border-radius: 8px; margin-top: 30px; }
+          .footer-note { margin-top: 60px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 20px; font-size: 11px; color: #71717a; text-align: center; }
+          .print-btn { background: linear-gradient(135deg, #00e8ff, #ff007f); color: #fff; border: none; padding: 12px 32px; font-weight: 800; border-radius: 8px; cursor: pointer; display: block; margin: 0 auto 30px auto; box-shadow: 0 4px 15px rgba(255, 0, 127, 0.4); text-transform: uppercase; font-size: 11px; letter-spacing: 1px; transition: transform 0.2s; }
+          .print-btn:hover { transform: scale(1.03); }
+          .mono { font-family: 'Share Tech Mono', monospace; }
+          @media print {
+            body { background: #fff; color: #000; padding: 0; }
+            .invoice-card { border: none; box-shadow: none; padding: 0; background: transparent; }
+            .logo-text { color: #000; text-shadow: none; }
+            .invoice-title { color: #000; text-shadow: none; }
+            .section-title { color: #000; border-bottom: 2px solid #000; }
+            .items-table th { background: #f4f4f5; color: #000; border-bottom: 2.5px solid #000; }
+            .items-table td { border-bottom: 1px solid #e4e4e7; color: #000; }
+            .summary-box { border: 1px solid #ddd; background: #fafafa; color: #000; }
+            .print-btn { display: none; }
+            .logo-img { filter: grayscale(1) contrast(1.2); }
+          }
         </style>
       </head>
       <body>
         <button class="print-btn" onclick="window.print()">🖨️ Imprimir / Guardar como PDF</button>
         
-        <table class="header-table">
-          <tr>
-            <td>
-              <div class="logo">${order.tenant_name.toUpperCase()} B2B</div>
-              <div style="margin-top: 6px; color: #555;">Export Department - China Office</div>
-            </td>
-            <td style="text-align: right;">
-              <div class="invoice-title">Packing List</div>
-              <div style="margin-top: 6px; font-weight: 700;">No: ${order.id.split('-')[0].toUpperCase()}-PL</div>
-              <div style="color: #555;">Fecha: ${new Date(order.created_at).toLocaleDateString('es-ES')}</div>
-            </td>
-          </tr>
-        </table>
-
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
-          <tr>
-            <td style="width: 50%; padding-right: 20px; vertical-align: top;">
-              <div class="section-title">Exporter / Manufacturer</div>
-              <strong>${order.tenant_name} Co., Ltd.</strong><br>
-              Shenzhen High-Tech Industrial Park, Nanshan,<br>
-              Shenzhen, Guangdong, China
-            </td>
-            <td style="width: 50%; padding-left: 20px; vertical-align: top;">
-              <div class="section-title">Ship To (B2B Client)</div>
-              <strong>${order.company_name}</strong><br>
-              Dirección: ${order.billing_address}<br>
-              Forwarder en China:<br>
-              <span style="font-family: monospace; font-size: 11px;">${order.forwarder_address}</span>
-            </td>
-          </tr>
-        </table>
-
-        <div class="section-title">Detalle Logístico de Contenedores y Cajas Master</div>
-        <table class="items-table">
-          <thead>
+        <div class="invoice-card">
+          <table class="header-table">
             <tr>
-              <th>SKU</th>
-              <th>Descripción del Producto</th>
-              <th style="text-align: right;">Cajas Master</th>
-              <th style="text-align: right;">Cant. Packs</th>
-              <th style="text-align: right;">Peso Neto Caja</th>
-              <th style="text-align: right;">Dimensiones Caja</th>
-              <th style="text-align: right;">Volumen (CBM)</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${items.map(item => `
-              <tr>
-                <td style="font-family: monospace; font-weight: 700;">${item.product_sku}</td>
-                <td>${item.product_name}</td>
-                <td style="text-align: right; font-weight: 700;">${item.qty_cases}</td>
-                <td style="text-align: right;">${item.qty_cases * item.units_per_case} packs</td>
-                <td style="text-align: right;">${parseFloat(item.case_weight_kg).toFixed(2)} kg</td>
-                <td style="text-align: right;">${item.case_length_cm}x${item.case_width_cm}x${item.case_height_cm} cm</td>
-                <td style="text-align: right; font-weight: 600; color: 'var(--cyan-neon)'">${(item.qty_cases * parseFloat(item.case_cbm)).toFixed(4)} CBM</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-
-        <div class="summary-box">
-          <h3 style="margin-top: 0; font-size: 15px; border-bottom: 1px solid #eee; padding-bottom: 8px; text-transform: uppercase;">Resumen Logístico de Carga</h3>
-          <table style="width: 100%; border-collapse: collapse;">
-            <tr>
-              <td>📦 Total Cajas Master:</td>
-              <td><strong>${totalCases} cajas</strong></td>
-            </tr>
-            <tr>
-              <td>⚖️ Peso Bruto Total Proyectado:</td>
-              <td><strong>${totalWeight.toFixed(2)} kg</strong></td>
-            </tr>
-            <tr>
-              <td>🚢 Volumen Total Proyectado:</td>
-              <td><strong style="color: blue;">${totalCbm.toFixed(4)} CBM</strong></td>
+              <td>
+                <div class="logo-container">
+                  ${order.tenant_logo_url ? `<img src="${order.tenant_logo_url}" class="logo-img" />` : `<div class="logo-text">${order.tenant_name.toUpperCase()} B2B</div>`}
+                </div>
+                <div style="margin-top: 8px; color: #a1a1aa; font-size: 12.5px;">Export Department - China Office</div>
+              </td>
+              <td style="text-align: right;">
+                <div class="invoice-title">Packing List</div>
+                <div style="margin-top: 8px; font-weight: 800; font-size: 15px;" class="mono">No: ${order.id.split('-')[0].toUpperCase()}-PL</div>
+                <div style="color: #a1a1aa; font-size: 12.5px;">Fecha: ${new Date(order.created_at).toLocaleDateString('es-ES')}</div>
+              </td>
             </tr>
           </table>
-        </div>
 
-        <div class="footer-note">
-          Este es un Packing List oficial emitido digitalmente para aduanas y logística.<br>
-          Gosu Accessories - Todos los derechos reservados.
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+            <tr>
+              <td style="width: 50%; padding-right: 20px; vertical-align: top; box-sizing: border-box;">
+                <div class="section-title">Exporter / Manufacturer</div>
+                <strong style="color: #fff;">${order.tenant_name} Co., Ltd.</strong><br>
+                Shenzhen High-Tech Industrial Park, Nanshan,<br>
+                Shenzhen, Guangdong, China
+              </td>
+              <td style="width: 50%; padding-left: 20px; vertical-align: top; box-sizing: border-box;">
+                <div class="section-title">Ship To (B2B Client)</div>
+                <strong style="color: #fff;">${order.company_name}</strong><br>
+                Dirección: ${order.billing_address}<br>
+                Forwarder en China:<br>
+                <span class="mono" style="font-size: 11.5px; color: #a1a1aa;">${order.forwarder_address}</span>
+              </td>
+            </tr>
+          </table>
+
+          <div class="section-title">Detalle Logístico de Contenedores y Cajas Master</div>
+          <table class="items-table">
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Descripción del Producto</th>
+                <th style="text-align: right;">Cajas Master</th>
+                <th style="text-align: right;">Cant. Packs</th>
+                <th style="text-align: right;">Peso Neto Caja</th>
+                <th style="text-align: right;">Dimensiones Caja</th>
+                <th style="text-align: right;">Volumen (CBM)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${items.map(item => `
+                <tr>
+                  <td class="mono" style="font-weight: 700; color: #00e8ff;">${item.product_sku}</td>
+                  <td><span style="color: #fff; font-weight: 600;">${item.product_name}</span></td>
+                  <td style="text-align: right; font-weight: 700; color: #fff;">${item.qty_cases}</td>
+                  <td style="text-align: right;">${item.qty_cases * item.units_per_case} packs</td>
+                  <td style="text-align: right;">${parseFloat(item.case_weight_kg).toFixed(2)} kg</td>
+                  <td style="text-align: right;">${item.case_length_cm}x${item.case_width_cm}x${item.case_height_cm} cm</td>
+                  <td class="mono" style="text-align: right; font-weight: 600; color: #00e8ff;">${(item.qty_cases * parseFloat(item.case_cbm)).toFixed(4)} CBM</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <div class="summary-box">
+            <h3 style="margin-top: 0; font-size: 14px; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 8px; text-transform: uppercase; color: #ff007f;">Resumen Logístico de Carga</h3>
+            <table style="width: 100%; border-collapse: collapse; font-size: 13.5px;">
+              <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
+                <td style="padding: 8px 0; color: #a1a1aa;">📦 Total Cajas Master:</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: 700; color: #fff;">${totalCases} cajas</td>
+              </tr>
+              <tr style="border-bottom: 1px solid rgba(255,255,255,0.03);">
+                <td style="padding: 8px 0; color: #a1a1aa;">⚖️ Peso Bruto Total Proyectado:</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: 700; color: #fff;">${totalWeight.toFixed(2)} kg</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; color: #a1a1aa;">🚢 Volumen Total Proyectado:</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: 700; color: #00e8ff;">${totalCbm.toFixed(4)} CBM</td>
+              </tr>
+            </table>
+          </div>
+
+          <div class="footer-note">
+            Este es un Packing List oficial emitido digitalmente para aduanas y logística.<br>
+            ${order.tenant_name} Co., Ltd. - Todos los derechos reservados.
+          </div>
         </div>
       </body>
       </html>
