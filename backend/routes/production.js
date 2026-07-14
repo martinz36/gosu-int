@@ -115,7 +115,7 @@ router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
       });
     }
 
-    const orderStatus = status || 'Quotation';
+    const orderStatus = status || 'Proforma';
 
     // Obtener almacén destino (por defecto el físico principal del tenant)
     let targetWarehouseId = warehouse_id;
@@ -134,9 +134,9 @@ router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
       `INSERT INTO production_orders (
          tenant_id, order_number, factory_name, status, 
          estimated_completion_date, total_cost_usd, total_cbm, tracking_number, warehouse_id
-       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING *`,
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *`,
       [
         tenant_id, orderNumber, factory_name, orderStatus,
         estimated_completion_date || null, totalCostUsd, totalCbm, tracking_number || null, targetWarehouseId
@@ -158,8 +158,8 @@ router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
         ]
       );
 
-      // Si la orden se inicia directamente en Production o Shipped, incrementamos el stock en producción
-      if (['Production', 'Shipped'].includes(orderStatus)) {
+      // Si la orden se inicia directamente en Production, QC Control o Shipped, incrementamos el stock en producción
+      if (['Production', 'QC Control', 'Shipped'].includes(orderStatus)) {
         await client.query(
           `INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases)
            VALUES ($1, $2, 0, $3)
@@ -207,7 +207,7 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
-  const validStatuses = ['Quotation', 'Production', 'Shipped', 'Delivered'];
+  const validStatuses = ['Proforma', 'Production', 'QC Control', 'Shipped', 'Delivered'];
   if (!validStatuses.includes(status)) {
     return res.status(400).json({ error: 'Estado no válido en la máquina de estados.' });
   }
@@ -236,7 +236,7 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
     }
 
     // Validación de transición secuencial estricta
-    const stepNames = ['Quotation', 'Production', 'Shipped', 'Delivered'];
+    const stepNames = ['Proforma', 'Production', 'QC Control', 'Shipped', 'Delivered'];
     const oldStepIdx = stepNames.indexOf(oldStatus);
     const newStepIdx = stepNames.indexOf(status);
 
@@ -255,8 +255,8 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
     const items = itemsResult.rows;
 
     // 2. Lógica de traspaso de inventario inteligente y reversible
-    const PRE_PROD = ['Quotation'];
-    const IN_PROD = ['Production', 'Shipped'];
+    const PRE_PROD = ['Proforma'];
+    const IN_PROD = ['Production', 'QC Control', 'Shipped'];
     const POST_PROD = ['Delivered'];
 
     const wasPre = PRE_PROD.includes(oldStatus);

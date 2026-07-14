@@ -46,6 +46,18 @@ const runAutoMigrations = async () => {
     `);
     console.log('✅ Columna must_change_password verificada/agregada.');
 
+    // 4. Migrar estados antiguos de órdenes de producción a los nuevos estados
+    await client.query(`
+      UPDATE production_orders SET status = 'Proforma' WHERE status IN ('Quotation', 'Draft');
+    `);
+    await client.query(`
+      UPDATE production_orders SET status = 'QC Control' WHERE status = 'QC Inspection';
+    `);
+    await client.query(`
+      UPDATE production_orders SET status = 'Shipped' WHERE status IN ('Port', 'Transit');
+    `);
+    console.log('✅ Migraciones de estados de órdenes de producción completadas.');
+
     client.release();
     console.log('🎉 Migraciones automáticas completadas.');
   } catch (err) {

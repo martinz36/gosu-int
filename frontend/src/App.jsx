@@ -207,11 +207,13 @@ function App() {
     factory_name: 'Dongguan Card Supplies Factory',
     estimated_completion_date: '',
     tracking_number: '',
-    status: 'Draft',
+    status: 'Proforma',
     items: []
   });
   const [productionAuditLogs, setProductionAuditLogs] = useState([]);
   const [activeAuditOrderId, setActiveAuditOrderId] = useState(null);
+  const [selectedProductionOrder, setSelectedProductionOrder] = useState(null);
+  const [showProductionDetailModal, setShowProductionDetailModal] = useState(false);
 
   // Estados para Módulo de Selección Rápida en Fabricación
   const [showQuickSelect, setShowQuickSelect] = useState(false);
@@ -3908,7 +3910,7 @@ function App() {
                       factory_name: 'Dongguan Card Supplies Factory',
                       estimated_completion_date: '',
                       tracking_number: '',
-                      status: 'Production',
+                      status: 'Proforma',
                       items: []
                     });
                   }
@@ -3990,7 +3992,6 @@ function App() {
                         onChange={(e) => setProdForm(prev => ({ ...prev, status: e.target.value }))}
                         style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
                       >
-                        <option value="Draft">Draft (Borrador)</option>
                         <option value="Proforma">Proforma Invoice</option>
                         <option value="Production">Production (En Fabricación)</option>
                       </select>
@@ -4147,201 +4148,86 @@ function App() {
               </div>
             )}
 
-            {/* Listado de Órdenes con Timeline */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            {/* Listado de Órdenes en Formato Tabla */}
+            <div className="glass-panel" style={{ padding: '24px', overflowX: 'auto', border: '1px solid rgba(255,255,255,0.06)' }}>
               {productionOrders.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
                   No hay órdenes de producción activas.
                 </div>
               ) : (
-                productionOrders.map(pOrder => {
-                  const stepNames = ['Draft', 'Proforma', 'Production', 'QC Inspection', 'Port', 'Transit', 'Delivered'];
-                  const currentStepIdx = stepNames.indexOf(pOrder.status);
-                  const isAuditOpen = activeAuditOrderId === pOrder.id;
-
-                  return (
-                    <div key={pOrder.id} className="glass-panel" style={{ padding: '24px', position: 'relative', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '800px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.08)', color: 'var(--text-secondary)', fontSize: '12px', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '12px 16px' }}>N° Lote (PO)</th>
+                      <th style={{ padding: '12px 16px' }}>Fábrica</th>
+                      <th style={{ padding: '12px 16px' }}>Fecha Registro</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Presupuesto FOB</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Cubicaje</th>
+                      <th style={{ padding: '12px 16px' }}>Estado</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'center' }}>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {productionOrders.map(pOrder => {
+                      const stepNames = ['Proforma', 'Production', 'QC Control', 'Shipped', 'Delivered'];
                       
-                      {/* Encabezado de la Tarjeta */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '14px', marginBottom: '18px' }}>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#fff', margin: 0 }}>
-                              {pOrder.order_number}
-                            </h3>
-                            <span className="badge badge-cyan" style={{ fontSize: '10px' }}>🏭 {pOrder.factory_name}</span>
-                          </div>
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', display: 'block' }}>
-                            Registrado el: <strong>{new Date(pOrder.created_at).toLocaleString('es-ES')}</strong>
-                          </span>
-                        </div>
-                        
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>Avanzar Estado:</span>
-                          <select
-                            value={pOrder.status}
-                            onChange={(e) => handleUpdateProductionStatus(pOrder.id, e.target.value)}
-                            style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 12px', borderRadius: '6px', fontSize: '12.5px', fontWeight: '600' }}
-                          >
-                            <option value="Draft">Draft</option>
-                            <option value="Proforma">Proforma</option>
-                            <option value="Production">Production</option>
-                            <option value="QC Inspection">QC Inspection</option>
-                            <option value="Port">Port (FOB/CIF)</option>
-                            <option value="Transit">Transit</option>
-                            <option value="Delivered">Delivered (Entregado)</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      {/* Timeline Gráfico de Estados */}
-                      <div style={{ padding: '10px 0 20px', position: 'relative' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', width: '100%' }}>
-                          {/* Línea de fondo del timeline */}
-                          <div style={{ position: 'absolute', top: '15px', left: '4%', right: '4%', height: '3px', background: 'rgba(255,255,255,0.06)', zIndex: 1 }} />
-                          {/* Línea de progreso activa */}
-                          <div style={{ position: 'absolute', top: '15px', left: '4%', width: `${(currentStepIdx / (stepNames.length - 1)) * 92}%`, height: '3px', background: 'var(--cyan-neon)', zIndex: 2, transition: 'all 0.4s ease' }} />
-
-                          {stepNames.map((step, idx) => {
-                            const isActive = idx <= currentStepIdx;
-                            const isCurrent = idx === currentStepIdx;
-                            return (
-                              <div key={step} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 3, position: 'relative', width: '12%' }}>
-                                <div style={{
-                                  width: '32px',
-                                  height: '32px',
-                                  borderRadius: '50%',
-                                  background: isCurrent ? 'var(--pink-neon)' : isActive ? 'var(--cyan-neon)' : 'rgba(20, 20, 20, 0.9)',
-                                  border: isActive ? '2px solid transparent' : '2px solid rgba(255,255,255,0.1)',
-                                  boxShadow: isCurrent ? '0 0 10px var(--pink-neon)' : isActive ? '0 0 8px var(--cyan-neon)' : 'none',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  fontSize: '12px',
-                                  color: isActive ? '#000' : 'rgba(255,255,255,0.4)',
-                                  fontWeight: '900',
-                                  transition: 'all 0.3s'
-                                }}>
-                                  {idx + 1}
-                                </div>
-                                <span style={{ fontSize: '10px', marginTop: '6px', textAlign: 'center', fontWeight: isCurrent ? '700' : '500', color: isCurrent ? 'var(--pink-neon)' : isActive ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>
-                                  {step}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Resumen Financiero y Logístico */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginBottom: '20px', marginTop: '10px' }}>
-                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
-                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Costo Total Lote</div>
-                          <strong style={{ fontSize: '15px', color: '#fff', marginTop: '2px', display: 'block' }}>
-                            ${parseFloat(pOrder.total_cost_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
-                          </strong>
-                        </div>
-                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
-                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Cubicaje de Embarque</div>
-                          <strong style={{ fontSize: '15px', color: 'var(--cyan-neon)', marginTop: '2px', display: 'block' }}>
-                            {parseFloat(pOrder.total_cbm).toFixed(4)} CBM
-                          </strong>
-                        </div>
-                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
-                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Tracking Contenedor</div>
-                          <strong style={{ fontSize: '14px', color: '#fff', marginTop: '2px', display: 'block', textTransform: 'uppercase' }}>
-                            {pOrder.tracking_number || 'N/A'}
-                          </strong>
-                        </div>
-                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
-                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Entrega Estimada / Real</div>
-                          <strong style={{ fontSize: '13px', color: '#fff', marginTop: '2px', display: 'block' }}>
-                            {pOrder.status === 'Delivered' 
-                              ? `Entregado: ${new Date(pOrder.actual_completion_date).toLocaleDateString('es-ES')}` 
-                              : pOrder.estimated_completion_date 
-                                ? new Date(pOrder.estimated_completion_date).toLocaleDateString('es-ES') 
-                                : 'Sin estimar'}
-                          </strong>
-                        </div>
-                      </div>
-
-                      {/* Detalle de Productos */}
-                      <div style={{ background: 'rgba(0,0,0,0.1)', padding: '14px 18px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.02)', marginBottom: '16px' }}>
-                        <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', margin: '0 0 10px', letterSpacing: '0.5px' }}>Productos a Producir:</h4>
-                        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          {pOrder.items?.map((item, idx) => (
-                            <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', borderBottom: '1px solid rgba(255,255,255,0.01)', paddingBottom: '4px' }}>
-                              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                <span style={{ color: '#fff' }}>{item.name} <em style={{ fontSize: '11px', color: 'var(--text-secondary)', fontStyle: 'normal' }}>(SKU: {item.sku})</em></span>
-                                {item.production_files_url && (
-                                  <a href={item.production_files_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '11px', color: 'var(--cyan-neon)', textDecoration: 'underline', width: 'fit-content', marginTop: '2px' }}>
-                                    📁 Ver archivos de producción
-                                  </a>
-                                )}
-                              </div>
-                              <span style={{ color: 'var(--cyan-neon)' }}>
-                                <strong>{item.quantity_cases} Cajas master</strong> ({parseFloat(item.item_cbm).toFixed(4)} CBM)
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      {/* Control de Auditoría Expandible y Exportar PDF */}
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                        <button
-                          type="button"
-                          onClick={() => handleExportPDF(pOrder)}
-                          className="btn-glass-neon"
-                          style={{ padding: '6px 14px', fontSize: '11.5px', fontWeight: '700' }}
-                        >
-                          📄 Exportar Ficha (PDF)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (isAuditOpen) {
-                              setActiveAuditOrderId(null);
-                            } else {
-                              handleLoadProductionAuditLogs(pOrder.id);
-                            }
-                          }}
-                          className="btn-glass"
-                          style={{ padding: '6px 14px', fontSize: '11.5px', fontWeight: '600' }}
-                        >
-                          {isAuditOpen ? '📋 Ocultar Bitácora' : '📋 Ver Bitácora de Auditoría'}
-                        </button>
-                      </div>
-
-                      {/* Contenido de Bitácora de Auditoría */}
-                      {isAuditOpen && (
-                        <div className="glass-panel" style={{ marginTop: '16px', padding: '16px', background: 'rgba(0,232,255,0.01)', border: '1px solid rgba(0,232,255,0.15)', borderRadius: '8px' }}>
-                          <h4 style={{ fontSize: '12.5px', color: 'var(--cyan-neon)', margin: '0 0 12px', fontWeight: '700', textTransform: 'uppercase' }}>
-                            📜 Registro de Auditoría de Estados
-                          </h4>
-                          {productionAuditLogs.length === 0 ? (
-                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Cargando logs o sin cambios de estado aún...</div>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto' }}>
-                              {productionAuditLogs.map((log) => (
-                                <div key={log.id} style={{ fontSize: '11.5px', borderBottom: '1px solid rgba(255,255,255,0.02)', paddingBottom: '6px' }}>
-                                  <span style={{ color: 'var(--cyan-neon)' }}>{new Date(log.created_at).toLocaleString('es-ES')}</span>
-                                  <span style={{ color: '#fff' }}> — <strong>{log.user_name}</strong> {log.action === 'CREATE_PRODUCTION_ORDER' ? 'creó la orden' : 'cambió el estado'}</span>
-                                  {log.old_value && (
-                                    <>
-                                      <span> de <strong style={{ color: 'var(--orange-neon)' }}>{log.old_value}</strong></span>
-                                    </>
-                                  )}
-                                  <span> a <strong style={{ color: 'var(--green-neon)' }}>{log.new_value}</strong></span>
-                                </div>
+                      return (
+                        <tr key={pOrder.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: '13px', transition: 'background 0.2s' }} className="hover-row">
+                          <td style={{ padding: '16px', fontWeight: 'bold', color: '#fff' }}>
+                            {pOrder.order_number}
+                          </td>
+                          <td style={{ padding: '16px' }}>
+                            <span className="badge badge-cyan" style={{ fontSize: '10.5px' }}>🏭 {pOrder.factory_name}</span>
+                          </td>
+                          <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>
+                            {new Date(pOrder.created_at).toLocaleDateString('es-ES')}
+                          </td>
+                          <td style={{ padding: '16px', textAlign: 'right', fontWeight: 'bold', color: 'var(--green-neon)' }}>
+                            ${parseFloat(pOrder.total_cost_usd || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td style={{ padding: '16px', textAlign: 'right', color: 'var(--cyan-neon)' }}>
+                            {parseFloat(pOrder.total_cbm || 0).toFixed(4)} CBM
+                          </td>
+                          <td style={{ padding: '16px' }}>
+                            <select
+                              value={pOrder.status}
+                              onChange={(e) => handleUpdateProductionStatus(pOrder.id, e.target.value)}
+                              style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600' }}
+                            >
+                              {stepNames.map(st => (
+                                <option key={st} value={st}>{st}</option>
                               ))}
+                            </select>
+                          </td>
+                          <td style={{ padding: '16px', textAlign: 'center' }}>
+                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                              <button
+                                onClick={async () => {
+                                  setSelectedProductionOrder(pOrder);
+                                  setShowProductionDetailModal(true);
+                                  handleLoadProductionAuditLogs(pOrder.id);
+                                }}
+                                className="btn-glass-cyan"
+                                style={{ padding: '6px 10px', fontSize: '12px' }}
+                                title="Ver Detalle"
+                              >
+                                👁️
+                              </button>
+                              <button
+                                onClick={() => handleExportPDF(pOrder)}
+                                className="btn-glass"
+                                style={{ padding: '6px 10px', fontSize: '12px', background: 'rgba(0, 232, 255, 0.1)', border: '1px solid var(--cyan-neon)', color: 'var(--cyan-neon)' }}
+                                title="Exportar Ficha (PDF)"
+                              >
+                                📄
+                              </button>
                             </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               )}
             </div>
           </div>
@@ -6925,9 +6811,10 @@ function App() {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span className={`badge ${
-                    selectedProdOrder.status === 'Quotation' ? 'badge-pink' :
+                    selectedProdOrder.status === 'Proforma' ? 'badge-pink' :
                     selectedProdOrder.status === 'Production' ? 'badge-orange' :
-                    selectedProdOrder.status === 'Shipped' ? 'badge-cyan' :
+                    selectedProdOrder.status === 'QC Control' ? 'badge-cyan' :
+                    selectedProdOrder.status === 'Shipped' ? 'badge-orange' :
                     'badge-green'
                   }`} style={{ fontSize: '12px', padding: '6px 12px', height: 'fit-content' }}>
                     {selectedProdOrder.status}
@@ -6945,8 +6832,9 @@ function App() {
                     }}
                     style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600' }}
                   >
-                    <option value="Quotation">Quotation (Presupuesto)</option>
+                    <option value="Proforma">Proforma</option>
                     <option value="Production">Production (Fabricación)</option>
+                    <option value="QC Control">QC Control</option>
                     <option value="Shipped">Shipped (Enviado)</option>
                     <option value="Delivered">Delivered (Entregado)</option>
                   </select>
@@ -6958,7 +6846,7 @@ function App() {
               
               {/* Timeline Gráfico de Estados */}
               {(() => {
-                const stepNames = ['Quotation', 'Production', 'Shipped', 'Delivered'];
+                const stepNames = ['Proforma', 'Production', 'QC Control', 'Shipped', 'Delivered'];
                 const currentStepIdx = stepNames.indexOf(selectedProdOrder.status);
                 return (
                   <div style={{ padding: '10px 0 20px', position: 'relative' }}>
