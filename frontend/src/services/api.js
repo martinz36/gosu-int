@@ -279,6 +279,12 @@ export const config = {
     create: (data) => request('POST', '/api/config/brands', data),
     update: (id, data) => request('PUT', `/api/config/brands/${id}`, data),
     delete: (id) => request('DELETE', `/api/config/brands/${id}`),
+  },
+  skuVolumeRules: {
+    getAll: () => request('GET', '/api/config/sku-volume-rules'),
+    create: (data) => request('POST', '/api/config/sku-volume-rules', data),
+    update: (id, data) => request('PUT', `/api/config/sku-volume-rules/${id}`, data),
+    delete: (id) => request('DELETE', `/api/config/sku-volume-rules/${id}`),
   }
 };
 

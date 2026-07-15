@@ -128,6 +128,11 @@ function App() {
   const [editingCategory, setEditingCategory] = useState(null);
   const [editingBrand, setEditingBrand] = useState(null);
   const [editingPricingTier, setEditingPricingTier] = useState(null);
+  const [skuVolumeRulesList, setSkuVolumeRulesList] = useState([]);
+  const [newSkuVolumeRule, setNewSkuVolumeRule] = useState({ min_units: '', discount_pct: '' });
+  const [editingSkuVolumeRule, setEditingSkuVolumeRule] = useState(null);
+  const [showSkuVolumeRulesModal, setShowSkuVolumeRulesModal] = useState(false);
+  const [showPricingTiersModal, setShowPricingTiersModal] = useState(false);
 
   const isSleevesCategory = (categorySlug) => {
     if (!categorySlug) return false;
@@ -440,6 +445,16 @@ function App() {
     }
   }, [currentUser, isSuperAdmin]);
 
+  const loadSkuVolumeRules = useCallback(async () => {
+    if (!currentUser || isSuperAdmin || !isAdmin) return;
+    try {
+      const data = await configApi.skuVolumeRules.getAll();
+      setSkuVolumeRulesList(data);
+    } catch (err) {
+      console.error('Error cargando reglas de volumen SKU:', err);
+    }
+  }, [currentUser, isSuperAdmin, isAdmin]);
+
   const loadCatalogConfig = useCallback(async () => {
     if (!currentUser || isSuperAdmin) return;
     try {
@@ -450,14 +465,14 @@ function App() {
       setCategoriesList(catData);
       setBrandsList(brandData);
       if (isAdmin) {
-        await Promise.all([loadClients(), loadPricingTiers(), loadCampaigns()]);
+        await Promise.all([loadClients(), loadPricingTiers(), loadCampaigns(), loadSkuVolumeRules()]);
       } else {
         await loadCampaigns();
       }
     } catch (err) {
       console.error('Error cargando marcas/categorías:', err);
     }
-  }, [currentUser, isSuperAdmin, isAdmin, loadClients, loadPricingTiers, loadCampaigns]);
+  }, [currentUser, isSuperAdmin, isAdmin, loadClients, loadPricingTiers, loadCampaigns, loadSkuVolumeRules]);
 
   const loadTenantPublicInfo = useCallback(async () => {
     if (!currentUser || isSuperAdmin || isAdmin) return;
@@ -993,6 +1008,51 @@ function App() {
     } catch (err) {
       console.error('Error al guardar productos de campaña:', err);
       alert('❌ Error al guardar productos: ' + (err.error || err.message || err));
+    }
+  };
+
+  // ============================================================
+  // CRUD de Reglas de Volumen SKU
+  // ============================================================
+  const handleCreateOrUpdateSkuVolumeRule = async (e) => {
+    e.preventDefault();
+    if (!newSkuVolumeRule.min_units || !newSkuVolumeRule.discount_pct) {
+      alert('Cantidad mínima y porcentaje de descuento son requeridos.');
+      return;
+    }
+
+    try {
+      if (editingSkuVolumeRule) {
+        await configApi.skuVolumeRules.update(editingSkuVolumeRule.id, {
+          min_units: parseInt(newSkuVolumeRule.min_units),
+          discount_pct: parseFloat(newSkuVolumeRule.discount_pct)
+        });
+        alert('🎉 Regla de volumen actualizada.');
+      } else {
+        await configApi.skuVolumeRules.create({
+          min_units: parseInt(newSkuVolumeRule.min_units),
+          discount_pct: parseFloat(newSkuVolumeRule.discount_pct)
+        });
+        alert('🎉 Regla de volumen creada.');
+      }
+      setNewSkuVolumeRule({ min_units: '', discount_pct: '' });
+      setEditingSkuVolumeRule(null);
+      await loadSkuVolumeRules();
+    } catch (err) {
+      console.error('Error al guardar regla de volumen SKU:', err);
+      alert('❌ Error al guardar regla: ' + (err.error || err.message || err));
+    }
+  };
+
+  const handleDeleteSkuVolumeRule = async (id) => {
+    if (!window.confirm('⚠️ ¿Estás seguro de que deseas eliminar esta regla?')) return;
+    try {
+      await configApi.skuVolumeRules.delete(id);
+      alert('🗑️ Regla de volumen eliminada.');
+      await loadSkuVolumeRules();
+    } catch (err) {
+      console.error('Error al eliminar regla de volumen SKU:', err);
+      alert('❌ Error al eliminar regla: ' + (err.error || err.message || err));
     }
   };
 
@@ -1942,16 +2002,19 @@ function App() {
     let totalDiscountAmount = 0;
 
     if (discountPolicy === 'volume') {
+      const sortedRules = [...skuVolumeRulesList].sort((a, b) => b.min_units - a.min_units);
+
       itemsDetail.forEach(item => {
         const unitsPerCase = parseInt(item.units_per_case) || 1;
         const totalUnits = item.qty * unitsPerCase;
         const itemSubtotal = parseFloat(item.price_per_case_usd) * item.qty;
 
         let itemDiscountPct = 0;
-        if (totalUnits >= 500) {
-          itemDiscountPct = 10;
-        } else if (totalUnits >= 100) {
-          itemDiscountPct = 5;
+        for (const rule of sortedRules) {
+          if (totalUnits >= rule.min_units) {
+            itemDiscountPct = parseFloat(rule.discount_pct);
+            break;
+          }
         }
 
         totalDiscountAmount += itemSubtotal * (itemDiscountPct / 100);
@@ -5892,11 +5955,32 @@ function App() {
                         <select
                           value={tenantSettings.discount_policy || 'tier'}
                           onChange={(e) => setTenantSettings(prev => ({ ...prev, discount_policy: e.target.value }))}
-                          style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontWeight: '700' }}
+                          style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontWeight: '700', marginBottom: '12px' }}
                         >
                           <option value="tier">Nivel de Cliente / Tier Comercial</option>
                           <option value="volume">Volumen por SKU (Escalonado por Item)</option>
                         </select>
+
+                        {tenantSettings.discount_policy === 'volume' ? (
+                          <button
+                            type="button"
+                            onClick={() => setShowSkuVolumeRulesModal(true)}
+                            className="btn-glass-cyan"
+                            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                          >
+                            ⚙️ Configurar Descuentos de Volumen SKU
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setShowPricingTiersModal(true)}
+                            className="btn-glass-cyan"
+                            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                          >
+                            ⚙️ Configurar Pricing Tiers (Niveles)
+                          </button>
+                        )}
+
                         <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
                           Define si el descuento se calcula de acuerdo al Tier del distribuidor, o mediante reglas decrecientes de volumen por cada SKU comprado.
                         </span>
@@ -6622,38 +6706,16 @@ function App() {
         {/* ===================================================== */}
         {activeTab === 'clients' && isAdmin && !dataLoading && (
           <div>
-            <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
-              <div>
-                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>
-                  {clientSubTab === 'directorio' ? 'Directorio y CRM de Clientes B2B' : 'Niveles de Precios B2B (Pricing Tiers)'}
-                </h1>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                  {clientSubTab === 'directorio' 
-                    ? 'Administra las cuentas de tus distribuidores activos y realiza el seguimiento a tus leads comerciales.' 
-                    : 'Configura las reglas comerciales dinámicas (descuentos y mínimos de compra) aplicables a tus clientes.'}
-                </p>
-              </div>
-
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <button
-                  onClick={() => setClientSubTab('directorio')}
-                  className={clientSubTab === 'directorio' ? 'btn-pink' : 'btn-glass'}
-                  style={{ padding: '8px 16px', fontSize: '13px' }}
-                >
-                  👥 Directorio
-                </button>
-                <button
-                  onClick={() => setClientSubTab('pricing_tiers')}
-                  className={clientSubTab === 'pricing_tiers' ? 'btn-pink' : 'btn-glass'}
-                  style={{ padding: '8px 16px', fontSize: '13px' }}
-                >
-                  🏷️ Niveles de Precios
-                </button>
-              </div>
+            <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>
+                Directorio y CRM de Clientes B2B
+              </h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0 }}>
+                Administra las cuentas de tus distribuidores activos y realiza el seguimiento a tus leads comerciales.
+              </p>
             </div>
 
-            {clientSubTab === 'directorio' ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
                   <div style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.15)', padding: '4px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
                     <button
@@ -7075,145 +7137,6 @@ function App() {
                 )}
               </div>
             </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px' }}>
-                {/* Crear / Editar Pricing Tier */}
-                <div className="glass-panel" style={{ padding: '24px' }}>
-                  <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '20px', color: 'var(--cyan-neon)' }}>
-                    {editingPricingTier ? '✏️ Editar Nivel de Precios B2B' : '➕ Crear Nuevo Nivel de Precios B2B'}
-                  </h2>
-                  <form onSubmit={handleCreateOrUpdatePricingTier} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Nombre del Nivel *</label>
-                      <input
-                        type="text"
-                        placeholder="Ej. Distribuidor Exclusivo"
-                        required
-                        value={newPricingTier.tier_name}
-                        onChange={(e) => setNewPricingTier(prev => ({ ...prev, tier_name: e.target.value }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Porcentaje de Descuento (%) *</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        placeholder="Ej. 15.00"
-                        required
-                        value={newPricingTier.discount_percentage}
-                        onChange={(e) => setNewPricingTier(prev => ({ ...prev, discount_percentage: parseFloat(e.target.value) || 0 }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Monto Mínimo de Orden (MOV en USD) *</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        placeholder="Ej. 2000.00"
-                        required
-                        value={newPricingTier.min_order_amount}
-                        onChange={(e) => setNewPricingTier(prev => ({ ...prev, min_order_amount: parseFloat(e.target.value) || 0 }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
-                      <input
-                        type="checkbox"
-                        id="only_master_cases"
-                        checked={newPricingTier.only_master_cases}
-                        onChange={(e) => setNewPricingTier(prev => ({ ...prev, only_master_cases: e.target.checked }))}
-                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                      />
-                      <label htmlFor="only_master_cases" style={{ fontSize: '12.5px', color: '#fff', cursor: 'pointer', fontWeight: '600' }}>
-                        Forzar compras únicamente en Master Cases (cajas enteras)
-                      </label>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                      <button type="submit" className="btn-pink" style={{ flexGrow: 1, padding: '10px 20px', fontSize: '12.5px' }}>
-                        {editingPricingTier ? 'Guardar Cambios' : 'Crear Nivel'}
-                      </button>
-                      {editingPricingTier && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingPricingTier(null);
-                            setNewPricingTier({ tier_name: '', discount_percentage: 0, min_order_amount: 1000, only_master_cases: false });
-                          }}
-                          className="btn-glass"
-                          style={{ padding: '10px 20px', fontSize: '12.5px' }}
-                        >
-                          Cancelar
-                        </button>
-                      )}
-                    </div>
-                  </form>
-                </div>
-
-                {/* Listado de Pricing Tiers */}
-                <div className="glass-panel" style={{ padding: '24px' }}>
-                  <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
-                    Niveles Configurados ({pricingTiersList.length})
-                  </h2>
-
-                  {pricingTiersList.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                      No has creado ningún nivel de precios personalizado aún.
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      {pricingTiersList.map(tier => (
-                        <div key={tier.id} style={{ border: '1px solid rgba(255,255,255,0.06)', padding: '16px', borderRadius: '12px', background: 'rgba(255,255,255,0.01)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div>
-                            <strong style={{ fontSize: '15px', color: '#fff' }}>{tier.tier_name}</strong>
-                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
-                              <span className="badge badge-green" style={{ fontSize: '10px' }}>
-                                -{parseFloat(tier.discount_percentage)}% Descuento
-                              </span>
-                              <span className="badge badge-cyan" style={{ fontSize: '10px' }}>
-                                MOV: ${parseFloat(tier.min_order_amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                              </span>
-                              {tier.only_master_cases && (
-                                <span className="badge badge-yellow" style={{ fontSize: '10px' }}>
-                                  📦 Solo Master Cases
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            <button
-                              onClick={() => {
-                                setEditingPricingTier(tier);
-                                setNewPricingTier({
-                                  tier_name: tier.tier_name,
-                                  discount_percentage: parseFloat(tier.discount_percentage),
-                                  min_order_amount: parseFloat(tier.min_order_amount),
-                                  only_master_cases: tier.only_master_cases === true
-                                });
-                              }}
-                              className="btn-glass"
-                              style={{ padding: '6px 12px', fontSize: '12px' }}
-                            >
-                              ✏️
-                            </button>
-                            <button
-                              onClick={() => handleDeletePricingTier(tier.id)}
-                              className="btn-glass-pink"
-                              style={{ padding: '6px 12px', fontSize: '12px' }}
-                            >
-                              🗑️
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
         )}
       </main>
@@ -7573,6 +7496,310 @@ function App() {
                   Cargar Selección a la Orden
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================== */}
+      {/* MODAL: CONFIGURACIÓN DE PRICING TIERS                 */}
+      {/* ===================================================== */}
+      {showPricingTiersModal && (
+        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', zIndex: '200', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '950px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: '28px', position: 'relative', border: '1px solid var(--cyan-neon)' }}>
+            <button onClick={() => { setShowPricingTiersModal(false); setEditingPricingTier(null); setNewPricingTier({ tier_name: '', discount_percentage: 0, min_order_amount: 1000, only_master_cases: false }); }} style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}>×</button>
+
+            <div style={{ borderBottom: '2px solid #333', paddingBottom: '12px', marginBottom: '20px' }}>
+              <h2 style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: '18px', color: 'var(--cyan-neon)', margin: '0 0 4px 0' }}>
+                🏷️ Configuración de Pricing Tiers (Niveles de Cliente)
+              </h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
+                Crea y edita los niveles comerciales aplicables a tus distribuidores B2B.
+              </p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px', flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
+              {/* Formulario */}
+              <div className="glass-panel" style={{ padding: '20px', background: 'rgba(255,255,255,0.01)', height: 'fit-content' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '16px', color: '#fff' }}>
+                  {editingPricingTier ? '✏️ Editar Nivel' : '➕ Crear Nuevo Nivel'}
+                </h3>
+                <form onSubmit={handleCreateOrUpdatePricingTier} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Nombre del Nivel *</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Partner VIP"
+                      required
+                      value={newPricingTier.tier_name}
+                      onChange={(e) => setNewPricingTier(prev => ({ ...prev, tier_name: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Porcentaje de Descuento (%) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Ej. 15.00"
+                      required
+                      value={newPricingTier.discount_percentage}
+                      onChange={(e) => setNewPricingTier(prev => ({ ...prev, discount_percentage: parseFloat(e.target.value) || 0 }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Monto Mínimo de Orden (MOV USD) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Ej. 5000.00"
+                      required
+                      value={newPricingTier.min_order_amount}
+                      onChange={(e) => setNewPricingTier(prev => ({ ...prev, min_order_amount: parseFloat(e.target.value) || 0 }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
+                    <input
+                      type="checkbox"
+                      id="modal_only_master_cases"
+                      checked={newPricingTier.only_master_cases}
+                      onChange={(e) => setNewPricingTier(prev => ({ ...prev, only_master_cases: e.target.checked }))}
+                      style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                    />
+                    <label htmlFor="modal_only_master_cases" style={{ fontSize: '12px', color: '#fff', cursor: 'pointer', fontWeight: '600' }}>
+                      Forzar compra en Master Cases
+                    </label>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                    <button type="submit" className="btn-pink" style={{ flexGrow: 1, padding: '8px 16px', fontSize: '12px' }}>
+                      {editingPricingTier ? 'Guardar' : 'Crear'}
+                    </button>
+                    {editingPricingTier && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingPricingTier(null);
+                          setNewPricingTier({ tier_name: '', discount_percentage: 0, min_order_amount: 1000, only_master_cases: false });
+                        }}
+                        className="btn-glass"
+                        style={{ padding: '8px 16px', fontSize: '12px' }}
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </div>
+
+              {/* Listado */}
+              <div style={{ flex: 1 }}>
+                <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '16px', color: 'var(--text-secondary)' }}>
+                  Niveles Configurados ({pricingTiersList.length})
+                </h3>
+
+                {pricingTiersList.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '8px' }}>
+                    No has creado ningún nivel de precios aún.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '50vh', overflowY: 'auto', paddingRight: '4px' }}>
+                    {pricingTiersList.map(tier => (
+                      <div key={tier.id} style={{ border: '1px solid rgba(255,255,255,0.06)', padding: '14px', borderRadius: '8px', background: 'rgba(255,255,255,0.01)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <strong style={{ fontSize: '14px', color: '#fff' }}>{tier.tier_name}</strong>
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
+                            <span className="badge badge-green" style={{ fontSize: '9px' }}>
+                              -{parseFloat(tier.discount_percentage)}% Desc.
+                            </span>
+                            <span className="badge badge-cyan" style={{ fontSize: '9px' }}>
+                              MOV: ${parseFloat(tier.min_order_amount).toLocaleString('en-US')}
+                            </span>
+                            {tier.only_master_cases && (
+                              <span className="badge badge-yellow" style={{ fontSize: '9px' }}>
+                                📦 Master Cases
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            onClick={() => {
+                              setEditingPricingTier(tier);
+                              setNewPricingTier({
+                                tier_name: tier.tier_name,
+                                discount_percentage: parseFloat(tier.discount_percentage),
+                                min_order_amount: parseFloat(tier.min_order_amount),
+                                only_master_cases: tier.only_master_cases === true
+                              });
+                            }}
+                            className="btn-glass"
+                            style={{ padding: '4px 8px', fontSize: '11px' }}
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => handleDeletePricingTier(tier.id)}
+                            className="btn-glass-pink"
+                            style={{ padding: '4px 8px', fontSize: '11px' }}
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #333', paddingTop: '16px', marginTop: '20px' }}>
+              <button
+                onClick={() => { setShowPricingTiersModal(false); setEditingPricingTier(null); setNewPricingTier({ tier_name: '', discount_percentage: 0, min_order_amount: 1000, only_master_cases: false }); }}
+                className="btn-glass"
+                style={{ padding: '10px 20px', borderRadius: '8px' }}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================== */}
+      {/* MODAL: CONFIGURACIÓN DE REGLAS DE VOLUMEN SKU          */}
+      {/* ===================================================== */}
+      {showSkuVolumeRulesModal && (
+        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', zIndex: '200', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '900px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: '28px', position: 'relative', border: '1px solid var(--cyan-neon)' }}>
+            <button onClick={() => { setShowSkuVolumeRulesModal(false); setEditingSkuVolumeRule(null); setNewSkuVolumeRule({ min_units: '', discount_pct: '' }); }} style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}>×</button>
+
+            <div style={{ borderBottom: '2px solid #333', paddingBottom: '12px', marginBottom: '20px' }}>
+              <h2 style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: '18px', color: 'var(--cyan-neon)', margin: '0 0 4px 0' }}>
+                📉 Configuración de Descuentos por Volumen por SKU
+              </h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
+                Crea reglas de descuento basadas en las unidades totales compradas por cada producto de manera individual.
+              </p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px', flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
+              {/* Formulario */}
+              <div className="glass-panel" style={{ padding: '20px', background: 'rgba(255,255,255,0.01)', height: 'fit-content' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '16px', color: '#fff' }}>
+                  {editingSkuVolumeRule ? '✏️ Editar Escala' : '➕ Crear Nueva Escala'}
+                </h3>
+                <form onSubmit={handleCreateOrUpdateSkuVolumeRule} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Cantidad Mínima (Unidades Físicas) *</label>
+                    <input
+                      type="number"
+                      placeholder="Ej. 100"
+                      required
+                      value={newSkuVolumeRule.min_units}
+                      onChange={(e) => setNewSkuVolumeRule(prev => ({ ...prev, min_units: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Porcentaje de Descuento (%) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Ej. 5.00"
+                      required
+                      value={newSkuVolumeRule.discount_pct}
+                      onChange={(e) => setNewSkuVolumeRule(prev => ({ ...prev, discount_pct: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                    <button type="submit" className="btn-pink" style={{ flexGrow: 1, padding: '8px 16px', fontSize: '12px' }}>
+                      {editingSkuVolumeRule ? 'Guardar' : 'Crear'}
+                    </button>
+                    {editingSkuVolumeRule && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingSkuVolumeRule(null);
+                          setNewSkuVolumeRule({ min_units: '', discount_pct: '' });
+                        }}
+                        className="btn-glass"
+                        style={{ padding: '8px 16px', fontSize: '12px' }}
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </div>
+
+              {/* Listado */}
+              <div style={{ flex: 1 }}>
+                <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '16px', color: 'var(--text-secondary)' }}>
+                  Reglas de Volumen Configuradas ({skuVolumeRulesList.length})
+                </h3>
+
+                {skuVolumeRulesList.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '8px' }}>
+                    No has configurado ninguna escala por volumen unitario aún.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '50vh', overflowY: 'auto', paddingRight: '4px' }}>
+                    {skuVolumeRulesList.map(rule => (
+                      <div key={rule.id} style={{ border: '1px solid rgba(255,255,255,0.06)', padding: '14px', borderRadius: '8px', background: 'rgba(255,255,255,0.01)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <strong style={{ fontSize: '14px', color: '#fff' }}>A partir de {rule.min_units} unidades</strong>
+                          <div style={{ marginTop: '4px' }}>
+                            <span className="badge badge-green" style={{ fontSize: '10px' }}>
+                              -{parseFloat(rule.discount_pct)}% Descuento
+                            </span>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            onClick={() => {
+                              setEditingSkuVolumeRule(rule);
+                              setNewSkuVolumeRule({
+                                min_units: rule.min_units,
+                                discount_pct: parseFloat(rule.discount_pct)
+                              });
+                            }}
+                            className="btn-glass"
+                            style={{ padding: '4px 8px', fontSize: '11px' }}
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSkuVolumeRule(rule.id)}
+                            className="btn-glass-pink"
+                            style={{ padding: '4px 8px', fontSize: '11px' }}
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #333', paddingTop: '16px', marginTop: '20px' }}>
+              <button
+                onClick={() => { setShowSkuVolumeRulesModal(false); setEditingSkuVolumeRule(null); setNewSkuVolumeRule({ min_units: '', discount_pct: '' }); }}
+                className="btn-glass"
+                style={{ padding: '10px 20px', borderRadius: '8px' }}
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>

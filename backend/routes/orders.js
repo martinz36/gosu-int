@@ -159,8 +159,15 @@ router.post('/', requireAuth, async (req, res) => {
     let distributorDiscountAmount = 0;
 
     if (discount_policy === 'volume') {
-      // Descuento por volumen físico de unidades por SKU (independiente del cliente)
-      // Unidades < 100: 0% desc, Unidades >= 100 y < 500: 5% desc, Unidades >= 500: 10% desc
+      const skuRulesResult = await client.query(
+        `SELECT min_units, discount_pct
+         FROM sku_volume_discount_rules
+         WHERE tenant_id = $1
+         ORDER BY min_units DESC`,
+        [tenant_id]
+      );
+      const skuRules = skuRulesResult.rows;
+
       for (const item of items) {
         const prod = productMap[item.product_id];
         const qtyCases = parseInt(item.qty_cases) || 0;
@@ -170,10 +177,11 @@ router.post('/', requireAuth, async (req, res) => {
         const itemSubtotal = pricePerCase * qtyCases;
 
         let itemDiscountPct = 0;
-        if (totalUnits >= 500) {
-          itemDiscountPct = 10;
-        } else if (totalUnits >= 100) {
-          itemDiscountPct = 5;
+        for (const rule of skuRules) {
+          if (totalUnits >= rule.min_units) {
+            itemDiscountPct = parseFloat(rule.discount_pct);
+            break;
+          }
         }
 
         totalDiscountUsd += itemSubtotal * (itemDiscountPct / 100);
