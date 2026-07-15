@@ -586,4 +586,205 @@ router.put('/current/warehouses/:id', requireAuth, requireTenantAdmin, async (re
   }
 });
 
+// POST /api/tenants/seed-demo
+router.post('/seed-demo', async (req, res) => {
+  const { secret } = req.body;
+  if (secret !== 'gosu_demo_seed_secret_123') {
+    return res.status(403).json({ error: 'Acceso denegado.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Limpieza de datos anteriores si existen
+    const existingTenant = await client.query("SELECT id FROM tenants WHERE slug = 'gosu-demo'");
+    if (existingTenant.rows.length > 0) {
+      await client.query("DELETE FROM tenants WHERE slug = 'gosu-demo'");
+    }
+
+    // 2. Crear Tenant
+    const tenantResult = await client.query(`
+      INSERT INTO tenants (name, slug, is_active, bank_name, bank_account_name, bank_account_number, bank_routing_number)
+      VALUES ('GOSU Demo B2B', 'gosu-demo', true, 'Chase Manhattan Bank', 'GOSU DEMO INC', '1234567890', '987654321')
+      RETURNING id
+    `);
+    const tenantId = tenantResult.rows[0].id;
+
+    // 3. Hashear contraseñas
+    const salt = await bcrypt.genSalt(10);
+    const adminPassHash = await bcrypt.hash('gosu_demo_pass', salt);
+    const clientPassHash = await bcrypt.hash('alpha_pass', salt);
+    const leadPassHash = await bcrypt.hash('mega_pass', salt);
+
+    // 4. Crear Administrador del Tenant
+    await client.query(`
+      INSERT INTO users (tenant_id, name, email, password_hash, role)
+      VALUES ($1, 'Gosu Demo Admin', 'demo@gosu-int.com', $2, 'tenant_admin')
+    `, [tenantId, adminPassHash]);
+
+    // 5. Crear Distribuidor Cliente B2B (User)
+    const clientUserResult = await client.query(`
+      INSERT INTO users (tenant_id, name, email, password_hash, role)
+      VALUES ($1, 'Alpha Distributor Contact', 'alpha@alphadist.com', $2, 'b2b_client')
+      RETURNING id
+    `, [tenantId, clientPassHash]);
+    const clientUserId = clientUserResult.rows[0].id;
+
+    // 6. Crear Cliente Lead B2B (User)
+    const leadUserResult = await client.query(`
+      INSERT INTO users (tenant_id, name, email, password_hash, role)
+      VALUES ($1, 'Mega Card Buyer', 'mega@megacards.com', $2, 'b2b_client')
+      RETURNING id
+    `, [tenantId, leadPassHash]);
+    const leadUserId = leadUserResult.rows[0].id;
+
+    // 7. Crear Pricing Tier (Bronze Partner)
+    const tierResult = await client.query(`
+      INSERT INTO pricing_tiers (tenant_id, tier_name, discount_percentage, min_order_amount, only_master_cases)
+      VALUES ($1, 'Bronze Partner', 5.00, 1200.00, true)
+      RETURNING id
+    `, [tenantId]);
+    const tierId = tierResult.rows[0].id;
+
+    // 8. Crear Perfiles de Cliente
+    await client.query(`
+      INSERT INTO b2b_client_profiles (tenant_id, user_id, pricing_tier_id, company_name, tax_id, billing_address, forwarder_address, destination_country, account_status, followup_notes, last_contact_date)
+      VALUES ($1, $2, $3, 'Alpha Distribution LLC', 'TAX-US-998877', '100 Broadway, New York, NY 10005, USA', 'Guangzhou Port Warehouse No. 4, China', 'USA', 'client', 'Cuenta mayorista activa para la costa este.', CURRENT_DATE)
+    `, [tenantId, clientUserId, tierId]);
+
+    await client.query(`
+      INSERT INTO b2b_client_profiles (tenant_id, user_id, pricing_tier_id, company_name, tax_id, billing_address, forwarder_address, destination_country, account_status, followup_notes, last_contact_date)
+      VALUES ($1, $2, NULL, 'Mega Card Store', 'TAX-US-112233', '500 Sunset Blvd, Los Angeles, CA 90028, USA', NULL, 'USA', 'lead_negotiation', 'Interesados en Deck Boxes de Neon Series. Solicitó cotización FOB por 80 cajas.', CURRENT_DATE)
+    `, [tenantId, leadUserId]);
+
+    // 9. Crear Reglas de descuento por volumen global por defecto
+    await client.query(`
+      INSERT INTO volume_discount_rules (tenant_id, min_cases, discount_pct)
+      VALUES
+        ($1, 5, 5.00),
+        ($1, 10, 8.00),
+        ($1, 20, 12.00)
+    `, [tenantId]);
+
+    // 10. Crear Almacén Virtual de Fábrica
+    const warehouseResult = await client.query(`
+      INSERT INTO warehouses (tenant_id, name, code, is_virtual)
+      VALUES ($1, 'Virtual Factory Transit', 'VFT-01', true)
+      RETURNING id
+    `, [tenantId]);
+    const warehouseId = warehouseResult.rows[0].id;
+
+    // 11. Crear Productos
+    const p1 = await client.query(`
+      INSERT INTO products (tenant_id, sku, name, category, commercial_description, price_per_case_usd, units_per_case, finished_measurements, color, factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, case_weight_kg, case_length_cm, case_width_cm, case_height_cm)
+      VALUES ($1, 'G00001', 'DECK BOX NEON PINK - 100+ CARDS', 'DECK BOX', 'Premium deck box with neon acrylic structure.', 35.00, 24, '75x90x100mm', 'Neon Pink', 'Dongguan Card Supplies', 'DB-NP-24', 10.00, 'PMS 806C', 8.50, 45.0, 30.0, 35.0)
+      RETURNING id
+    `, [tenantId]);
+    const p1Id = p1.rows[0].id;
+
+    const p2 = await client.query(`
+      INSERT INTO products (tenant_id, sku, name, category, commercial_description, price_per_case_usd, units_per_case, finished_measurements, color, factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, case_weight_kg, case_length_cm, case_width_cm, case_height_cm)
+      VALUES ($1, 'G00002', 'DECK BOX DEEP BLUE - 100+ CARDS', 'DECK BOX', 'Premium deck box with royal blue deep structure.', 35.00, 24, '75x90x100mm', 'Deep Blue', 'Dongguan Card Supplies', 'DB-DB-24', 10.00, 'PMS 293C', 8.50, 45.0, 30.0, 35.0)
+      RETURNING id
+    `, [tenantId]);
+    const p2Id = p2.rows[0].id;
+
+    const p3 = await client.query(`
+      INSERT INTO products (tenant_id, sku, name, category, commercial_description, price_per_case_usd, units_per_case, finished_measurements, color, factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, case_weight_kg, case_length_cm, case_width_cm, case_height_cm)
+      VALUES ($1, 'G00003', 'SLEEVES MATTE BLACK - 100 PACK', 'SLEEVES', 'Standard tournament matte black card sleeves.', 8.00, 120, '66x91mm', 'Matte Black', 'Zhejiang Plastic Works', 'SL-MB-120', 2.00, 'PMS Black 6C', 12.00, 50.0, 25.0, 30.0)
+      RETURNING id
+    `, [tenantId]);
+    const p3Id = p3.rows[0].id;
+
+    const p4 = await client.query(`
+      INSERT INTO products (tenant_id, sku, name, category, commercial_description, price_per_case_usd, units_per_case, finished_measurements, color, factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, case_weight_kg, case_length_cm, case_width_cm, case_height_cm)
+      VALUES ($1, 'G00004', 'SLEEVES MATTE CYAN - 100 PACK', 'SLEEVES', 'Neon series matte cyan sleeves. Soft touch.', 8.00, 120, '66x91mm', 'Matte Cyan', 'Zhejiang Plastic Works', 'SL-MC-120', 2.00, 'PMS 801C', 12.00, 50.0, 25.0, 30.0)
+      RETURNING id
+    `, [tenantId]);
+    const p4Id = p4.rows[0].id;
+
+    const p5 = await client.query(`
+      INSERT INTO products (tenant_id, sku, name, category, commercial_description, price_per_case_usd, units_per_case, finished_measurements, color, factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, case_weight_kg, case_length_cm, case_width_cm, case_height_cm)
+      VALUES ($1, 'G00005', 'PLAYMAT GOSU NEON WAVE', 'PLAYMAT', 'Stitched edge premium rubber playmat.', 45.00, 12, '610x350x2mm', 'Neon Wave', 'Fujian Rubber Co', 'PM-NW-12', 15.00, 'PMS 802C', 6.00, 65.0, 15.0, 15.0)
+      RETURNING id
+    `, [tenantId]);
+    const p5Id = p5.rows[0].id;
+
+    // 12. Existencias
+    await client.query(`
+      INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases)
+      VALUES
+        ($1, $2, 150, 50),
+        ($1, $3, 90, 0),
+        ($1, $4, 400, 120),
+        ($1, $5, 0, 250),
+        ($1, $6, 25, 10)
+    `, [tenantId, p1Id, p2Id, p3Id, p4Id, p5Id]);
+
+    // 13. Campaña
+    const campaignResult = await client.query(`
+      INSERT INTO campaigns (tenant_id, name, start_date_reservations, end_date_reservations, start_date_production, estimated_end_date_production, advance_payment_pct, status)
+      VALUES ($1, 'Print Run Q3 - Neon Series', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '15 days', CURRENT_TIMESTAMP + INTERVAL '16 days', CURRENT_TIMESTAMP + INTERVAL '45 days', 30.00, 'open')
+      RETURNING id
+    `, [tenantId]);
+    const campaignId = campaignResult.rows[0].id;
+
+    await client.query(`
+      UPDATE products
+      SET campaign_id = $1
+      WHERE id IN ($2, $3)
+    `, [campaignId, p4Id, p5Id]);
+
+    // 14. Órdenes
+    const o1Result = await client.query(`
+      INSERT INTO sales_orders (tenant_id, client_id, status, incoterm, company_name, tax_id, billing_address, forwarder_address, subtotal_usd, discount_usd, shipping_cost_usd, total_usd, po_number, payment_method, payment_status, notes)
+      VALUES ($1, $2, 'Proforma', 'FOB China', 'Alpha Distribution LLC', 'TAX-US-998877', '100 Broadway, New York, NY 10005, USA', 'Guangzhou Port Warehouse No. 4, China', 470.00, 23.50, 0.00, 446.50, 'PO-0001', 'bank_transfer', 'pending', 'Orden de stock inicial de demostración.')
+      RETURNING id
+    `, [tenantId, clientUserId]);
+    const o1Id = o1Result.rows[0].id;
+
+    await client.query(`
+      INSERT INTO sales_order_items (tenant_id, sales_order_id, product_id, qty_cases, price_case_usd, discount_pct, total_item_usd)
+      VALUES
+        ($1, $2, $3, 10, 35.00, 5.00, 332.50),
+        ($1, $2, $4, 15, 8.00, 5.00, 114.00)
+    `, [tenantId, o1Id, p1Id, p3Id]);
+
+    const o2Result = await client.query(`
+      INSERT INTO sales_orders (tenant_id, client_id, status, incoterm, company_name, tax_id, billing_address, forwarder_address, subtotal_usd, discount_usd, shipping_cost_usd, total_usd, po_number, payment_method, payment_status, campaign_id, advance_payment_pct, notes)
+      VALUES ($1, $2, 'Draft', 'FOB China', 'Alpha Distribution LLC', 'TAX-US-998877', '100 Broadway, New York, NY 10005, USA', 'Guangzhou Port Warehouse No. 4, China', 240.00, 12.00, 0.00, 228.00, 'PS-0001', 'stripe', 'pending', $3, 30.00, 'Reserva de preventa Neon Q3.')
+      RETURNING id
+    `, [tenantId, clientUserId, campaignId]);
+    const o2Id = o2Result.rows[0].id;
+
+    await client.query(`
+      INSERT INTO sales_order_items (tenant_id, sales_order_id, product_id, qty_cases, price_case_usd, discount_pct, total_item_usd)
+      VALUES ($1, $2, $3, 30, 8.00, 5.00, 228.00)
+    `, [tenantId, o2Id, p4Id]);
+
+    // 15. Fabricación
+    const prodResult = await client.query(`
+      INSERT INTO production_orders (tenant_id, order_number, factory_name, status, total_cost_usd, total_cbm, warehouse_id)
+      VALUES ($1, 'MO-00001', 'Zhejiang Plastic Works', 'Production', 500.00, 9.37500, $2)
+      RETURNING id
+    `, [tenantId, warehouseId]);
+    const prodId = prodResult.rows[0].id;
+
+    await client.query(`
+      INSERT INTO production_order_items (tenant_id, production_order_id, product_id, quantity_cases, cost_per_case_usd, total_item_cost_usd, item_cbm)
+      VALUES ($1, $2, $3, 250, 2.00, 500.00, 9.37500)
+    `, [tenantId, prodId, p4Id]);
+
+    await client.query('COMMIT');
+    res.json({ success: true, message: 'Siembra del tenant de prueba completada con éxito.' });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error durante la siembra del tenant de prueba:', err);
+    res.status(500).json({ error: `Error durante la siembra: ${err.message}` });
+  } finally {
+    client.release();
+  }
+});
+
 export default router;
