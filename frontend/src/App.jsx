@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import LoginPage from './components/LoginPage';
+import { TRANSLATIONS } from './services/translations';
 import SalesMapWidget, { COUNTRY_OPTIONS, getCountryName } from './components/SalesMapWidget';
 import { auth, products as productsApi, orders as ordersApi, production as productionApi, tenants as tenantsApi, plans as plansApi, users as usersApi, audit as auditApi, config as configApi, pricingTiers as pricingTiersApi, campaigns as campaignsApi, API_URL } from './services/api';
 
@@ -136,6 +137,16 @@ function App() {
   const [toasts, setToasts] = useState([]);
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, message: '', onConfirm: null });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [lang, setLang] = useState(localStorage.getItem('gosu_lang') || 'es');
+
+  const toggleLanguage = (newLang) => {
+    setLang(newLang);
+    localStorage.setItem('gosu_lang', newLang);
+  };
+
+  const t = (key) => {
+    return TRANSLATIONS[lang]?.[key] || key;
+  };
   
   const handleNavClick = (tabName) => {
     setActiveTab(tabName);
@@ -2486,72 +2497,72 @@ function App() {
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexGrow: 1 }}>
             {isSuperAdmin ? (
               <>
-                <div className="sidebar-section-title">Plataforma SaaS</div>
+                <div className="sidebar-section-title">{t('plataforma_saas')}</div>
                 <span className={`nav-link-btn ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => handleNavClick('saas-tenants')}>
-                  🏢 Inquilinos (Tenants)
+                  {t('inquilinos')}
                 </span>
                 <span className={`nav-link-btn ${activeTab === 'saas-users' ? 'active' : ''}`} onClick={() => handleNavClick('saas-users')}>
-                  👥 Usuarios Globales
+                  {t('usuarios_globales')}
                 </span>
                 <span className={`nav-link-btn ${activeTab === 'saas-billing' ? 'active' : ''}`} onClick={() => handleNavClick('saas-billing')}>
-                  💳 Planes & Billing
+                  {t('planes_billing')}
                 </span>
                 <span className={`nav-link-btn ${activeTab === 'saas-audit' ? 'active' : ''}`} onClick={() => handleNavClick('saas-audit')}>
-                  📋 Auditoría & Logs
+                  {t('auditoria_logs')}
                 </span>
               </>
             ) : (
               <>
                 {isAdmin ? (
                   <>
-                    <div className="sidebar-section-title">General</div>
+                    <div className="sidebar-section-title">{t('general')}</div>
                     <span className={`nav-link-btn ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => handleNavClick('dashboard')}>
-                      📊 Control de Mando
+                      {t('control_mando')}
                     </span>
 
-                    <div className="sidebar-section-title">Operaciones</div>
+                    <div className="sidebar-section-title">{t('operaciones')}</div>
                     <span className={`nav-link-btn ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => handleNavClick('catalog')}>
-                      🛍️ Catálogo de Productos
+                      {t('catalogo_productos')}
                     </span>
                     <span className={`nav-link-btn ${activeTab === 'inventory' ? 'active' : ''}`} onClick={() => handleNavClick('inventory')}>
-                      📦 Inventario & Stock
+                      {t('inventario_stock')}
                     </span>
                     <span className={`nav-link-btn ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => handleNavClick('admin')}>
-                      🏭 Fábrica & Producción
+                      {t('fabrica_produccion')}
                     </span>
                     <span className={`nav-link-btn ${activeTab === 'campaigns' ? 'active' : ''}`} onClick={() => handleNavClick('campaigns')}>
-                      📅 Preventas / Print Runs
+                      {t('preventas_print_runs')}
                     </span>
 
-                    <div className="sidebar-section-title">Comercial</div>
+                    <div className="sidebar-section-title">{t('comercial')}</div>
                     <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => handleNavClick('orders')}>
-                      📜 Historial de Ventas
+                      {t('historial_ventas')}
                     </span>
                     <span className={`nav-link-btn ${activeTab === 'billing' ? 'active' : ''}`} onClick={() => handleNavClick('billing')}>
-                      💵 Cobranzas B2B
+                      {t('cobranzas_b2b')}
                     </span>
                     <span className={`nav-link-btn ${activeTab === 'clients' ? 'active' : ''}`} onClick={() => handleNavClick('clients')}>
-                      👥 Directorio de Clientes
+                      {t('directorio_clientes')}
                     </span>
 
-                    <div className="sidebar-section-title">Configuración</div>
+                    <div className="sidebar-section-title">{t('configuracion')}</div>
                     <span className={`nav-link-btn ${activeTab === 'config' ? 'active' : ''}`} onClick={() => handleNavClick('config')}>
-                      ⚙️ Ajustes de Empresa
+                      {t('ajustes_empresa')}
                     </span>
                   </>
                 ) : (
                   <>
-                    <div className="sidebar-section-title">Compras</div>
+                    <div className="sidebar-section-title">{t('compras')}</div>
                     <span className={`nav-link-btn ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => handleNavClick('catalog')}>
-                      🛍️ Catálogo B2B
+                      {t('catalogo_b2b')}
                     </span>
                     <span className={`nav-link-btn ${activeTab === 'campaigns' ? 'active' : ''}`} onClick={() => handleNavClick('campaigns')}>
-                      📅 Preventas / Print Runs
+                      {t('preventas_print_runs')}
                     </span>
 
-                    <div className="sidebar-section-title">Mi Cuenta</div>
+                    <div className="sidebar-section-title">{t('mi_cuenta')}</div>
                     <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => handleNavClick('orders')}>
-                      📜 Mis Pedidos & Bóveda
+                      {t('mis_pedidos_boveda')}
                     </span>
                   </>
                 )}
@@ -2568,10 +2579,10 @@ function App() {
               </span>
             </div>
             <button onClick={() => handleNavClick('profile')} className="btn-glass-cyan" style={{ width: '100%', padding: '8px', fontSize: '12px', marginBottom: '-4px' }}>
-              ⚙️ Mi Perfil
+              {t('mi_perfil')}
             </button>
             <button onClick={handleLogout} className="btn-glass-pink" style={{ width: '100%', padding: '8px', fontSize: '12px' }}>
-              Cerrar Sesión
+              {t('cerrar_sesion')}
             </button>
           </div>
         </aside>
@@ -2608,10 +2619,39 @@ function App() {
               )}
             </div>
             
-            <div className="premium-header-content">
+            <div className="premium-header-content" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              {/* Dropdown de Selección de Idioma */}
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={lang}
+                  onChange={(e) => toggleLanguage(e.target.value)}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    border: '1px solid var(--border-color)',
+                    color: '#fff',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                    paddingRight: '30px',
+                    boxShadow: '0 4px 10px rgba(0,0,0,0.2)'
+                  }}
+                >
+                  <option value="es" style={{ background: '#0a0a0c', color: '#fff' }}>🇪🇸 ES</option>
+                  <option value="en" style={{ background: '#0a0a0c', color: '#fff' }}>🇺🇸 EN</option>
+                </select>
+                <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', fontSize: '10px', color: 'var(--text-secondary)' }}>
+                  ▼
+                </span>
+              </div>
+
               {!isSuperAdmin && (
                 <button className="btn-glass-neon" onClick={() => setShowCart(true)}>
-                  🛒 Carrito ({cartTotals.totalCases} {cartTotals.totalCases === 1 ? 'Caja' : 'Cajas'})
+                  🛒 {t('carrito')} ({cartTotals.totalCases} {cartTotals.totalCases === 1 ? t('caja') : t('cajas')})
                 </button>
               )}
             </div>
@@ -5187,9 +5227,9 @@ function App() {
         {activeTab === 'campaigns' && isAdmin && !dataLoading && (
           <div>
             <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
-              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Campañas de Fabricación (Print Runs)</h1>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                Crea campañas de pre-venta, gestiona fechas clave, reglas de pago y cambia estados para notificar a los clientes B2B.
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>{t('preventas_tirajes_activos')}</h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0 }}>
+                {t('administra_tirajes')}
               </p>
             </div>
 
@@ -5197,7 +5237,7 @@ function App() {
               {/* FORMULARIO CREAR/EDITAR CAMPAÑA */}
               <div className="glass-panel" style={{ padding: '24px' }}>
                 <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
-                  {editingCampaign ? '✏️ Editar Campaña' : '📅 Nueva Campaña'}
+                  {editingCampaign ? t('editar_campana') : t('crear_campana')}
                 </h2>
                 <form onSubmit={handleCreateOrUpdateCampaign} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div>
@@ -5394,9 +5434,9 @@ function App() {
         {activeTab === 'campaigns' && !isAdmin && !dataLoading && (
           <div>
             <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
-              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>📅 Campañas de Pre-Venta (Print Runs)</h1>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                Participa en las campañas de fabricación activas y asegura el stock de tu tienda directo de fábrica con condiciones de pago preferenciales.
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>{t('preventas_activas_cliente')}</h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0 }}>
+                {t('reglas_tiraje_cliente')}
               </p>
             </div>
 
@@ -5817,8 +5857,11 @@ function App() {
             {/* PANEL DE CONFIGURACIÓN DEL NEGOCIO & DATOS BANCARIOS */}
             <div className="glass-panel" style={{ padding: '24px', marginTop: '24px' }}>
               <h2 style={{ fontSize: '20px', fontWeight: '800', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '16px', marginBottom: '20px', color: 'var(--cyan-neon)' }}>
-                ⚙️ Configuración del Negocio & Métodos de Pago
+                ⚙️ {t('configuracion_general')}
               </h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '-12px', marginBottom: '20px' }}>
+                {t('configura_empresa')}
+              </p>
               <form onSubmit={handleUpdateTenantSettings} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 {/* Sección 1: Integraciones Externas */}
                 <div style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '24px' }}>
@@ -5975,11 +6018,11 @@ function App() {
                     {/* D. LOGÍSTICA COMERCIAL */}
                     <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px', padding: '20px' }}>
                       <h4 style={{ fontSize: '12px', fontWeight: '700', color: 'var(--orange-neon)', marginBottom: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        🚢 Configuración Logística Comercial
+                        🚢 {t('ajustes_logistica')}
                       </h4>
                       <div style={{ maxWidth: '400px' }}>
                         <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
-                          Incoterm por Defecto (Logística B2B)
+                          {t('incoterm_defecto')}
                         </label>
                         <select
                           value={tenantSettings.default_incoterm || 'FOB China'}
@@ -5993,21 +6036,23 @@ function App() {
                           <option value="EXW Peru">EXW Peru</option>
                         </select>
                         <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                          Incoterm predeterminado que se asignará automáticamente a todos los nuevos pedidos B2B creados por los clientes.
+                          {lang === 'es' 
+                            ? 'Incoterm predeterminado que se asignará automáticamente a todos los nuevos pedidos B2B creados por los clientes.'
+                            : 'Default incoterm automatically assigned to all new B2B orders created by clients.'}
                         </span>
                       </div>
 
                       <div style={{ maxWidth: '400px', marginTop: '20px' }}>
                         <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
-                          Política de Descuento Comercial B2B
+                          {t('politica_descuento')}
                         </label>
                         <select
                           value={tenantSettings.discount_policy || 'tier'}
                           onChange={(e) => setTenantSettings(prev => ({ ...prev, discount_policy: e.target.value }))}
                           style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontWeight: '700', marginBottom: '12px' }}
                         >
-                          <option value="tier">Nivel de Cliente / Tier Comercial</option>
-                          <option value="volume">Volumen por SKU (Escalonado por Item)</option>
+                          <option value="tier">{t('nivel_cliente')}</option>
+                          <option value="volume">{t('volumen_sku')}</option>
                         </select>
 
                         {tenantSettings.discount_policy === 'volume' ? (
@@ -6017,7 +6062,7 @@ function App() {
                             className="btn-glass-cyan"
                             style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                           >
-                            ⚙️ Configurar Descuentos de Volumen SKU
+                            {t('configurar_volumen_sku')}
                           </button>
                         ) : (
                           <button
@@ -6026,7 +6071,7 @@ function App() {
                             className="btn-glass-cyan"
                             style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                           >
-                            ⚙️ Configurar Pricing Tiers (Niveles)
+                            {t('configurar_tiers')}
                           </button>
                         )}
 
