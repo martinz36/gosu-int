@@ -2206,7 +2206,7 @@ function App() {
       <div className="layout-wrapper" style={{ marginTop: (isImpersonating || isTenantImpersonating) ? '43px' : 0 }}>
         {/* Sidebar Lateral */}
         <aside className="premium-sidebar">
-          <div style={{ marginBottom: '32px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+          <div style={{ marginBottom: '20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
             {activeLogoUrl ? (
               <img 
                 src={activeLogoUrl} 
@@ -3565,14 +3565,6 @@ function App() {
                   ))}
                 </div>
 
-                {/* Banner de Descuentos */}
-                <div className="glass-panel" style={{ padding: '16px', marginBottom: '24px', borderLeft: '3px solid var(--pink-neon)' }}>
-                  <span className="badge badge-pink" style={{ marginBottom: '8px' }}>Descuentos Automáticos por Volumen</span>
-                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                    Comprar <strong>5+ cajas</strong> da 5% | <strong>10+ cajas</strong> da 10% | <strong>20+ cajas</strong> da 15% de descuento.
-                    {currentUser?.client_category === 'wholesale_distributor' && <> + <strong>5% extra</strong> como Distribuidor Mayorista.</>}
-                  </p>
-                </div>
 
                 {/* Renderizado de Catálogo según el Modo de Vista */}
                 {productList.length === 0 ? (
