@@ -116,6 +116,10 @@ function App() {
   const [campaignsList, setCampaignsList] = useState([]);
   const [newCampaign, setNewCampaign] = useState({ name: '', start_date_reservations: '', end_date_reservations: '', start_date_production: '', estimated_end_date_production: '', advance_payment_pct: 30.00, status: 'open' });
   const [editingCampaign, setEditingCampaign] = useState(null);
+  const [showCampaignProductsModal, setShowCampaignProductsModal] = useState(false);
+  const [selectedCampaignForProducts, setSelectedCampaignForProducts] = useState(null);
+  const [campaignProductSelections, setCampaignProductSelections] = useState({});
+  const [campaignProductsFilter, setCampaignProductsFilter] = useState('');
 
   // Formulario para Marcas/Categorías/PricingTiers
   const [newCategory, setNewCategory] = useState({ name: '', slug: '' });
@@ -948,6 +952,46 @@ function App() {
     } catch (err) {
       console.error('Error al eliminar campaña:', err);
       alert('❌ Error al eliminar campaña: ' + (err.error || err.message || err));
+    }
+  };
+
+  const handleOpenCampaignProductsModal = (campaign) => {
+    setSelectedCampaignForProducts(campaign);
+    setCampaignProductsFilter('');
+    
+    const selections = {};
+    allProducts.forEach(p => {
+      const isAssigned = p.campaign_id === campaign.id;
+      selections[p.id] = {
+        selected: isAssigned,
+        qty_cases: isAssigned ? (p.stock_in_production_cases || 0) : 0
+      };
+    });
+    setCampaignProductSelections(selections);
+    setShowCampaignProductsModal(true);
+  };
+
+  const handleSaveCampaignProducts = async () => {
+    if (!selectedCampaignForProducts) return;
+    
+    const productsToAssign = [];
+    Object.entries(campaignProductSelections).forEach(([prodId, val]) => {
+      if (val.selected) {
+        productsToAssign.push({
+          product_id: prodId,
+          qty_cases: parseInt(val.qty_cases) || 0
+        });
+      }
+    });
+
+    try {
+      await campaignsApi.assignProducts(selectedCampaignForProducts.id, productsToAssign);
+      alert('🎉 Productos y cantidades asociados con éxito a la campaña.');
+      setShowCampaignProductsModal(false);
+      await loadProducts();
+    } catch (err) {
+      console.error('Error al guardar productos de campaña:', err);
+      alert('❌ Error al guardar productos: ' + (err.error || err.message || err));
     }
   };
 
@@ -5163,7 +5207,14 @@ function App() {
                           <div>💳 <strong>Adelanto Requerido:</strong> {camp.advance_payment_pct}%</div>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                          <button
+                            onClick={() => handleOpenCampaignProductsModal(camp)}
+                            className="btn-glass-cyan"
+                            style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '6px', marginRight: 'auto' }}
+                          >
+                            📦 Asignar SKUs
+                          </button>
                           <button
                             onClick={() => {
                               setEditingCampaign(camp);
@@ -7336,6 +7387,144 @@ function App() {
                   Cargar Selección a la Orden
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================== */}
+      {/* MODAL: ASIGNACIÓN MASIVA DE PRODUCTOS A CAMPAÑA        */}
+      {/* ===================================================== */}
+      {showCampaignProductsModal && selectedCampaignForProducts && (
+        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', zIndex: '200', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '850px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: '28px', position: 'relative', border: '1px solid var(--cyan-neon)' }}>
+            <button onClick={() => setShowCampaignProductsModal(false)} style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}>×</button>
+
+            <div style={{ borderBottom: '2px solid #333', paddingBottom: '12px', marginBottom: '20px' }}>
+              <h2 style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: '18px', color: 'var(--cyan-neon)', margin: '0 0 4px 0' }}>
+                📦 Asignación Masiva de SKUs
+              </h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
+                Selecciona los productos que pertenecen al tiraje <strong>"{selectedCampaignForProducts.name}"</strong> y asigna la cuota de pre-venta en cajas.
+              </p>
+            </div>
+
+            {/* BUSCADOR */}
+            <div style={{ marginBottom: '16px' }}>
+              <input
+                type="text"
+                placeholder="Buscar producto por nombre o SKU..."
+                value={campaignProductsFilter}
+                onChange={(e) => setCampaignProductsFilter(e.target.value)}
+                style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            {/* TABLA DE PRODUCTOS CON SCROLL */}
+            <div style={{ flex: 1, overflowY: 'auto', marginBottom: '20px', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ background: 'rgba(0,232,255,0.05)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                    <th style={{ padding: '12px', width: '40px', textAlign: 'center' }}>Ref</th>
+                    <th style={{ padding: '12px' }}>Producto</th>
+                    <th style={{ padding: '12px' }}>Categoría</th>
+                    <th style={{ padding: '12px', width: '180px' }}>Cantidad Asignada (Cajas)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allProducts
+                    .filter(p => {
+                      if (!campaignProductsFilter) return true;
+                      const term = campaignProductsFilter.toLowerCase();
+                      return p.name.toLowerCase().includes(term) || p.sku.toLowerCase().includes(term);
+                    })
+                    .map(p => {
+                      const selection = campaignProductSelections[p.id] || { selected: false, qty_cases: 0 };
+                      
+                      return (
+                        <tr
+                          key={p.id}
+                          style={{
+                            borderBottom: '1px solid rgba(255,255,255,0.04)',
+                            background: selection.selected ? 'rgba(0, 232, 255, 0.02)' : 'transparent',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          <td style={{ padding: '12px', textAlign: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={selection.selected}
+                              onChange={(e) => {
+                                const isChecked = e.target.checked;
+                                setCampaignProductSelections(prev => ({
+                                  ...prev,
+                                  [p.id]: {
+                                    selected: isChecked,
+                                    qty_cases: isChecked ? (prev[p.id]?.qty_cases || p.stock_in_production_cases || 100) : 0
+                                  }
+                                }));
+                              }}
+                              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                            />
+                          </td>
+                          <td style={{ padding: '12px' }}>
+                            <div style={{ fontWeight: '600' }}>{p.name}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{p.sku}</div>
+                          </td>
+                          <td style={{ padding: '12px' }}>
+                            <span className="badge badge-blue" style={{ fontSize: '10px' }}>{p.category}</span>
+                          </td>
+                          <td style={{ padding: '12px' }}>
+                            <input
+                              type="number"
+                              min="0"
+                              value={selection.qty_cases}
+                              disabled={!selection.selected}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 0;
+                                setCampaignProductSelections(prev => ({
+                                  ...prev,
+                                  [p.id]: {
+                                    ...prev[p.id],
+                                    qty_cases: val
+                                  }
+                                }));
+                              }}
+                              style={{
+                                width: '100px',
+                                background: selection.selected ? '#121212' : 'rgba(255,255,255,0.02)',
+                                border: selection.selected ? '1px solid var(--cyan-neon)' : '1px solid rgba(255,255,255,0.05)',
+                                color: selection.selected ? '#fff' : 'var(--text-muted)',
+                                padding: '6px 10px',
+                                borderRadius: '6px',
+                                textAlign: 'center',
+                                transition: 'all 0.2s'
+                              }}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* ACCIONES FOOTER */}
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid #333', paddingTop: '16px' }}>
+              <button
+                onClick={() => setShowCampaignProductsModal(false)}
+                className="btn-glass"
+                style={{ padding: '10px 20px', borderRadius: '8px' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveCampaignProducts}
+                className="btn-neon"
+                style={{ padding: '10px 24px', borderRadius: '8px' }}
+              >
+                💾 Guardar Asociación
+              </button>
             </div>
           </div>
         </div>

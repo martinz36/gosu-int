@@ -301,4 +301,5 @@ export const campaigns = {
   create: (data) => request('POST', '/api/campaigns', data),
   update: (id, data) => request('PUT', `/api/campaigns/${id}`, data),
   delete: (id) => request('DELETE', `/api/campaigns/${id}`),
+  assignProducts: (id, productsList) => request('POST', `/api/campaigns/${id}/products`, { products: productsList }),
 };
