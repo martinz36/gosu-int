@@ -101,7 +101,7 @@ export const TRANSLATIONS = {
     filtro_fabrica: 'Fábrica Origen',
     todas_fabricas: 'Todas las Fábricas',
 
-    // Columnas Tabla
+    // Columnas Tabla Productos
     col_miniatura: 'Miniatura',
     col_producto_sku: 'Producto / SKU',
     col_categoria: 'Categoría',
@@ -118,7 +118,77 @@ export const TRANSLATIONS = {
     celda_en_produccion: 'en producción',
     celda_cajas: 'cajas',
     celda_editar: 'Editar',
-    celda_eliminar: 'Eliminar'
+    celda_eliminar: 'Eliminar',
+
+    // Dashboard / Control de Mando
+    dash_titulo: '📊 Control de Mando B2B',
+    dash_desc: 'Resumen financiero, métricas de inventario comercial y facturación multitenant.',
+    dash_pedidos_totales: 'Pedidos Totales',
+    dash_ingresos_totales: 'Ingresos Totales',
+    dash_cajas_producidas: 'Cajas Producidas',
+    dash_pendiente_pago: 'Pendiente de Pago',
+    dash_pedidos_recientes: 'Pedidos B2B Recientes',
+    dash_ver_todos: 'Ver Todos',
+
+    // Inventario & Stock
+    inv_titulo: '📦 Gestión de Inventario & Tránsito B2B',
+    inv_desc: 'Monitorea de forma centralizada el stock físico en almacén, unidades en tránsito y puerto origen.',
+    inv_fisico_cajas: 'Stock Físico (Cajas)',
+    inv_en_prod_cajas: 'Stock en Producción (Cajas)',
+    inv_en_transito_cajas: 'Stock en Tránsito / Puerto (Cajas)',
+    inv_total_disponible: 'Stock Total Disponible (Cajas)',
+
+    // Fábrica & Producción
+    fab_titulo: '🏭 Órdenes de Producción & Fábrica',
+    fab_desc: 'Genera fichas de fabricación, enlaza pedidos y realiza seguimiento de avance con proveedores en China.',
+    fab_nueva_orden: '➕ Nueva Orden de Fabricación',
+    fab_nro_orden: 'Nro Orden',
+    fab_nombre: 'Fábrica',
+    fab_fecha: 'Fecha Creación',
+    fab_estado: 'Estado Fábrica',
+    fab_avance: 'Avance Fábrica',
+    fab_sin_ordenes: 'No has registrado ninguna orden de producción de fábrica aún.',
+
+    // Registro de Ventas & Bóveda
+    ventas_titulo: '📜 Registro General de Ventas B2B',
+    pedidos_boveda_titulo: '📜 Mis Pedidos & Bóveda B2B',
+    ventas_desc: 'Historial completo de órdenes recibidas de distribuidores, estados de pago y logística.',
+    pedidos_boveda_desc: 'Accede a tu historial de compras, fichas de empaque comerciales, facturas y enlaces de Stripe/Staged.',
+    pedidos_nro: 'Nro Pedido',
+    pedidos_cliente: 'Cliente B2B',
+    pedidos_fecha: 'Fecha',
+    pedidos_monto: 'Monto Total',
+    pedidos_estado_pago: 'Estado Pago',
+    pedidos_estado_logistico: 'Estado Logístico',
+    pedidos_ficha: 'Ficha / Documentos',
+
+    // Cobranzas B2B
+    cob_titulo: '💳 Cobranzas & Conciliación B2B',
+    cob_desc: 'Pedidos con crédito comercial o saldo de preventa pendiente por verificar.',
+    cob_monto_adelantado: 'Monto Adelantado',
+    cob_deuda_pendiente: 'Deuda Pendiente',
+    cob_vence: 'Vence el',
+    cob_accion: 'Acción de Pago',
+
+    // Directorio de Clientes / Leads
+    cli_titulo: '👥 Directorio de Clientes B2B & CRM',
+    cli_desc: 'Gestión de cuentas mayoristas, límites de crédito comercial, asignación de Pricing Tiers y leads.',
+    cli_nuevo: '➕ Nuevo Cliente / Cuenta B2B',
+    cli_nombre: 'Nombre Cuenta',
+    cli_email: 'Email de Contacto',
+    cli_nivel_precio: 'Nivel Precios',
+    cli_credito_permitido: 'Crédito Permitido',
+    cli_limite_credito: 'Límite Crédito (USD)',
+    cli_deuda_actual: 'Deuda Actual (USD)',
+    cli_mov: 'MOV Mínimo (USD)',
+
+    // Perfil
+    prof_titulo: '⚙️ Configuración de mi Perfil',
+    prof_desc: 'Actualiza tus credenciales personales y datos de contacto de forma segura.',
+    prof_info_personal: 'INFORMACIÓN PERSONAL',
+    prof_nombre: 'Nombre Completo',
+    prof_email: 'Correo Electrónico',
+    prof_cambiar_pass: 'CAMBIAR CONTRASEÑA'
   },
   en: {
     // Sidebar
@@ -222,7 +292,7 @@ export const TRANSLATIONS = {
     filtro_fabrica: 'Factory Origin',
     todas_fabricas: 'All Factories',
 
-    // Columnas Tabla
+    // Columnas Tabla Productos
     col_miniatura: 'Thumbnail',
     col_producto_sku: 'Product / SKU',
     col_categoria: 'Category',
@@ -239,6 +309,76 @@ export const TRANSLATIONS = {
     celda_en_produccion: 'in production',
     celda_cajas: 'cases',
     celda_editar: 'Edit',
-    celda_eliminar: 'Delete'
+    celda_eliminar: 'Delete',
+
+    // Dashboard / Control de Mando
+    dash_titulo: '📊 B2B Dashboard',
+    dash_desc: 'Financial summary, commercial inventory metrics, and multitenant billing overview.',
+    dash_pedidos_totales: 'Total Orders',
+    dash_ingresos_totales: 'Total Revenue',
+    dash_cajas_producidas: 'Cases Produced',
+    dash_pendiente_pago: 'Pending Payment',
+    dash_pedidos_recientes: 'Recent B2B Orders',
+    dash_ver_todos: 'View All',
+
+    // Inventario & Stock
+    inv_titulo: '📦 B2B Inventory & Transit Management',
+    inv_desc: 'Centralized tracking of physical warehouse stock, items in transit, and loading port stock.',
+    inv_fisico_cajas: 'Physical Stock (Cartons)',
+    inv_en_prod_cajas: 'Stock in Production (Cartons)',
+    inv_en_transito_cajas: 'Stock in Transit / Port (Cartons)',
+    inv_total_disponible: 'Total Available Stock (Cartons)',
+
+    // Fábrica & Producción
+    fab_titulo: '🏭 Factory Orders & Production',
+    fab_desc: 'Generate manufacturing work sheets, link orders, and track real-time progress with suppliers in China.',
+    fab_nueva_orden: '➕ New Factory Order',
+    fab_nro_orden: 'Order No.',
+    fab_nombre: 'Factory',
+    fab_fecha: 'Created Date',
+    fab_estado: 'Factory Status',
+    fab_avance: 'Factory Progress',
+    fab_sin_ordenes: 'You have not registered any factory orders yet.',
+
+    // Registro de Ventas & Bóveda
+    ventas_titulo: '📜 General B2B Sales Registry',
+    pedidos_boveda_titulo: '📜 My Orders & B2B Vault',
+    ventas_desc: 'Complete transaction history of distributor orders, payment statuses, and logistics tracking.',
+    pedidos_boveda_desc: 'Access your purchase history, commercial packing lists, invoices, and payment checkout links.',
+    pedidos_nro: 'Order No.',
+    pedidos_cliente: 'B2B Client',
+    pedidos_fecha: 'Date',
+    pedidos_monto: 'Total Amount',
+    pedidos_estado_pago: 'Payment Status',
+    pedidos_estado_logistico: 'Logistics Status',
+    pedidos_ficha: 'Sheet / Docs',
+
+    // Cobranzas B2B
+    cob_titulo: '💳 B2B Credit Collections & Reconciliation',
+    cob_desc: 'Orders with active commercial credit terms or pending pre-sale deposits requiring validation.',
+    cob_monto_adelantado: 'Amount Advanced',
+    cob_deuda_pendiente: 'Pending Debt',
+    cob_vence: 'Due Date',
+    cob_accion: 'Payment Action',
+
+    // Directorio de Clientes / Leads
+    cli_titulo: '👥 B2B Client Directory & CRM',
+    cli_desc: 'Wholesale accounts management, active credit lines, pricing tier assignments, and commercial leads.',
+    cli_nuevo: '➕ New B2B Account / Account',
+    cli_nombre: 'Account Name',
+    cli_email: 'Contact Email',
+    cli_nivel_precio: 'Pricing Tier',
+    cli_credito_permitido: 'Credit Allowed',
+    cli_limite_credito: 'Credit Limit (USD)',
+    cli_deuda_actual: 'Current Debt (USD)',
+    cli_mov: 'Minimum MOV (USD)',
+
+    // Perfil
+    prof_titulo: '⚙️ My Profile Settings',
+    prof_desc: 'Update your personal credentials, contact details, and security settings.',
+    prof_info_personal: 'PERSONAL DETAILS',
+    prof_nombre: 'Full Name',
+    prof_email: 'Email Address',
+    prof_cambiar_pass: 'CHANGE PASSWORD'
   }
 };

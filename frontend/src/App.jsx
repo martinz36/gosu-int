@@ -4406,21 +4406,33 @@ function App() {
             />
             <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
               <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>
-                {isAdmin ? '📊 Registro de Ventas B2B' : 'Bóveda de Documentos B2B'}
+                {isAdmin 
+                  ? (lang === 'es' ? '📊 Registro de Ventas B2B' : '📊 B2B Sales Registry') 
+                  : (lang === 'es' ? 'Bóveda de Documentos B2B' : 'B2B Document Vault')}
               </h1>
               <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
                 {isAdmin
-                  ? 'Monitorea, aprueba y haz tracking logístico de todos los pedidos realizados por tus clientes B2B.'
-                  : 'Monitorea el tracking de tus pedidos y descarga tus Invoices y Packing Lists.'}
+                  ? (lang === 'es' 
+                      ? 'Monitorea, aprueba y haz tracking logístico de todos los pedidos realizados por tus clientes B2B.'
+                      : 'Monitor, approve, and logistically track all orders placed by your B2B clients.')
+                  : (lang === 'es'
+                      ? 'Monitorea el tracking de tus pedidos y descarga tus Invoices y Packing Lists.'
+                      : 'Monitor your order tracking and download your Invoices and Packing Lists.')}
               </p>
             </div>
 
             {clientOrders.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
                 <p style={{ fontSize: '18px', marginBottom: '8px' }}>
-                  {isAdmin ? 'No hay registros de ventas en el sistema.' : 'No tienes pedidos aún en el sistema.'}
+                  {isAdmin 
+                    ? (lang === 'es' ? 'No hay registros de ventas en el sistema.' : 'No sales records found in the system.') 
+                    : (lang === 'es' ? 'No tienes pedidos aún en el sistema.' : 'You don\'t have any orders in the system yet.')}
                 </p>
-                {!isAdmin && <button className="btn-neon" onClick={() => setActiveTab('catalog')}>Ir al Catálogo Comercial</button>}
+                {!isAdmin && (
+                  <button className="btn-neon" onClick={() => setActiveTab('catalog')}>
+                    {lang === 'es' ? 'Ir al Catálogo Comercial' : 'Go to Catalog'}
+                  </button>
+                )}
               </div>
             ) : (
               <div className="glass-panel" style={{ padding: '0', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
@@ -4429,13 +4441,13 @@ function App() {
                     <thead>
                       <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
                         <th style={{ padding: '16px' }}>PO</th>
-                        <th style={{ padding: '16px' }}>Fecha Creación</th>
-                        {isAdmin && <th style={{ padding: '16px' }}>Cliente B2B</th>}
-                        <th style={{ padding: '16px', textAlign: 'right' }}>Volumen/Cajas</th>
+                        <th style={{ padding: '16px' }}>{lang === 'es' ? 'Fecha Creación' : 'Created Date'}</th>
+                        {isAdmin && <th style={{ padding: '16px' }}>{lang === 'es' ? 'Cliente B2B' : 'B2B Client'}</th>}
+                        <th style={{ padding: '16px', textAlign: 'right' }}>{lang === 'es' ? 'Volumen/Cajas' : 'Volume/Cartons'}</th>
                         <th style={{ padding: '16px', textAlign: 'right' }}>Total FOB</th>
-                        <th style={{ padding: '16px' }}>Estado de Pago</th>
-                        <th style={{ padding: '16px' }}>Estado Logístico</th>
-                        <th style={{ padding: '16px', textAlign: 'center' }}>Acciones (Docs)</th>
+                        <th style={{ padding: '16px' }}>{lang === 'es' ? 'Estado de Pago' : 'Payment Status'}</th>
+                        <th style={{ padding: '16px' }}>{lang === 'es' ? 'Estado Logístico' : 'Logistics Status'}</th>
+                        <th style={{ padding: '16px', textAlign: 'center' }}>{lang === 'es' ? 'Acciones (Docs)' : 'Actions (Docs)'}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -4454,7 +4466,7 @@ function App() {
                             </td>
                           )}
                           <td style={{ padding: '16px', textAlign: 'right' }}>
-                            <div style={{ fontWeight: '600', color: '#fff' }}>{order.total_cases || 0} cajas</div>
+                            <div style={{ fontWeight: '600', color: '#fff' }}>{order.total_cases || 0} {order.total_cases === 1 ? t('caja') : t('cajas')}</div>
                             <div style={{ fontSize: '11px', color: 'var(--cyan-neon)', marginTop: '2px' }}>{parseFloat(order.total_cbm || 0).toFixed(4)} CBM</div>
                           </td>
                           <td style={{ padding: '16px', textAlign: 'right', fontWeight: 'bold', color: 'var(--green-neon)' }}>
@@ -4629,27 +4641,39 @@ function App() {
               {/* Tarjetas de Métricas de Cobranza */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '24px' }}>
                 <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--green-neon)' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '600', marginBottom: '4px' }}>💰 Total Recaudado / Cobrado</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '600', marginBottom: '4px' }}>
+                    {lang === 'es' ? '💰 Total Recaudado / Cobrado' : '💰 Total Collected / Paid'}
+                  </div>
                   <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--green-neon)' }}>
                     ${totalPaid.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Pagos liquidados por Stripe y transferencias aprobadas.</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    {lang === 'es' ? 'Pagos liquidados por Stripe y transferencias aprobadas.' : 'Payments settled via Stripe and approved wire transfers.'}
+                  </div>
                 </div>
 
                 <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--cyan-neon)' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '600', marginBottom: '4px' }}>🔵 Crédito Comercial Vigente</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '600', marginBottom: '4px' }}>
+                    {lang === 'es' ? '🔵 Crédito Comercial Vigente' : '🔵 Active Commercial Credit'}
+                  </div>
                   <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--cyan-neon)' }}>
                     ${totalCredit.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Cuentas B2B por cobrar con vencimiento pactado.</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    {lang === 'es' ? 'Cuentas B2B por cobrar con vencimiento pactado.' : 'B2B accounts receivable with agreed due date.'}
+                  </div>
                 </div>
 
                 <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--orange-neon)' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '600', marginBottom: '4px' }}>🟠 Vouchers en Revisión</div>
-                  <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--orange-neon)' }}>
-                    {pendingReviews} {pendingReviews === 1 ? 'pedido' : 'pedidos'}
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '600', marginBottom: '4px' }}>
+                    {lang === 'es' ? '🟠 Vouchers en Revisión' : '🟠 Payment Slips under Review'}
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Transferencias bancarias pendientes de validación.</div>
+                  <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--orange-neon)' }}>
+                    {pendingReviews} {lang === 'es' ? (pendingReviews === 1 ? 'pedido' : 'pedidos') : (pendingReviews === 1 ? 'order' : 'orders')}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    {lang === 'es' ? 'Transferencias bancarias pendientes de validación.' : 'Bank transfers pending approval.'}
+                  </div>
                 </div>
               </div>
 
@@ -4657,9 +4681,13 @@ function App() {
               <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
                   <div>
-                    <h1 style={{ fontSize: '24px', margin: '0 0 4px', fontWeight: '800', color: '#fff' }}>💳 Control de Cobranzas B2B</h1>
+                    <h1 style={{ fontSize: '24px', margin: '0 0 4px', fontWeight: '800', color: '#fff' }}>
+                      {lang === 'es' ? '💳 Control de Cobranzas B2B' : '💳 B2B Credit Collections'}
+                    </h1>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
-                      Gestiona la conciliación de transferencias, aprueba comprobantes de pago y define vencimientos de créditos comerciales.
+                      {lang === 'es'
+                        ? 'Gestiona la conciliación de transferencias, aprueba comprobantes de pago y define vencimientos de créditos comerciales.'
+                        : 'Manage wire reconciliations, approve payment vouchers, and set due dates for commercial credits.'}
                     </p>
                   </div>
 
@@ -4670,28 +4698,28 @@ function App() {
                       className={billingFilter === 'all' ? 'btn-neon' : 'btn-glass'}
                       style={{ padding: '8px 16px', fontSize: '12px' }}
                     >
-                      Todos
+                      {lang === 'es' ? 'Todos' : 'All'}
                     </button>
                     <button
                       onClick={() => setBillingFilter('review')}
                       className={billingFilter === 'review' ? 'btn-neon-orange' : 'btn-glass'}
                       style={{ padding: '8px 16px', fontSize: '12px', borderColor: billingFilter === 'review' ? 'var(--orange-neon)' : '' }}
                     >
-                      🟠 Por Revisar ({pendingReviews})
+                      {lang === 'es' ? `🟠 Por Revisar (${pendingReviews})` : `🟠 Pending Review (${pendingReviews})`}
                     </button>
                     <button
                       onClick={() => setBillingFilter('credit')}
                       className={billingFilter === 'credit' ? 'btn-neon-cyan' : 'btn-glass'}
                       style={{ padding: '8px 16px', fontSize: '12px', borderColor: billingFilter === 'credit' ? 'var(--cyan-neon)' : '' }}
                     >
-                      🔵 Créditos
+                      {lang === 'es' ? '🔵 Créditos' : '🔵 Credits'}
                     </button>
                     <button
                       onClick={() => setBillingFilter('paid')}
                       className={billingFilter === 'paid' ? 'btn-neon-green' : 'btn-glass'}
                       style={{ padding: '8px 16px', fontSize: '12px', borderColor: billingFilter === 'paid' ? 'var(--green-neon)' : '' }}
                     >
-                      🟢 Cobradas
+                      {lang === 'es' ? '🟢 Cobradas' : '🟢 Collected'}
                     </button>
                   </div>
                 </div>
@@ -4699,7 +4727,7 @@ function App() {
                 {/* Tabla de Cobranzas */}
                 {filteredBillingOrders.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)', fontSize: '13.5px' }}>
-                    No se encontraron registros de cobros bajo este filtro.
+                    {lang === 'es' ? 'No se encontraron registros de cobros bajo este filtro.' : 'No collections found matching this filter.'}
                   </div>
                 ) : (
                   <div style={{ overflowX: 'auto' }}>
@@ -4707,12 +4735,12 @@ function App() {
                       <thead>
                         <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', textAlign: 'left' }}>
                           <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>PO</th>
-                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Cliente B2B</th>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{lang === 'es' ? 'Cliente B2B' : 'B2B Client'}</th>
                           <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'right' }}>Total FOB</th>
-                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Método</th>
-                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Estado de Pago</th>
-                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Vencimiento Crédito</th>
-                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'center' }}>Acciones</th>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{lang === 'es' ? 'Método' : 'Method'}</th>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{lang === 'es' ? 'Estado de Pago' : 'Payment Status'}</th>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{lang === 'es' ? 'Vencimiento Crédito' : 'Credit Due Date'}</th>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'center' }}>{t('col_acciones')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -4901,9 +4929,11 @@ function App() {
           <div>
             <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
               <div>
-                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Control Interno de Fabricación</h1>
+                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>{lang === 'es' ? 'Control Interno de Fabricación' : 'Internal Manufacturing Control'}</h1>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                  Supervisa la cadena de suministro en China: cubicaje de embarques, estados de producción y logs de auditoría.
+                  {lang === 'es'
+                    ? 'Supervisa la cadena de suministro en China: cubicaje de embarques, estados de producción y logs de auditoría.'
+                    : 'Monitor supply chain in China: shipment volume, production states, and audit logs.'}
                 </p>
               </div>
               <button
@@ -4922,7 +4952,7 @@ function App() {
                 className="btn-pink"
                 style={{ padding: '10px 20px', fontSize: '13px' }}
               >
-                {showProdForm ? 'Cerrar Formulario' : '➕ Crear Orden de Producción'}
+                {showProdForm ? (lang === 'es' ? 'Cerrar Formulario' : 'Close Form') : (lang === 'es' ? '➕ Crear Orden de Producción' : '➕ Create Production Order')}
               </button>
             </div>
 
@@ -4935,16 +4965,16 @@ function App() {
                 return (
                   <>
                     <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--pink-neon)' }}>
-                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Inversión Total Lotes</span>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{lang === 'es' ? 'Inversión Total Lotes' : 'Total Batch Investment'}</span>
                       <h2 style={{ fontSize: '28px', fontWeight: '900', color: '#fff', marginTop: '8px' }}>${totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h2>
                     </div>
                     <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--cyan-neon)' }}>
-                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Volumen Acumulado de Carga</span>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{lang === 'es' ? 'Volumen Acumulado de Carga' : 'Accumulated Load Volume'}</span>
                       <h2 style={{ fontSize: '28px', fontWeight: '900', color: 'var(--cyan-neon)', marginTop: '8px' }}>{totalCbm.toFixed(4)} CBM</h2>
                     </div>
                     <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--orange-neon)' }}>
-                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Órdenes en Tránsito / Prod.</span>
-                      <h2 style={{ fontSize: '28px', fontWeight: '900', color: 'var(--orange-neon)', marginTop: '8px' }}>{activeOrders} Activas</h2>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{lang === 'es' ? 'Órdenes en Tránsito / Prod.' : 'Orders in Transit / Prod.'}</span>
+                      <h2 style={{ fontSize: '28px', fontWeight: '900', color: 'var(--orange-neon)', marginTop: '8px' }}>{activeOrders} {lang === 'es' ? 'Activas' : 'Active'}</h2>
                     </div>
                   </>
                 );
@@ -5154,23 +5184,23 @@ function App() {
 
             {/* Listado de Órdenes en Formato Tabla */}
             <div className="glass-panel" style={{ padding: '24px', overflowX: 'auto', border: '1px solid rgba(255,255,255,0.06)' }}>
-              {productionOrders.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
-                  No hay órdenes de producción activas.
-                </div>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '800px' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.08)', color: 'var(--text-secondary)', fontSize: '12px', textTransform: 'uppercase' }}>
-                      <th style={{ padding: '12px 16px' }}>N° Lote (PO)</th>
-                      <th style={{ padding: '12px 16px' }}>Fábrica</th>
-                      <th style={{ padding: '12px 16px' }}>Fecha Registro</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Presupuesto FOB</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Cubicaje</th>
-                      <th style={{ padding: '12px 16px' }}>Estado</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'center' }}>Acciones</th>
-                    </tr>
-                  </thead>
+               {productionOrders.length === 0 ? (
+                 <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
+                   {lang === 'es' ? 'No hay órdenes de producción activas.' : 'No active production orders.'}
+                 </div>
+               ) : (
+                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '800px' }}>
+                   <thead>
+                     <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.08)', color: 'var(--text-secondary)', fontSize: '12px', textTransform: 'uppercase' }}>
+                       <th style={{ padding: '12px 16px' }}>{lang === 'es' ? 'N° Lote (PO)' : 'Batch No. (PO)'}</th>
+                       <th style={{ padding: '12px 16px' }}>{lang === 'es' ? 'Fábrica' : 'Factory'}</th>
+                       <th style={{ padding: '12px 16px' }}>{lang === 'es' ? 'Fecha Registro' : 'Registered Date'}</th>
+                       <th style={{ padding: '12px 16px', textAlign: 'right' }}>{lang === 'es' ? 'Presupuesto FOB' : 'FOB Budget'}</th>
+                       <th style={{ padding: '12px 16px', textAlign: 'right' }}>{lang === 'es' ? 'Cubicaje' : 'Volume'}</th>
+                       <th style={{ padding: '12px 16px' }}>{lang === 'es' ? 'Estado' : 'Status'}</th>
+                       <th style={{ padding: '12px 16px', textAlign: 'center' }}>{t('col_acciones')}</th>
+                     </tr>
+                   </thead>
                   <tbody>
                     {productionOrders.map(pOrder => {
                       const stepNames = ['Proforma', 'Production', 'QC Control', 'Shipped', 'Delivered'];
@@ -6193,9 +6223,11 @@ function App() {
             {/* Header del Dashboard */}
             <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
               <div>
-                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>📈 Control de Mando Comercial</h1>
+                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>{lang === 'es' ? '📈 Control de Mando Comercial' : '📈 Commercial Dashboard'}</h1>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                  Monitorea el rendimiento financiero de tu empresa: ingresos, costos de fábrica, utilidad neta y productos líderes.
+                  {lang === 'es' 
+                    ? 'Monitorea el rendimiento financiero de tu empresa: ingresos, costos de fábrica, utilidad neta y productos líderes.'
+                    : 'Monitor your company\'s financial performance: revenue, factory costs, net profit, and leading products.'}
                 </p>
               </div>
 
@@ -6203,11 +6235,11 @@ function App() {
               <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px' }}>
                 <div className="btn-group" style={{ display: 'flex', background: 'rgba(255,255,255,0.03)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                   {[
-                    { id: '7days', label: '7 Días' },
-                    { id: '30days', label: '30 Días' },
-                    { id: 'thismonth', label: 'Este Mes' },
-                    { id: 'thisyear', label: 'Este Año' },
-                    { id: 'custom', label: 'Personalizado' }
+                    { id: '7days', label: lang === 'es' ? '7 Días' : '7 Days' },
+                    { id: '30days', label: lang === 'es' ? '30 Días' : '30 Days' },
+                    { id: 'thismonth', label: lang === 'es' ? 'Este Mes' : 'This Month' },
+                    { id: 'thisyear', label: lang === 'es' ? 'Este Año' : 'This Year' },
+                    { id: 'custom', label: lang === 'es' ? 'Personalizado' : 'Custom' }
                   ].map(filter => (
                     <button
                       key={filter.id}
@@ -6229,7 +6261,7 @@ function App() {
                       onChange={(e) => setDashboardStartDate(e.target.value)}
                       style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '11px' }}
                     />
-                    <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>a</span>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>{lang === 'es' ? 'a' : 'to'}</span>
                     <input
                       type="date"
                       value={dashboardEndDate}
@@ -6246,38 +6278,54 @@ function App() {
               
               {/* Tarjeta 1: Ventas Totales */}
               <div className="glass-panel" style={{ padding: '20px', position: 'relative', borderLeft: '4px solid var(--cyan-neon)' }}>
-                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>💰 Ventas Netas</span>
+                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  {lang === 'es' ? '💰 Ventas Netas' : '💰 Net Sales'}
+                </span>
                 <strong style={{ display: 'block', fontSize: '24px', margin: '8px 0 2px 0', color: 'var(--cyan-neon)' }}>
                   ${(dashboardData.summary?.total_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </strong>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Ingresos facturados a clientes B2B</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {lang === 'es' ? 'Ingresos facturados a clientes B2B' : 'Revenue billed to B2B clients'}
+                </span>
               </div>
 
               {/* Tarjeta 2: Costo de Ventas */}
               <div className="glass-panel" style={{ padding: '20px', position: 'relative', borderLeft: '4px solid var(--orange-neon)' }}>
-                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>🏭 Costo de Producción</span>
+                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  {lang === 'es' ? '🏭 Costo de Producción' : '🏭 Production Cost'}
+                </span>
                 <strong style={{ display: 'block', fontSize: '24px', margin: '8px 0 2px 0', color: 'var(--orange-neon)' }}>
                   ${(dashboardData.summary?.total_costs || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </strong>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Costo FOB del fabricante de sleeves</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {lang === 'es' ? 'Costo FOB del fabricante de sleeves' : 'FOB cost from sleeve supplier'}
+                </span>
               </div>
 
               {/* Tarjeta 3: Utilidad */}
               <div className="glass-panel" style={{ padding: '20px', position: 'relative', borderLeft: '4px solid var(--green-neon)' }}>
-                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>📈 Utilidad Neta</span>
+                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  {lang === 'es' ? '📈 Utilidad Neta' : '📈 Net Profit'}
+                </span>
                 <strong style={{ display: 'block', fontSize: '24px', margin: '8px 0 2px 0', color: 'var(--green-neon)' }}>
                   ${(dashboardData.summary?.total_profit || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </strong>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Ganancia neta (Ventas - Costos)</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {lang === 'es' ? 'Ganancia neta (Ventas - Costos)' : 'Net income (Sales - Costs)'}
+                </span>
               </div>
 
               {/* Tarjeta 4: Margen */}
               <div className="glass-panel" style={{ padding: '20px', position: 'relative', borderLeft: '4px solid var(--pink-neon)' }}>
-                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>📊 Margen de Ganancia</span>
+                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  {lang === 'es' ? '📊 Margen de Ganancia' : '📊 Profit Margin'}
+                </span>
                 <strong style={{ display: 'block', fontSize: '24px', margin: '8px 0 2px 0', color: 'var(--pink-neon)' }}>
                   {(dashboardData.summary?.margin_percent || 0).toFixed(1)}%
                 </strong>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Retorno sobre ingresos totales</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {lang === 'es' ? 'Retorno sobre ingresos totales' : 'Return on total revenue'}
+                </span>
               </div>
 
             </div>
@@ -6471,9 +6519,11 @@ function App() {
           <div>
             <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
               <div>
-                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>📦 Control Global de Inventario</h1>
+                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>{lang === 'es' ? '📦 Control Global de Inventario' : '📦 Global Inventory Control'}</h1>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                  Supervisa el stock físico para venta B2B, inventario en producción de fábrica y gestiona las bitácoras de movimientos (Kardex).
+                  {lang === 'es'
+                    ? 'Supervisa el stock físico para venta B2B, inventario en producción de fábrica y gestiona las bitácoras de movimientos (Kardex).'
+                    : 'Supervise physical stock for B2B sales, factory production stock, and manage motion logs (Kardex).'}
                 </p>
               </div>
               <div>
@@ -6482,7 +6532,7 @@ function App() {
                   className="btn-glass"
                   style={{ padding: '8px 16px', fontSize: '13px' }}
                 >
-                  🔄 Sincronizar Existencias
+                  {lang === 'es' ? '🔄 Sincronizar Existencias' : '🔄 Sync Stock levels'}
                 </button>
               </div>
             </div>
@@ -6490,45 +6540,63 @@ function App() {
             {/* Indicadores de Valuación de Inventario */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '24px' }}>
               <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--orange-neon)', boxShadow: '0 0 10px rgba(255, 165, 0, 0.05)' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase' }}>Valuación de Costo (Fábrica)</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase' }}>
+                  {lang === 'es' ? 'Valuación de Costo (Fábrica)' : 'Cost Valuation (Factory)'}
+                </span>
                 <h2 style={{ fontSize: '24px', margin: '8px 0 2px', fontWeight: '800', color: 'var(--orange-neon)' }}>
                   ${invTotals.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </h2>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Costo base de producción</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {lang === 'es' ? 'Costo base de producción' : 'Base production cost'}
+                </span>
               </div>
 
               <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--cyan-neon)', boxShadow: '0 0 10px rgba(0, 232, 255, 0.05)' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase' }}>Valor Tienda (desc: {pctTienda}%)</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase' }}>
+                  {lang === 'es' ? `Valor Tienda (desc: ${pctTienda}%)` : `Retail Value (disc: ${pctTienda}%)`}
+                </span>
                 <h2 style={{ fontSize: '24px', margin: '8px 0 2px', fontWeight: '800', color: 'var(--cyan-neon)' }}>
                   ${invTotals.tienda.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </h2>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Venta a minoristas / Tiendas</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {lang === 'es' ? 'Venta a minoristas / Tiendas' : 'Retail store sales'}
+                </span>
               </div>
 
               <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--pink-neon)', boxShadow: '0 0 10px rgba(255, 0, 127, 0.05)' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase' }}>Valor Distribuidor (desc: {pctDist}%)</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase' }}>
+                  {lang === 'es' ? `Valor Distribuidor (desc: ${pctDist}%)` : `Distributor Value (disc: ${pctDist}%)`}
+                </span>
                 <h2 style={{ fontSize: '24px', margin: '8px 0 2px', fontWeight: '800', color: 'var(--pink-neon)' }}>
                   ${invTotals.distributor.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </h2>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Venta a distribuidores B2B</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {lang === 'es' ? 'Venta a distribuidores B2B' : 'B2B distributor sales'}
+                </span>
               </div>
 
               <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--green-neon)', boxShadow: '0 0 10px rgba(0, 230, 118, 0.05)' }}>
-                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase' }}>Valor Partner (desc: {pctPartner}%)</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase' }}>
+                  {lang === 'es' ? `Valor Partner (desc: ${pctPartner}%)` : `Partner Value (disc: ${pctPartner}%)`}
+                </span>
                 <h2 style={{ fontSize: '24px', margin: '8px 0 2px', fontWeight: '800', color: 'var(--green-neon)' }}>
                   ${invTotals.partner.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </h2>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Venta preferencial a Partners</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {lang === 'es' ? 'Venta preferencial a Partners' : 'Preferential partner sales'}
+                </span>
               </div>
             </div>
 
             {/* Panel de Filtros para Inventario */}
             <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>Buscar Producto</label>
+                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>
+                  {lang === 'es' ? 'Buscar Producto' : 'Search Product'}
+                </label>
                 <input
                   type="text"
-                  placeholder="SKU, Nombre o Fábrica..."
+                  placeholder={lang === 'es' ? 'SKU, Nombre o Fábrica...' : 'SKU, Name or Factory...'}
                   value={invSearchQuery}
                   onChange={(e) => setInvSearchQuery(e.target.value)}
                   style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', width: '220px' }}
@@ -6536,13 +6604,13 @@ function App() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>Categoría</label>
+                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>{t('filtro_categoria')}</label>
                 <select
                   value={invFilterCategory}
                   onChange={(e) => setInvFilterCategory(e.target.value)}
                   style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '160px' }}
                 >
-                  <option value="all">Todas las Categorías</option>
+                  <option value="all">{t('todas_categorias')}</option>
                   {categoriesList.map(cat => (
                     <option key={cat.id} value={cat.slug}>{cat.name}</option>
                   ))}
@@ -6550,28 +6618,28 @@ function App() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>Estado del Inventario</label>
+                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>{t('filtro_inventario')}</label>
                 <select
                   value={invFilterStockStatus}
                   onChange={(e) => setInvFilterStockStatus(e.target.value)}
                   style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '180px' }}
                 >
-                  <option value="all">Todos los Stocks</option>
-                  <option value="in_stock">✅ Con Stock Físico</option>
-                  <option value="low_stock">⚠️ Stock Bajo (&lt; 50 cajas)</option>
-                  <option value="out_of_stock">❌ Sin Stock Físico</option>
-                  <option value="in_production">⚙️ En Producción Activa</option>
+                  <option value="all">{t('todos_stocks')}</option>
+                  <option value="in_stock">{lang === 'es' ? '✅ Con Stock Físico' : '✅ In Stock'}</option>
+                  <option value="low_stock">{lang === 'es' ? '⚠️ Stock Bajo (< 50 cajas)' : '⚠️ Low Stock (< 50 cases)'}</option>
+                  <option value="out_of_stock">{lang === 'es' ? '❌ Sin Stock Físico' : '❌ Out of Stock'}</option>
+                  <option value="in_production">{lang === 'es' ? '⚙️ En Producción Activa' : '⚙️ Active Production'}</option>
                 </select>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>Fábrica Origen</label>
+                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>{t('filtro_fabrica')}</label>
                 <select
                   value={invFilterFactory}
                   onChange={(e) => setInvFilterFactory(e.target.value)}
                   style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '180px' }}
                 >
-                  <option value="all">Todas las Fábricas</option>
+                  <option value="all">{t('todas_fabricas')}</option>
                   {(() => {
                     const factories = allProducts
                       .map(p => p.factory_name)
@@ -6596,7 +6664,7 @@ function App() {
                     className="btn-glass-pink"
                     style={{ padding: '8px 16px', fontSize: '12.5px' }}
                   >
-                    🧹 Limpiar Filtros
+                    {lang === 'es' ? '🧹 Limpiar Filtros' : '🧹 Clear Filters'}
                   </button>
                 )}
               </div>
@@ -6606,19 +6674,19 @@ function App() {
             <div className="glass-panel" style={{ padding: '24px', overflowX: 'auto' }}>
               {filteredInventoryList.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                  No se encontraron productos que coincidan con los filtros de inventario.
+                  {lang === 'es' ? 'No se encontraron productos que coincidan con los filtros de inventario.' : 'No products found matching inventory filters.'}
                 </div>
               ) : (
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13.5px', textAlign: 'left' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.02)' }}>
-                      <th style={{ padding: '12px 16px', width: '70px' }}>Miniatura</th>
-                      <th style={{ padding: '12px 16px' }}>Producto</th>
+                      <th style={{ padding: '12px 16px', width: '70px' }}>{t('col_miniatura')}</th>
+                      <th style={{ padding: '12px 16px' }}>{lang === 'es' ? 'Producto' : 'Product'}</th>
                       <th style={{ padding: '12px 16px' }}>SKU</th>
-                      <th style={{ padding: '12px 16px' }}>Categoría</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'center' }}>Stock Físico (Ventas)</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'center' }}>Stock en Producción</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'center', width: '220px' }}>Acciones</th>
+                      <th style={{ padding: '12px 16px' }}>{t('col_categoria')}</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'center' }}>{lang === 'es' ? 'Stock Físico (Ventas)' : 'Physical Stock (Sales)'}</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'center' }}>{lang === 'es' ? 'Stock en Producción' : 'Stock in Production'}</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'center', width: '220px' }}>{t('col_acciones')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -6698,9 +6766,11 @@ function App() {
         {activeTab === 'profile' && !dataLoading && (
           <div>
             <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
-              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Configuración de Perfil</h1>
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>{lang === 'es' ? 'Configuración de Perfil' : 'Profile Settings'}</h1>
               <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                Actualiza tu contraseña de acceso y revisa los detalles comerciales de tu cuenta.
+                {lang === 'es'
+                  ? 'Actualiza tu contraseña de acceso y revisa los detalles comerciales de tu cuenta.'
+                  : 'Update your password and check your commercial account details.'}
               </p>
             </div>
 
@@ -6708,33 +6778,33 @@ function App() {
               {/* Información General */}
               <div className="glass-panel" style={{ padding: '24px' }}>
                 <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '20px', color: 'var(--cyan-neon)' }}>
-                  👤 Información de Cuenta
+                  👤 {lang === 'es' ? 'Información de Cuenta' : 'Account Info'}
                 </h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '14px' }}>
                   <div>
-                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>Nombre Completo</span>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>{lang === 'es' ? 'Nombre Completo' : 'Full Name'}</span>
                     <strong style={{ color: '#fff', fontSize: '16px' }}>{currentUser.name}</strong>
                   </div>
                   <div>
-                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>Correo Electrónico</span>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>{lang === 'es' ? 'Correo Electrónico' : 'Email Address'}</span>
                     <strong style={{ color: '#fff', fontSize: '16px' }}>{currentUser.email}</strong>
                   </div>
                   <div>
-                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>Rol de Acceso</span>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>{lang === 'es' ? 'Rol de Acceso' : 'Access Role'}</span>
                     <strong style={{ color: '#fff', fontSize: '16px' }}>
-                      {currentUser.role === 'tenant_admin' ? 'Administrador' : currentUser.role === 'super_admin' ? 'Super Admin' : 'Distribuidor Cliente B2B'}
+                      {currentUser.role === 'tenant_admin' ? (lang === 'es' ? 'Administrador' : 'Administrator') : currentUser.role === 'super_admin' ? 'Super Admin' : (lang === 'es' ? 'Distribuidor Cliente B2B' : 'B2B Client Distributor')}
                     </strong>
                   </div>
                   {!isSuperAdmin && currentUser.tenant_name && (
                     <div>
-                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>Inquilino / Marca</span>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>{lang === 'es' ? 'Inquilino / Marca' : 'Tenant / Brand'}</span>
                       <strong style={{ color: '#fff', fontSize: '16px' }}>{currentUser.tenant_name}</strong>
                     </div>
                   )}
                   {currentUser.role === 'b2b_client' && currentUser.tier_name && (
                     <div>
-                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>Nivel Tarifario B2B</span>
-                      <strong style={{ color: 'var(--pink-neon)', fontSize: '16px' }}>{currentUser.tier_name} ({currentUser.discount_percentage}% desc.)</strong>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>{lang === 'es' ? 'Nivel Tarifario B2B' : 'B2B Pricing Tier'}</span>
+                      <strong style={{ color: 'var(--pink-neon)', fontSize: '16px' }}>{currentUser.tier_name} ({currentUser.discount_percentage}% {lang === 'es' ? 'desc.' : 'disc.'})</strong>
                     </div>
                   )}
                 </div>
@@ -6743,7 +6813,7 @@ function App() {
               {/* Cambiar Contraseña */}
               <div className="glass-panel" style={{ padding: '24px' }}>
                 <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '20px', color: 'var(--pink-neon)' }}>
-                  🔒 Cambiar Contraseña
+                  🔒 {lang === 'es' ? 'Cambiar Contraseña' : 'Change Password'}
                 </h2>
                 <form onSubmit={async (e) => {
                   e.preventDefault();
@@ -6752,49 +6822,49 @@ function App() {
                   const confirmPassword = e.target.confirmPass.value;
 
                   if (newPassword.length < 6) {
-                    alert('⚠️ La nueva contraseña debe tener al menos 6 caracteres.');
+                    alert(lang === 'es' ? '⚠️ La nueva contraseña debe tener al menos 6 caracteres.' : '⚠️ The new password must be at least 6 characters long.');
                     return;
                   }
                   if (newPassword !== confirmPassword) {
-                    alert('⚠️ Las contraseñas no coinciden.');
+                    alert(lang === 'es' ? '⚠️ Las contraseñas no coinciden.' : '⚠️ Passwords do not match.');
                     return;
                   }
 
                   try {
                     await auth.changePassword(currentPassword, newPassword);
-                    alert('🎉 Contraseña cambiada con éxito.');
+                    alert(lang === 'es' ? '🎉 Contraseña cambiada con éxito.' : '🎉 Password changed successfully.');
                     e.target.reset();
                   } catch (err) {
                     alert(`❌ Error: ${err.message}`);
                   }
                 }} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Contraseña Actual</label>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>{lang === 'es' ? 'Contraseña Actual' : 'Current Password'}</label>
                     <input
                       type="password"
                       name="currentPass"
                       required
-                      placeholder="Ingresa tu contraseña actual"
+                      placeholder={lang === 'es' ? 'Ingresa tu contraseña actual' : 'Enter your current password'}
                       style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
                     />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Nueva Contraseña</label>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>{lang === 'es' ? 'Nueva Contraseña' : 'New Password'}</label>
                     <input
                       type="password"
                       name="newPass"
                       required
-                      placeholder="Mínimo 6 caracteres"
+                      placeholder={lang === 'es' ? 'Mínimo 6 caracteres' : 'Minimum 6 characters'}
                       style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
                     />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Confirmar Nueva Contraseña</label>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>{lang === 'es' ? 'Confirmar Nueva Contraseña' : 'Confirm New Password'}</label>
                     <input
                       type="password"
                       name="confirmPass"
                       required
-                      placeholder="Repite la nueva contraseña"
+                      placeholder={lang === 'es' ? 'Repite la nueva contraseña' : 'Repeat the new password'}
                       style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
                     />
                   </div>
@@ -6803,7 +6873,7 @@ function App() {
                     className="glow-btn glow-btn-cyan"
                     style={{ width: '100%', padding: '12px', borderRadius: '8px', fontWeight: 'bold', marginTop: '10px' }}
                   >
-                    Actualizar Contraseña
+                    {lang === 'es' ? 'Actualizar Contraseña' : 'Update Password'}
                   </button>
                 </form>
               </div>
@@ -6818,10 +6888,12 @@ function App() {
           <div>
             <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
               <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>
-                Directorio y CRM de Clientes B2B
+                {lang === 'es' ? 'Directorio y CRM de Clientes B2B' : 'B2B Client Directory & CRM'}
               </h1>
               <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0 }}>
-                Administra las cuentas de tus distribuidores activos y realiza el seguimiento a tus leads comerciales.
+                {lang === 'es'
+                  ? 'Administra las cuentas de tus distribuidores activos y realiza el seguimiento a tus leads comerciales.'
+                  : 'Manage active wholesale accounts and track commercial leads.'}
               </p>
             </div>
 
@@ -6833,21 +6905,21 @@ function App() {
                       className={clientFilter === 'all' ? 'btn-pink' : 'btn-glass'}
                       style={{ padding: '6px 12px', fontSize: '11.5px' }}
                     >
-                      Todos ({clientsList.length})
+                      {lang === 'es' ? 'Todos' : 'All'} ({clientsList.length})
                     </button>
                     <button
                       onClick={() => setClientFilter('clients')}
                       className={clientFilter === 'clients' ? 'btn-pink' : 'btn-glass'}
                       style={{ padding: '6px 12px', fontSize: '11.5px' }}
                     >
-                      👥 Clientes Activos ({clientsList.filter(c => c.account_status === 'client').length})
+                      {lang === 'es' ? '👥 Clientes Activos' : '👥 Active Clients'} ({clientsList.filter(c => c.account_status === 'client').length})
                     </button>
                     <button
                       onClick={() => setClientFilter('leads')}
                       className={clientFilter === 'leads' ? 'btn-pink' : 'btn-glass'}
                       style={{ padding: '6px 12px', fontSize: '11.5px' }}
                     >
-                      ⚡ Leads / Prospectos ({clientsList.filter(c => c.account_status !== 'client').length})
+                      {lang === 'es' ? '⚡ Leads / Prospectos' : '⚡ Leads / Prospects'} ({clientsList.filter(c => c.account_status !== 'client').length})
                     </button>
                   </div>
                 </div>
@@ -6874,7 +6946,7 @@ function App() {
                   className="btn-pink"
                   style={{ padding: '10px 20px', fontSize: '12.5px' }}
                 >
-                  {creatingClient ? 'Cancelar Registro' : '➕ Registrar Cliente / Lead'}
+                  {creatingClient ? (lang === 'es' ? 'Cancelar Registro' : 'Cancel Registration') : (lang === 'es' ? '➕ Registrar Cliente / Lead' : '➕ Register Client / Lead')}
                 </button>
               </div>
 
@@ -7075,7 +7147,7 @@ function App() {
               {/* Listado de distribuidores en tabla */}
               <div className="glass-panel" style={{ padding: '24px', overflowX: 'auto' }}>
                 <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
-                  Directorio y Pipeline CRM de Cuentas B2B
+                  {lang === 'es' ? 'Directorio y Pipeline CRM de Cuentas B2B' : 'B2B Accounts Directory & CRM Pipeline'}
                 </h2>
 
                 {clientsList.filter(client => {
@@ -7084,18 +7156,18 @@ function App() {
                   return true;
                 }).length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                    No hay cuentas que coincidan con el filtro seleccionado.
+                    {lang === 'es' ? 'No hay cuentas que coincidan con el filtro seleccionado.' : 'No accounts match the selected filter.'}
                   </div>
                 ) : (
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
                     <thead>
                       <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.08)' }}>
-                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Empresa / Lead</th>
-                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Destino</th>
-                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Estado CRM</th>
-                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Nivel de Precios B2B / MOV</th>
-                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Último Contacto & Notas de CRM</th>
-                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600', textAlign: 'center' }}>Acciones</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>{lang === 'es' ? 'Empresa / Lead' : 'Company / Lead'}</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>{lang === 'es' ? 'Destino' : 'Destination'}</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>{lang === 'es' ? 'Estado CRM' : 'CRM Status'}</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>{lang === 'es' ? 'Nivel de Precios B2B / MOV' : 'B2B Pricing Tier / MOV'}</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>{lang === 'es' ? 'Último Contacto & Notas de CRM' : 'Last Contact & CRM Notes'}</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600', textAlign: 'center' }}>{t('col_acciones')}</th>
                       </tr>
                     </thead>
                     <tbody>
