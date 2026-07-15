@@ -246,7 +246,7 @@ router.get('/current/settings', requireAuth, requireTenantAdmin, async (req, res
       `SELECT id, name, slug, whatsapp_api_key, resend_api_key, 
               cloudinary_cloud_name, cloudinary_upload_preset, cloudinary_api_key, cloudinary_api_secret,
               stripe_secret_key, stripe_publishable_key,
-              bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url, default_incoterm 
+              bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url, default_incoterm, discount_policy 
        FROM tenants WHERE id = $1 AND deleted_at IS NULL`,
       [tenant_id]
     );
@@ -282,7 +282,8 @@ router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res
     bank_account_number,
     bank_routing_number,
     logo_url,
-    default_incoterm
+    default_incoterm,
+    discount_policy
   } = req.body;
 
   try {
@@ -302,12 +303,13 @@ router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res
            bank_routing_number = $12, 
            logo_url = $13,
            default_incoterm = $14,
+           discount_policy = $15,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $15 AND deleted_at IS NULL
+       WHERE id = $16 AND deleted_at IS NULL
        RETURNING id, name, slug, whatsapp_api_key, resend_api_key, 
                  cloudinary_cloud_name, cloudinary_upload_preset, cloudinary_api_key, cloudinary_api_secret,
                  stripe_secret_key, stripe_publishable_key,
-                 bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url, default_incoterm`,
+                 bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url, default_incoterm, discount_policy`,
       [
         whatsapp_api_key !== undefined && whatsapp_api_key !== null ? whatsapp_api_key.trim() : null,
         resend_api_key !== undefined && resend_api_key !== null ? resend_api_key.trim() : null,
@@ -323,6 +325,7 @@ router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res
         bank_routing_number !== undefined && bank_routing_number !== null ? bank_routing_number.trim() : null,
         logo_url !== undefined && logo_url !== null ? logo_url.trim() : null,
         default_incoterm !== undefined && default_incoterm !== null ? default_incoterm.trim() : 'FOB China',
+        discount_policy !== undefined && discount_policy !== null ? discount_policy.trim() : 'tier',
         tenant_id
       ]
     );
@@ -496,7 +499,7 @@ router.get('/current/bank-details', requireAuth, async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT name, bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url 
+      `SELECT name, bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url, discount_policy 
        FROM tenants 
        WHERE id = $1 AND deleted_at IS NULL`,
       [tenant_id]

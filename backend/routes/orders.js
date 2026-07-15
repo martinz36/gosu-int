@@ -85,6 +85,16 @@ router.post('/', requireAuth, async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // Obtener configuración del tenant
+    const tenantResult = await client.query(
+      'SELECT discount_policy, default_incoterm FROM tenants WHERE id = $1',
+      [tenant_id]
+    );
+    if (tenantResult.rows.length === 0) {
+      throw new Error('Tenant no encontrado.');
+    }
+    const { discount_policy = 'tier', default_incoterm = 'FOB China' } = tenantResult.rows[0];
+
     // Validar campaña si se especifica
     let campaignAdvancePaymentPct = null;
     if (campaign_id) {
@@ -121,7 +131,7 @@ router.post('/', requireAuth, async (req, res) => {
     // 2. Obtener productos y validar pertenencia al tenant
     const productIds = items.map(i => i.product_id);
     const productsResult = await client.query(
-      `SELECT id, name, sku, price_per_case_usd, case_cbm FROM products
+      `SELECT id, name, sku, price_per_case_usd, case_cbm, units_per_case FROM products
        WHERE id = ANY($1::uuid[]) AND tenant_id = $2`,
       [productIds, tenant_id]
     );
@@ -144,31 +154,59 @@ router.post('/', requireAuth, async (req, res) => {
     }
 
     // 4. Calcular descuentos de forma secuencial (Internacional B2B)
-    // a. Descuento por Volumen
-    const discountRulesResult = await client.query(
-      `SELECT min_cases, discount_pct
-       FROM volume_discount_rules
-       WHERE tenant_id = $1
-       ORDER BY min_cases DESC`,
-      [tenant_id]
-    );
+    let totalDiscountUsd = 0;
+    let volumeDiscountAmount = 0;
+    let distributorDiscountAmount = 0;
 
-    let volumeDiscountPct = 0;
-    for (const rule of discountRulesResult.rows) {
-      if (totalCases >= rule.min_cases) {
-        volumeDiscountPct = parseFloat(rule.discount_pct);
-        break;
+    if (discount_policy === 'volume') {
+      // Descuento por volumen físico de unidades por SKU (independiente del cliente)
+      // Unidades < 100: 0% desc, Unidades >= 100 y < 500: 5% desc, Unidades >= 500: 10% desc
+      for (const item of items) {
+        const prod = productMap[item.product_id];
+        const qtyCases = parseInt(item.qty_cases) || 0;
+        const unitsPerCase = parseInt(prod.units_per_case) || 1;
+        const totalUnits = qtyCases * unitsPerCase;
+        const pricePerCase = parseFloat(prod.price_per_case_usd) || 0;
+        const itemSubtotal = pricePerCase * qtyCases;
+
+        let itemDiscountPct = 0;
+        if (totalUnits >= 500) {
+          itemDiscountPct = 10;
+        } else if (totalUnits >= 100) {
+          itemDiscountPct = 5;
+        }
+
+        totalDiscountUsd += itemSubtotal * (itemDiscountPct / 100);
       }
+    } else {
+      // Política por defecto: Descuento por Tier de Cliente
+      // a. Descuento por Volumen general de la orden (por cajas)
+      const discountRulesResult = await client.query(
+        `SELECT min_cases, discount_pct
+         FROM volume_discount_rules
+         WHERE tenant_id = $1
+         ORDER BY min_cases DESC`,
+        [tenant_id]
+      );
+
+      let volumeDiscountPct = 0;
+      for (const rule of discountRulesResult.rows) {
+        if (totalCases >= rule.min_cases) {
+          volumeDiscountPct = parseFloat(rule.discount_pct);
+          break;
+        }
+      }
+
+      volumeDiscountAmount = subtotalUsd * (volumeDiscountPct / 100);
+      const subtotalAfterVolume = subtotalUsd - volumeDiscountAmount;
+
+      // b. Descuento por Pricing Tier
+      const distributorDiscountPct = parseFloat(profile.discount_percentage) || 0.00;
+      distributorDiscountAmount = subtotalAfterVolume * (distributorDiscountPct / 100);
+
+      totalDiscountUsd = volumeDiscountAmount + distributorDiscountAmount;
     }
 
-    const volumeDiscountAmount = subtotalUsd * (volumeDiscountPct / 100);
-    const subtotalAfterVolume = subtotalUsd - volumeDiscountAmount;
-
-    // b. Descuento por Pricing Tier comercial
-    const distributorDiscountPct = parseFloat(profile.discount_percentage) || 0.00;
-    const distributorDiscountAmount = subtotalAfterVolume * (distributorDiscountPct / 100);
-
-    const totalDiscountUsd = volumeDiscountAmount + distributorDiscountAmount;
     const finalTotalUsd = subtotalUsd - totalDiscountUsd;
 
     // 5. Validar MOA (Monto Mínimo de Orden)
@@ -186,11 +224,7 @@ router.post('/', requireAuth, async (req, res) => {
     const poNumber = `PO-${String(count + 1).padStart(4, '0')}`;
 
     // 7. Insertar cabecera de orden en sales_orders (con incoterm del Tenant y estado logístico 'En Revisión')
-    const tenantInfo = await client.query(
-      'SELECT default_incoterm FROM tenants WHERE id = $1',
-      [tenant_id]
-    );
-    const tenantIncoterm = tenantInfo.rows[0]?.default_incoterm || 'FOB China';
+    const tenantIncoterm = default_incoterm;
 
     const insertOrderQuery = `
       INSERT INTO sales_orders (

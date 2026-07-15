@@ -487,7 +487,8 @@ function App() {
         bank_account_number: data.bank_account_number || '',
         bank_routing_number: data.bank_routing_number || '',
         logo_url: data.logo_url || '',
-        default_incoterm: data.default_incoterm || 'FOB China'
+        default_incoterm: data.default_incoterm || 'FOB China',
+        discount_policy: data.discount_policy || 'tier'
       });
     } catch (err) {
       console.error('Error al cargar API keys del tenant:', err);
@@ -1936,19 +1937,39 @@ function App() {
       }
     });
 
-    // Descuento por volumen
-    let volumeDiscountPercent = 0;
-    VOLUME_DISCOUNTS.forEach(d => {
-      if (totalItemsCases >= d.min_cases) volumeDiscountPercent = d.discount_percentage;
-    });
-    const volumeDiscountAmount = subtotal * (volumeDiscountPercent / 100);
-    const subtotalAfterVolume = subtotal - volumeDiscountAmount;
+    const discountPolicy = isAdmin ? (tenantSettings.discount_policy || 'tier') : (tenantPublicInfo?.discount_policy || 'tier');
 
-    // Descuento por Pricing Tier comercial
-    let categoryDiscountPercent = currentUser?.discount_percentage !== undefined ? parseFloat(currentUser.discount_percentage) : 0;
-    const distributorDiscountAmount = subtotalAfterVolume * (categoryDiscountPercent / 100);
+    let totalDiscountAmount = 0;
 
-    const totalDiscountAmount = volumeDiscountAmount + distributorDiscountAmount;
+    if (discountPolicy === 'volume') {
+      itemsDetail.forEach(item => {
+        const unitsPerCase = parseInt(item.units_per_case) || 1;
+        const totalUnits = item.qty * unitsPerCase;
+        const itemSubtotal = parseFloat(item.price_per_case_usd) * item.qty;
+
+        let itemDiscountPct = 0;
+        if (totalUnits >= 500) {
+          itemDiscountPct = 10;
+        } else if (totalUnits >= 100) {
+          itemDiscountPct = 5;
+        }
+
+        totalDiscountAmount += itemSubtotal * (itemDiscountPct / 100);
+      });
+    } else {
+      let volumeDiscountPercent = 0;
+      VOLUME_DISCOUNTS.forEach(d => {
+        if (totalItemsCases >= d.min_cases) volumeDiscountPercent = d.discount_percentage;
+      });
+      const volumeDiscountAmount = subtotal * (volumeDiscountPercent / 100);
+      const subtotalAfterVolume = subtotal - volumeDiscountAmount;
+
+      let categoryDiscountPercent = currentUser?.discount_percentage !== undefined ? parseFloat(currentUser.discount_percentage) : 0;
+      const distributorDiscountAmount = subtotalAfterVolume * (categoryDiscountPercent / 100);
+
+      totalDiscountAmount = volumeDiscountAmount + distributorDiscountAmount;
+    }
+
     const finalTotal = subtotal - totalDiscountAmount;
     const effectiveDiscountPercent = subtotal > 0 ? ((totalDiscountAmount / subtotal) * 100) : 0;
 
@@ -5861,6 +5882,23 @@ function App() {
                         </select>
                         <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
                           Incoterm predeterminado que se asignará automáticamente a todos los nuevos pedidos B2B creados por los clientes.
+                        </span>
+                      </div>
+
+                      <div style={{ maxWidth: '400px', marginTop: '20px' }}>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                          Política de Descuento Comercial B2B
+                        </label>
+                        <select
+                          value={tenantSettings.discount_policy || 'tier'}
+                          onChange={(e) => setTenantSettings(prev => ({ ...prev, discount_policy: e.target.value }))}
+                          style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontWeight: '700' }}
+                        >
+                          <option value="tier">Nivel de Cliente / Tier Comercial</option>
+                          <option value="volume">Volumen por SKU (Escalonado por Item)</option>
+                        </select>
+                        <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                          Define si el descuento se calcula de acuerdo al Tier del distribuidor, o mediante reglas decrecientes de volumen por cada SKU comprado.
                         </span>
                       </div>
                     </div>
