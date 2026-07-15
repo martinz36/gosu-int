@@ -2378,9 +2378,14 @@ function App() {
                   📂 {isAdmin ? 'Productos' : 'Catálogo B2B'}
                 </span>
                 {!isAdmin && (
-                  <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
-                    📜 Mis Pedidos & Bóveda
-                  </span>
+                  <>
+                    <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
+                      📜 Mis Pedidos & Bóveda
+                    </span>
+                    <span className={`nav-link-btn ${activeTab === 'campaigns' ? 'active' : ''}`} onClick={() => setActiveTab('campaigns')}>
+                      📅 Preventas / Print Runs
+                    </span>
+                  </>
                 )}
                 {isAdmin && (
                   <>
@@ -5247,6 +5252,149 @@ function App() {
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ===================================================== */}
+        {/* TAB: PREVENTAS / PRINT RUNS (Clientes B2B)            */}
+        {/* ===================================================== */}
+        {activeTab === 'campaigns' && !isAdmin && !dataLoading && (
+          <div>
+            <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>📅 Campañas de Pre-Venta (Print Runs)</h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                Participa en las campañas de fabricación activas y asegura el stock de tu tienda directo de fábrica con condiciones de pago preferenciales.
+              </p>
+            </div>
+
+            {campaignsList.length === 0 ? (
+              <div className="glass-panel" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                No hay campañas de preventa activas en este momento. Vuelve a consultar más tarde.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+                {campaignsList.map(camp => {
+                  const campProducts = allProducts.filter(p => p.campaign_id === camp.id);
+                  
+                  return (
+                    <div key={camp.id} className="glass-panel" style={{ padding: '28px', border: camp.status === 'open' ? '1px solid var(--cyan-neon)' : '1px solid rgba(255,255,255,0.08)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '20px', marginBottom: '24px' }}>
+                        <div>
+                          <h2 style={{ fontSize: '22px', fontWeight: '800', margin: '0 0 8px 0', color: camp.status === 'open' ? 'var(--cyan-neon)' : '#fff' }}>
+                            {camp.name}
+                          </h2>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                            <div>📅 <strong>Cierre de Reservas:</strong> {new Date(camp.end_date_reservations).toLocaleDateString()}</div>
+                            {camp.start_date_production && (
+                              <div>🏭 <strong>Fabricación:</strong> {new Date(camp.start_date_production).toLocaleDateString()} {camp.estimated_end_date_production ? `al ${new Date(camp.estimated_end_date_production).toLocaleDateString()}` : ''}</div>
+                            )}
+                            <div>💳 <strong>Regla de Pago:</strong> Requiere {parseFloat(camp.advance_payment_pct).toFixed(0)}% de Adelanto</div>
+                          </div>
+                        </div>
+
+                        <span
+                          className={`badge ${
+                            camp.status === 'open' ? 'badge-green' :
+                            camp.status === 'production' ? 'badge-orange' : 'badge-blue'
+                          }`}
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: '800',
+                            padding: '6px 12px',
+                            borderRadius: '12px',
+                            textTransform: 'uppercase',
+                            boxShadow: camp.status === 'open' ? '0 0 10px rgba(0, 232, 255, 0.2)' : 'none'
+                          }}
+                        >
+                          {camp.status === 'open' ? '🟢 Abierta para Reservas' :
+                           camp.status === 'production' ? '🏭 En Producción' : '📦 Tiraje Finalizado'}
+                        </span>
+                      </div>
+
+                      <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px', color: 'var(--text-secondary)' }}>
+                        Productos en este Tiraje ({campProducts.length})
+                      </h3>
+
+                      {campProducts.length === 0 ? (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No hay productos asignados a este tiraje.</p>
+                      ) : (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
+                          {campProducts.map(product => {
+                            const inCartQty = cart[product.id] || 0;
+                            const isReservationsClosed = camp.status !== 'open';
+                            
+                            return (
+                              <div key={product.id} className="glass-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '380px', background: 'rgba(255,255,255,0.01)' }}>
+                                <div>
+                                  <div style={{ width: '100%', aspectRatio: '1/1', background: 'rgba(0,0,0,0.4)', borderRadius: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', marginBottom: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                    {product.image_url ? (
+                                      <img src={product.image_url} alt={product.name} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                                    ) : (
+                                      <span style={{ fontSize: '28px' }}>📦</span>
+                                    )}
+                                  </div>
+
+                                  <div style={{ fontWeight: '700', fontSize: '14px', marginBottom: '4px' }}>{product.name}</div>
+                                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>{product.sku}</div>
+                                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                                    {product.units_per_case} unidades por caja
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '12px' }}>
+                                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Precio / caja:</span>
+                                    <span style={{ fontSize: '16px', fontWeight: '800', color: 'var(--cyan-neon)' }}>
+                                      ${parseFloat(product.price_per_case_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                                    </span>
+                                  </div>
+
+                                  {isReservationsClosed ? (
+                                    <button
+                                      className="btn-glass"
+                                      style={{ width: '100%', padding: '8px 12px', fontSize: '12px', cursor: 'not-allowed', color: 'var(--text-muted)' }}
+                                      disabled
+                                    >
+                                      🔒 Reservas Cerradas
+                                    </button>
+                                  ) : inCartQty > 0 ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
+                                        <button onClick={() => handleRemoveFromCart(product.id)} className="btn-glass" style={{ padding: '4px 10px', fontSize: '11px', fontWeight: '700' }}>-</button>
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          max={product.stock_in_production_cases || 1000}
+                                          value={inCartQty}
+                                          onChange={(e) => handleSetCartQty(product.id, parseInt(e.target.value))}
+                                          style={{ width: '60px', textAlign: 'center', background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '4px', borderRadius: '4px', fontSize: '12px', fontWeight: '700' }}
+                                        />
+                                        <button onClick={() => handleAddToCart(product.id)} className="btn-glass" style={{ padding: '4px 10px', fontSize: '11px', fontWeight: '700' }}>+</button>
+                                      </div>
+                                      <span style={{ fontSize: '10px', color: 'var(--cyan-neon)', fontWeight: '600' }}>
+                                        ({(inCartQty * product.units_per_case).toLocaleString()} uds. en reserva)
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleAddToCart(product.id)}
+                                      className="btn-glass-neon"
+                                      style={{ width: '100%', padding: '8px 12px', fontSize: '12px' }}
+                                    >
+                                      📅 Reservar Preventa
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
