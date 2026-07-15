@@ -252,6 +252,66 @@ router.put('/:id', requireAuth, requireTenantAdmin, async (req, res) => {
 });
 
 // ============================================================
+// GET /api/products/export-csv  (Solo Tenant Admin)
+// Descarga el catálogo actual como CSV pre-llenado con los datos reales.
+// El stock se incluye como referencia pero NO se sobrescribe al re-subir.
+// ============================================================
+router.get('/export-csv', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+
+  try {
+    const result = await pool.query(`
+      SELECT 
+        p.sku, p.name, p.category, p.price_per_case_usd, p.units_per_case,
+        p.case_weight_kg, p.case_length_cm, p.case_width_cm, p.case_height_cm,
+        COALESCE(inv.stock_physical_cases, 0) AS stock_physical_cases,
+        COALESCE(inv.stock_in_production_cases, 0) AS stock_in_production_cases,
+        p.image_url, p.commercial_description, p.finished_measurements, p.color,
+        p.factory_name, p.factory_sku, p.factory_cost_per_case_usd,
+        p.pantone_codes, p.cut_measurements, p.fabrication_notes, p.production_files_url
+      FROM products p
+      LEFT JOIN inventory inv ON inv.product_id = p.id AND inv.tenant_id = p.tenant_id
+      WHERE p.tenant_id = $1 AND p.is_active = TRUE
+      ORDER BY p.sku
+    `, [tenant_id]);
+
+    const products = result.rows;
+
+    // Función para escapar valores CSV (maneja comas, comillas y saltos de línea)
+    const escapeCSV = (val) => {
+      if (val === null || val === undefined) return '';
+      const str = String(val);
+      if (str.includes(';') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const headers = [
+      'sku', 'name', 'category', 'price_per_case_usd', 'units_per_case',
+      'case_weight_kg', 'case_length_cm', 'case_width_cm', 'case_height_cm',
+      'stock_physical_cases', 'stock_in_production_cases',
+      'image_url', 'commercial_description', 'finished_measurements', 'color',
+      'factory_name', 'factory_sku', 'factory_cost_per_case_usd',
+      'pantone_codes', 'cut_measurements', 'fabrication_notes', 'production_files_url'
+    ];
+
+    const rows = products.map(p =>
+      headers.map(h => escapeCSV(p[h])).join(';')
+    );
+
+    const csvContent = 'sep=;\n' + headers.join(';') + '\n' + rows.join('\n');
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="catalogo_productos.csv"');
+    res.send('\uFEFF' + csvContent); // BOM para compatibilidad con Excel
+  } catch (err) {
+    console.error('Error al exportar CSV:', err);
+    res.status(500).json({ error: 'Error al generar el CSV del catálogo.' });
+  }
+});
+
+// ============================================================
 // POST /api/products/bulk  (Solo Tenant Admin)
 // Carga masiva o actualización de productos e inventarios.
 // ============================================================
@@ -377,23 +437,30 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
         insertedCount++;
       }
 
-      // Upsert del inventario
-      const inventoryQuery = `
-        INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (tenant_id, product_id)
-        DO UPDATE SET
-          stock_physical_cases = EXCLUDED.stock_physical_cases,
-          stock_in_production_cases = EXCLUDED.stock_in_production_cases,
-          updated_at = CURRENT_TIMESTAMP;
-      `;
-
-      await client.query(inventoryQuery, [
-        tenant_id,
-        productId,
-        parseInt(stock_physical_cases) || 0,
-        parseInt(stock_in_production_cases) || 0
-      ]);
+      // Upsert del inventario:
+      // - Si el producto es NUEVO: usar el stock del CSV.
+      // - Si el producto ya EXISTÍA: NO tocar el stock (preservar el actual).
+      if (!existed) {
+        const inventoryQuery = `
+          INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases)
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT (tenant_id, product_id)
+          DO NOTHING;
+        `;
+        await client.query(inventoryQuery, [
+          tenant_id,
+          productId,
+          parseInt(stock_physical_cases) || 0,
+          parseInt(stock_in_production_cases) || 0
+        ]);
+      } else {
+        // Producto existente: asegurar que exista la fila de inventario pero NO cambiar el stock
+        await client.query(`
+          INSERT INTO inventory (tenant_id, product_id, stock_physical_cases, stock_in_production_cases)
+          VALUES ($1, $2, 0, 0)
+          ON CONFLICT (tenant_id, product_id) DO NOTHING;
+        `, [tenant_id, productId]);
+      }
     }
 
     await client.query('COMMIT');
