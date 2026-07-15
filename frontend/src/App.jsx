@@ -1368,7 +1368,7 @@ function App() {
   const handleDownloadCSVTemplate = async () => {
     try {
       // Si hay productos en el catálogo, descargar con datos reales
-      if (products && products.length > 0) {
+      if (productList && productList.length > 0) {
         await productsApi.exportCsv();
       } else {
         // Catálogo vacío: descargar plantilla en blanco con una fila de ejemplo
