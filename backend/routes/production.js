@@ -73,7 +73,7 @@ router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
       [tenant_id]
     );
     const count = parseInt(countResult.rows[0].count);
-    const orderNumber = `PO-${(count + 1).toString().padStart(5, '0')}`;
+    const orderNumber = `MO-${(count + 1).toString().padStart(5, '0')}`;
 
     // 2. Calcular totales (costo y volumen CBM) y verificar items
     let totalCostUsd = 0;

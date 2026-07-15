@@ -223,13 +223,23 @@ router.post('/', requireAuth, async (req, res) => {
       throw new Error(`Monto Mínimo de Orden no alcanzado. Orden mínima: $${moaLimit.toFixed(2)} USD. Total actual: $${finalTotalUsd.toFixed(2)} USD.`);
     }
 
-    // 6. Generar número correlativo de PO por tenant (PO-0001, PO-0002...)
-    const countResult = await client.query(
-      'SELECT COUNT(*) FROM sales_orders WHERE tenant_id = $1',
-      [tenant_id]
-    );
-    const count = parseInt(countResult.rows[0].count);
-    const poNumber = `PO-${String(count + 1).padStart(4, '0')}`;
+    // 6. Generar número correlativo de PO (stock) o PS (preventa) por tenant
+    let poNumber = '';
+    if (campaign_id) {
+      const countResult = await client.query(
+        'SELECT COUNT(*) FROM sales_orders WHERE tenant_id = $1 AND campaign_id IS NOT NULL',
+        [tenant_id]
+      );
+      const count = parseInt(countResult.rows[0].count);
+      poNumber = `PS-${String(count + 1).padStart(4, '0')}`;
+    } else {
+      const countResult = await client.query(
+        'SELECT COUNT(*) FROM sales_orders WHERE tenant_id = $1 AND campaign_id IS NULL',
+        [tenant_id]
+      );
+      const count = parseInt(countResult.rows[0].count);
+      poNumber = `PO-${String(count + 1).padStart(4, '0')}`;
+    }
 
     // 7. Insertar cabecera de orden en sales_orders (con incoterm del Tenant y estado logístico 'En Revisión')
     const tenantIncoterm = default_incoterm;
