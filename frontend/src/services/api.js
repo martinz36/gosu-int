@@ -115,6 +115,24 @@ export const products = {
 
   adjustInventory: (productId, data) =>
     request('POST', `/api/products/${productId}/inventory-adjust`, data),
+
+  exportCsv: async () => {
+    const token = getToken();
+    const response = await fetch(`${API_BASE}/api/products/export-csv`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error('Error al descargar el CSV del catálogo.');
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'catalogo_productos.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  },
 };
 
 // ============================================================

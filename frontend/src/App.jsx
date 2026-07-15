@@ -1365,21 +1365,30 @@ function App() {
     }
   };
 
-  const handleDownloadCSVTemplate = () => {
-    const csvContent = 
-      "sep=;\n" +
-      "sku;name;category;price_per_case_usd;units_per_case;case_weight_kg;case_length_cm;case_width_cm;case_height_cm;stock_physical_cases;stock_in_production_cases;image_url;commercial_description;finished_measurements;color;factory_name;factory_sku;factory_cost_per_case_usd;pantone_codes;cut_measurements;fabrication_notes;production_files_url\n" +
-      "GOSU-SLV-001;Protectores de Cartas Mate - Black;Protectores;35.00;100;12.5;42;32;22;250;50;https://ejemplo.com/black.jpg;Protectores premium mate tamaño Standard.;66x91 mm;Black;Fábrica Dongguan;FAC-SKU-99;18.00;Pantone 426C;68x93 mm;Embalado especial anti-humedad;https://drive.google.com/drive/folders/ejemplo1\n" +
-      "GOSU-SLV-002;Protectores de Cartas Mate - Red;Protectores;35.00;100;12.5;42;32;22;180;0;https://ejemplo.com/red.jpg;Protectores premium mate color rojo.;66x91 mm;Red;Fábrica Dongguan;FAC-SKU-100;18.00;Pantone 186C;68x93 mm;Sin notas;https://drive.google.com/drive/folders/ejemplo2\n";
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", "gosu_catalog_template.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleDownloadCSVTemplate = async () => {
+    try {
+      // Si hay productos en el catálogo, descargar con datos reales
+      if (products && products.length > 0) {
+        await productsApi.exportCsv();
+      } else {
+        // Catálogo vacío: descargar plantilla en blanco con una fila de ejemplo
+        const csvContent =
+          "sep=;\n" +
+          "sku;name;category;price_per_case_usd;units_per_case;case_weight_kg;case_length_cm;case_width_cm;case_height_cm;stock_physical_cases;stock_in_production_cases;image_url;commercial_description;finished_measurements;color;factory_name;factory_sku;factory_cost_per_case_usd;pantone_codes;cut_measurements;fabrication_notes;production_files_url\n" +
+          "GOSU-SLV-001;Protectores Mate Black;Protectores;35.00;100;12.5;42;32;22;250;50;https://ejemplo.com/img.jpg;Descripción comercial del producto;66x91 mm;Black;Fábrica Dongguan;FAC-SKU-99;18.00;Pantone 426C;68x93 mm;Notas de fabricación;https://drive.google.com/ejemplo\n";
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", "catalogo_productos_plantilla.csv");
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      alert(`❌ Error al descargar la plantilla: ${err.message}`);
+    }
   };
 
   // ============================================================
