@@ -124,8 +124,8 @@ export const orders = {
   getAll: () =>
     request('GET', '/api/orders'),
 
-  create: (items, notes = null, incoterm = 'FOB China') =>
-    request('POST', '/api/orders', { items, notes, incoterm }),
+  create: (items, notes = null, incoterm = 'FOB China', campaign_id = null) =>
+    request('POST', '/api/orders', { items, notes, incoterm, campaign_id }),
 
   updateStatus: (id, status) =>
     request('PUT', `/api/orders/${id}/status`, { status }),
@@ -290,4 +290,15 @@ export const pricingTiers = {
   create: (data) => request('POST', '/api/pricing-tiers', data),
   update: (id, data) => request('PUT', `/api/pricing-tiers/${id}`, data),
   delete: (id) => request('DELETE', `/api/pricing-tiers/${id}`),
+};
+
+// ============================================================
+// Campaigns (Print Runs)
+// ============================================================
+export const campaigns = {
+  getAll: () => request('GET', '/api/campaigns'),
+  getById: (id) => request('GET', `/api/campaigns/${id}`),
+  create: (data) => request('POST', '/api/campaigns', data),
+  update: (id, data) => request('PUT', `/api/campaigns/${id}`, data),
+  delete: (id) => request('DELETE', `/api/campaigns/${id}`),
 };

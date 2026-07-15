@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import LoginPage from './components/LoginPage';
 import SalesMapWidget, { COUNTRY_OPTIONS, getCountryName } from './components/SalesMapWidget';
-import { auth, products as productsApi, orders as ordersApi, production as productionApi, tenants as tenantsApi, plans as plansApi, users as usersApi, audit as auditApi, config as configApi, pricingTiers as pricingTiersApi, API_URL } from './services/api';
+import { auth, products as productsApi, orders as ordersApi, production as productionApi, tenants as tenantsApi, plans as plansApi, users as usersApi, audit as auditApi, config as configApi, pricingTiers as pricingTiersApi, campaigns as campaignsApi, API_URL } from './services/api';
 
 // Reglas de descuento (se obtendrán del backend en futuras versiones)
 const VOLUME_DISCOUNTS = [
@@ -113,6 +113,9 @@ function App() {
   const [categoriesList, setCategoriesList] = useState([]);
   const [brandsList, setBrandsList] = useState([]);
   const [pricingTiersList, setPricingTiersList] = useState([]);
+  const [campaignsList, setCampaignsList] = useState([]);
+  const [newCampaign, setNewCampaign] = useState({ name: '', start_date_reservations: '', end_date_reservations: '', start_date_production: '', estimated_end_date_production: '', advance_payment_pct: 30.00, status: 'open' });
+  const [editingCampaign, setEditingCampaign] = useState(null);
 
   // Formulario para Marcas/Categorías/PricingTiers
   const [newCategory, setNewCategory] = useState({ name: '', slug: '' });
@@ -207,7 +210,8 @@ function App() {
     // Inventarios
     stock_physical_cases: 0,
     stock_in_production_cases: 0,
-    production_files_url: ''
+    production_files_url: '',
+    campaign_id: ''
   });
   const [editingProduct, setEditingProduct] = useState(null);
   const [creatingProduct, setCreatingProduct] = useState(false);
@@ -422,6 +426,16 @@ function App() {
     }
   }, [currentUser, isSuperAdmin, isAdmin]);
 
+  const loadCampaigns = useCallback(async () => {
+    if (!currentUser || isSuperAdmin) return;
+    try {
+      const data = await campaignsApi.getAll();
+      setCampaignsList(data);
+    } catch (err) {
+      console.error('Error cargando Campañas:', err);
+    }
+  }, [currentUser, isSuperAdmin]);
+
   const loadCatalogConfig = useCallback(async () => {
     if (!currentUser || isSuperAdmin) return;
     try {
@@ -432,12 +446,14 @@ function App() {
       setCategoriesList(catData);
       setBrandsList(brandData);
       if (isAdmin) {
-        await Promise.all([loadClients(), loadPricingTiers()]);
+        await Promise.all([loadClients(), loadPricingTiers(), loadCampaigns()]);
+      } else {
+        await loadCampaigns();
       }
     } catch (err) {
       console.error('Error cargando marcas/categorías:', err);
     }
-  }, [currentUser, isSuperAdmin, isAdmin, loadClients, loadPricingTiers]);
+  }, [currentUser, isSuperAdmin, isAdmin, loadClients, loadPricingTiers, loadCampaigns]);
 
   const loadTenantPublicInfo = useCallback(async () => {
     if (!currentUser || isSuperAdmin || isAdmin) return;
@@ -666,7 +682,6 @@ function App() {
     setProductList(filtered);
   }, [searchQuery, allProducts, isAdmin, adminFilterCategory, adminFilterStockStatus, adminFilterFactory]);
 
-  // Recargar según la tab activa
   useEffect(() => {
     if (!currentUser) return;
     if (activeTab === 'orders') loadOrders();
@@ -679,15 +694,16 @@ function App() {
       loadClients();
       loadPricingTiers();
     }
-    if (activeTab === 'catalog' || activeTab === 'config' || activeTab === 'inventory') {
+    if (activeTab === 'catalog' || activeTab === 'config' || activeTab === 'inventory' || activeTab === 'campaigns') {
       loadCatalogConfig();
       loadTenantSettings();
       loadWarehouses();
+      loadCampaigns();
     }
     if (['saas-tenants', 'saas-users', 'saas-billing', 'saas-audit'].includes(activeTab)) {
       loadTenants();
     }
-  }, [activeTab, currentUser, loadOrders, loadProduction, loadClients, loadPricingTiers, loadTenants, loadCatalogConfig, loadTenantSettings, loadDashboardData, loadWarehouses]);
+  }, [activeTab, currentUser, loadOrders, loadProduction, loadClients, loadPricingTiers, loadTenants, loadCatalogConfig, loadTenantSettings, loadDashboardData, loadWarehouses, loadCampaigns]);
 
   // Recargar datos del dashboard cuando cambian los filtros
   useEffect(() => {
@@ -894,6 +910,44 @@ function App() {
       alert(`❌ Error: ${err.message}`);
     } finally {
       setCreatingSuperAdmin(false);
+    }
+  };
+
+  // ============================================================
+  // CRUD de Campañas (Print Runs)
+  // ============================================================
+  const handleCreateOrUpdateCampaign = async (e) => {
+    e.preventDefault();
+    if (!newCampaign.name || !newCampaign.start_date_reservations || !newCampaign.end_date_reservations) {
+      alert('Nombre y fechas de reservas son requeridos.');
+      return;
+    }
+    try {
+      if (editingCampaign) {
+        await campaignsApi.update(editingCampaign.id, newCampaign);
+        alert('🎉 Campaña actualizada con éxito.');
+        setEditingCampaign(null);
+      } else {
+        await campaignsApi.create(newCampaign);
+        alert('🎉 Campaña creada con éxito.');
+      }
+      setNewCampaign({ name: '', start_date_reservations: '', end_date_reservations: '', start_date_production: '', estimated_end_date_production: '', advance_payment_pct: 30.00, status: 'open' });
+      await loadCampaigns();
+    } catch (err) {
+      console.error('Error al guardar campaña:', err);
+      alert('❌ Error al guardar campaña: ' + (err.error || err.message || err));
+    }
+  };
+
+  const handleDeleteCampaign = async (id) => {
+    if (!window.confirm('⚠️ ¿Estás seguro de que deseas eliminar esta campaña?')) return;
+    try {
+      await campaignsApi.delete(id);
+      alert('🗑️ Campaña eliminada.');
+      await loadCampaigns();
+    } catch (err) {
+      console.error('Error al eliminar campaña:', err);
+      alert('❌ Error al eliminar campaña: ' + (err.error || err.message || err));
     }
   };
 
@@ -1256,7 +1310,8 @@ function App() {
         case_height_cm: 20,
         stock_physical_cases: 0,
         stock_in_production_cases: 0,
-        production_files_url: ''
+        production_files_url: '',
+        campaign_id: ''
       });
       await loadProducts();
     } catch (err) {
@@ -1331,7 +1386,8 @@ function App() {
       stock_physical_cases: product.stock_physical_cases || '',
       stock_in_production_cases: product.stock_in_production_cases || '',
       color: product.color || '',
-      brand: product.brand || ''
+      brand: product.brand || '',
+      campaign_id: product.campaign_id || ''
     });
   };
 
@@ -1766,7 +1822,30 @@ function App() {
   // -------------------------------------------------------
   // Lógica del Carrito
   // -------------------------------------------------------
+  const validateCartAddition = (productId) => {
+    const productToAdd = allProducts.find(p => p.id === productId);
+    if (!productToAdd) return true;
+
+    const targetCampaignId = productToAdd.campaign_id || null;
+    const cartItemIds = Object.keys(cart);
+
+    if (cartItemIds.length === 0) return true;
+
+    for (const itemId of cartItemIds) {
+      const existingProduct = allProducts.find(p => p.id === itemId);
+      if (existingProduct) {
+        const existingCampaignId = existingProduct.campaign_id || null;
+        if (existingCampaignId !== targetCampaignId) {
+          alert('⚠️ Restricción de preventa B2B:\nNo puedes mezclar productos de diferentes campañas de fabricación o productos regulares en el mismo pedido.\n\nPor favor realiza una orden independiente para cada tiraje o limpia tu carrito.');
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+
   const handleAddToCart = (productId) => {
+    if (!validateCartAddition(productId)) return;
     setCart(prev => ({ ...prev, [productId]: (prev[productId] || 0) + 1 }));
   };
 
@@ -1783,6 +1862,7 @@ function App() {
   };
 
   const handleSetCartQty = (productId, qty) => {
+    if (!validateCartAddition(productId)) return;
     const parsedQty = parseInt(qty);
     if (isNaN(parsedQty) || parsedQty <= 0) {
       setCart(prev => {
@@ -1861,7 +1941,11 @@ function App() {
         qty_cases: i.qty,
       }));
 
-      const res = await ordersApi.create(items, null, incoterm);
+      const firstCartItem = cartTotals.items[0];
+      const matchedProduct = allProducts.find(p => p.id === firstCartItem.id);
+      const campaignId = matchedProduct ? matchedProduct.campaign_id : null;
+
+      const res = await ordersApi.create(items, null, incoterm, campaignId);
       
       // Intentar cargar la info bancaria del tenant de forma pública y segura
       setLoadingBankDetails(true);
@@ -2267,6 +2351,9 @@ function App() {
                     </span>
                     <span className={`nav-link-btn ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
                       🏭 Fábrica & Producción
+                    </span>
+                    <span className={`nav-link-btn ${activeTab === 'campaigns' ? 'active' : ''}`} onClick={() => setActiveTab('campaigns')}>
+                      📅 Preventas / Print Runs
                     </span>
                     <span className={`nav-link-btn ${activeTab === 'clients' ? 'active' : ''}`} onClick={() => setActiveTab('clients')}>
                       👥 Clientes & Leads
@@ -3018,6 +3105,19 @@ function App() {
                         </select>
                       </div>
                       <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Campaña / Print Run (Pre-venta)</label>
+                        <select
+                          value={newProduct.campaign_id || ''}
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, campaign_id: e.target.value || null }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        >
+                          <option value="">-- Ninguna (Catálogo Regular) --</option>
+                          {campaignsList.map(camp => (
+                            <option key={camp.id} value={camp.id}>{camp.name} ({camp.status})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
                         <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Precio por Caja Master (USD) *</label>
                         <input
                           type="number"
@@ -3577,9 +3677,31 @@ function App() {
                   const inCartQty = cart[product.id] || 0;
                   const priceNum = parseFloat(product.price_per_case_usd);
                   const isExpanded = expandedFactoryProductId === product.id;
+                  const campaign = product.campaign_id ? campaignsList.find(c => c.id === product.campaign_id) : null;
+                  const isReservationsClosed = campaign && campaign.status !== 'open';
                   
                   return (
                     <div key={product.id} className="glass-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '440px', position: 'relative', border: isExpanded ? '1px solid var(--pink-neon)' : '1px solid rgba(255,255,255,0.08)' }}>
+                      {campaign && (
+                        <div style={{
+                          position: 'absolute',
+                          top: '12px',
+                          right: '12px',
+                          background: campaign.status === 'open' ? 'rgba(0, 232, 255, 0.9)' :
+                                      campaign.status === 'production' ? 'rgba(255, 152, 0, 0.9)' : 'rgba(76, 175, 80, 0.9)',
+                          color: '#000',
+                          padding: '3px 8px',
+                          borderRadius: '12px',
+                          fontSize: '10px',
+                          fontWeight: '800',
+                          zIndex: 2,
+                          boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
+                          textTransform: 'uppercase'
+                        }}>
+                          {campaign.status === 'open' ? '📅 Preventa' :
+                           campaign.status === 'production' ? '🏭 En Prod.' : '✅ Finalizada'}
+                        </div>
+                      )}
                       <div>
                         {/* Imagen del Producto con Glow Halo Dinámico Adaptable */}
                         <div style={{ 
@@ -3713,7 +3835,15 @@ function App() {
 
                         {/* Controles de Carrito para Clientes B2B */}
                         {!isAdmin && (
-                          inCartQty > 0 ? (
+                          isReservationsClosed ? (
+                            <button
+                              className="btn-glass"
+                              style={{ width: '100%', padding: '10px 16px', fontSize: '13px', cursor: 'not-allowed', color: 'var(--text-muted)', border: '1px solid rgba(255,255,255,0.05)' }}
+                              disabled
+                            >
+                              🔒 Reservas Cerradas
+                            </button>
+                          ) : inCartQty > 0 ? (
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center', width: '100%' }}>
                                 <button onClick={() => handleRemoveFromCart(product.id)} className="btn-glass" style={{ padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>-</button>
@@ -3747,13 +3877,15 @@ function App() {
                               className="btn-glass-neon"
                               style={{ width: '100%', padding: '10px 16px', fontSize: '13px' }}
                               onClick={() => handleAddToCart(product.id)}
-                              disabled={product.stock_physical_cases === 0 && (product.stock_in_production_cases || 0) === 0}
+                              disabled={product.stock_physical_cases === 0 && (product.stock_in_production_cases || 0) === 0 && !campaign}
                             >
-                              {product.stock_physical_cases > 0 
-                                ? 'Añadir al Pedido B2B' 
-                                : (product.stock_in_production_cases || 0) > 0 
-                                  ? 'Pre-comprar (Reserva)' 
-                                  : 'Sin Stock'}
+                              {campaign 
+                                ? '📅 Reservar Preventa'
+                                : product.stock_physical_cases > 0 
+                                  ? 'Añadir al Pedido B2B' 
+                                  : (product.stock_in_production_cases || 0) > 0 
+                                    ? 'Pre-comprar (Reserva)' 
+                                    : 'Sin Stock'}
                             </button>
                           )
                         )}
@@ -3904,8 +4036,15 @@ function App() {
                           
                           <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                             {/* Vista Cliente: Controles de compra */}
-                            {!isAdmin && (
-                              product.stock_physical_cases > 0 ? (
+                            {!isAdmin && (() => {
+                              const campaign = product.campaign_id ? campaignsList.find(c => c.id === product.campaign_id) : null;
+                              const isReservationsClosed = campaign && campaign.status !== 'open';
+                              
+                              if (isReservationsClosed) {
+                                return <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>🔒 Cerrado</span>;
+                              }
+                              
+                              return (product.stock_physical_cases > 0 || campaign) ? (
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
                                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center' }}>
                                     {inCartQty > 0 ? (
@@ -3914,7 +4053,7 @@ function App() {
                                         <input 
                                           type="number"
                                           min="1"
-                                          max={product.stock_physical_cases || 1000}
+                                          max={product.stock_physical_cases || product.stock_in_production_cases || 1000}
                                           value={inCartQty}
                                           onChange={(e) => handleSetCartQty(product.id, parseInt(e.target.value))}
                                           style={{
@@ -3933,7 +4072,7 @@ function App() {
                                       </>
                                     ) : (
                                       <button onClick={() => handleAddToCart(product.id)} className="btn-neon" style={{ padding: '6px 14px', fontSize: '12px', fontWeight: '700', borderRadius: '6px' }}>
-                                        Añadir
+                                        {campaign ? 'Reservar' : 'Añadir'}
                                       </button>
                                     )}
                                   </div>
@@ -3945,8 +4084,8 @@ function App() {
                                 </div>
                               ) : (
                                 <span style={{ color: 'var(--text-muted)' }}>Agotado</span>
-                              )
-                            )}
+                              );
+                            })()}
 
                             {/* Vista Admin: Controles de edición */}
                             {isAdmin && (
@@ -4856,6 +4995,206 @@ function App() {
                   </tbody>
                 </table>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ===================================================== */}
+        {/* TAB: CAMPAÑAS (Solo Admin del Tenant)                */}
+        {/* ===================================================== */}
+        {activeTab === 'campaigns' && isAdmin && !dataLoading && (
+          <div>
+            <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Campañas de Fabricación (Print Runs)</h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                Crea campañas de pre-venta, gestiona fechas clave, reglas de pago y cambia estados para notificar a los clientes B2B.
+              </p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', alignItems: 'start' }}>
+              {/* FORMULARIO CREAR/EDITAR CAMPAÑA */}
+              <div className="glass-panel" style={{ padding: '24px' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
+                  {editingCampaign ? '✏️ Editar Campaña' : '📅 Nueva Campaña'}
+                </h2>
+                <form onSubmit={handleCreateOrUpdateCampaign} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Nombre de la Campaña</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Print Run Q4 - Dongguan"
+                      value={newCampaign.name}
+                      required
+                      onChange={(e) => setNewCampaign(prev => ({ ...prev, name: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Inicio Reservas</label>
+                      <input
+                        type="datetime-local"
+                        value={newCampaign.start_date_reservations ? newCampaign.start_date_reservations.slice(0, 16) : ''}
+                        required
+                        onChange={(e) => setNewCampaign(prev => ({ ...prev, start_date_reservations: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Cierre Reservas</label>
+                      <input
+                        type="datetime-local"
+                        value={newCampaign.end_date_reservations ? newCampaign.end_date_reservations.slice(0, 16) : ''}
+                        required
+                        onChange={(e) => setNewCampaign(prev => ({ ...prev, end_date_reservations: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Inicio Producción</label>
+                      <input
+                        type="datetime-local"
+                        value={newCampaign.start_date_production ? newCampaign.start_date_production.slice(0, 16) : ''}
+                        onChange={(e) => setNewCampaign(prev => ({ ...prev, start_date_production: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Fin Prod. Estimado</label>
+                      <input
+                        type="datetime-local"
+                        value={newCampaign.estimated_end_date_production ? newCampaign.estimated_end_date_production.slice(0, 16) : ''}
+                        onChange={(e) => setNewCampaign(prev => ({ ...prev, estimated_end_date_production: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>% Adelanto Requerido</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={newCampaign.advance_payment_pct}
+                        required
+                        onChange={(e) => setNewCampaign(prev => ({ ...prev, advance_payment_pct: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Estado</label>
+                      <select
+                        value={newCampaign.status}
+                        required
+                        onChange={(e) => setNewCampaign(prev => ({ ...prev, status: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      >
+                        <option value="open">Open (Reservas Abiertas)</option>
+                        <option value="production">Production (En Fabricación)</option>
+                        <option value="finished">Finished (Tiraje Finalizado)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                    <button type="submit" className="btn-neon" style={{ flex: 1, padding: '10px 16px', borderRadius: '8px' }}>
+                      {editingCampaign ? '💾 Guardar Cambios' : '📅 Crear Campaña'}
+                    </button>
+                    {editingCampaign && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingCampaign(null);
+                          setNewCampaign({ name: '', start_date_reservations: '', end_date_reservations: '', start_date_production: '', estimated_end_date_production: '', advance_payment_pct: 30.00, status: 'open' });
+                        }}
+                        className="btn-glass"
+                        style={{ padding: '10px 16px', borderRadius: '8px' }}
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </div>
+
+              {/* LISTADO DE CAMPAÑAS */}
+              <div className="glass-panel" style={{ padding: '24px' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
+                  Campañas Activas ({campaignsList.length})
+                </h2>
+                {campaignsList.length === 0 ? (
+                  <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No hay campañas configuradas.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {campaignsList.map(camp => (
+                      <div
+                        key={camp.id}
+                        style={{
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          borderRadius: '10px',
+                          padding: '16px',
+                          background: 'rgba(255,255,255,0.02)'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                          <span style={{ fontWeight: '700', fontSize: '15px' }}>{camp.name}</span>
+                          <span
+                            className={`badge ${
+                              camp.status === 'open' ? 'badge-green' :
+                              camp.status === 'production' ? 'badge-orange' : 'badge-blue'
+                            }`}
+                            style={{ textTransform: 'uppercase', fontSize: '10px' }}
+                          >
+                            {camp.status}
+                          </span>
+                        </div>
+
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' }}>
+                          <div>📅 <strong>Reservas:</strong> {new Date(camp.start_date_reservations).toLocaleDateString()} al {new Date(camp.end_date_reservations).toLocaleDateString()}</div>
+                          {camp.start_date_production && (
+                            <div>🏭 <strong>Producción:</strong> {new Date(camp.start_date_production).toLocaleDateString()} {camp.estimated_end_date_production ? `al ${new Date(camp.estimated_end_date_production).toLocaleDateString()}` : ''}</div>
+                          )}
+                          <div>💳 <strong>Adelanto Requerido:</strong> {camp.advance_payment_pct}%</div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                          <button
+                            onClick={() => {
+                              setEditingCampaign(camp);
+                              setNewCampaign({
+                                name: camp.name,
+                                start_date_reservations: camp.start_date_reservations,
+                                end_date_reservations: camp.end_date_reservations,
+                                start_date_production: camp.start_date_production || '',
+                                estimated_end_date_production: camp.estimated_end_date_production || '',
+                                advance_payment_pct: camp.advance_payment_pct,
+                                status: camp.status
+                              });
+                            }}
+                            className="btn-glass"
+                            style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '6px' }}
+                          >
+                            ✏️ Editar
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCampaign(camp.id)}
+                            className="btn-glass"
+                            style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '6px', color: 'var(--pink-neon)', borderColor: 'var(--pink-neon)' }}
+                          >
+                            🗑️ Eliminar
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

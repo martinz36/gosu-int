@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
 import { requireAuth, requireTenantAdmin } from '../middleware/auth.js';
+import { EmailService } from '../utils/email.js';
 
 const router = Router();
 
@@ -70,7 +71,7 @@ router.get('/', requireAuth, async (req, res) => {
 // ============================================================
 router.post('/', requireAuth, async (req, res) => {
   const { tenant_id, id: client_id, role } = req.user;
-  const { items, notes, incoterm } = req.body;
+  const { items, notes, incoterm, campaign_id } = req.body;
 
   if (role !== 'b2b_client') {
     return res.status(403).json({ error: 'Solo los clientes B2B pueden realizar pedidos.' });
@@ -83,6 +84,23 @@ router.post('/', requireAuth, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // Validar campaña si se especifica
+    let campaignAdvancePaymentPct = null;
+    if (campaign_id) {
+      const campaignResult = await client.query(
+        'SELECT status, advance_payment_pct FROM campaigns WHERE id = $1 AND tenant_id = $2',
+        [campaign_id, tenant_id]
+      );
+      if (campaignResult.rows.length === 0) {
+        throw new Error('La campaña seleccionada no existe para esta empresa.');
+      }
+      const campaign = campaignResult.rows[0];
+      if (campaign.status !== 'open') {
+        throw new Error('La campaña seleccionada no está abierta para reservas.');
+      }
+      campaignAdvancePaymentPct = parseFloat(campaign.advance_payment_pct);
+    }
 
     // 1. Obtener perfil B2B del cliente para datos fiscales y MOA (uniendo a su Pricing Tier)
     const profileResult = await client.query(
@@ -177,15 +195,17 @@ router.post('/', requireAuth, async (req, res) => {
     const insertOrderQuery = `
       INSERT INTO sales_orders (
         tenant_id, client_id, status, incoterm, company_name, tax_id, 
-        billing_address, forwarder_address, subtotal_usd, discount_usd, total_usd, po_number
+        billing_address, forwarder_address, subtotal_usd, discount_usd, total_usd, po_number,
+        campaign_id, advance_payment_pct
       )
-      VALUES ($1, $2, 'En Revisión', $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      VALUES ($1, $2, 'En Revisión', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `;
     const orderResult = await client.query(insertOrderQuery, [
       tenant_id, client_id, tenantIncoterm,
       profile.company_name, profile.tax_id, profile.billing_address, profile.forwarder_address,
-      subtotalUsd, totalDiscountUsd, finalTotalUsd, poNumber
+      subtotalUsd, totalDiscountUsd, finalTotalUsd, poNumber,
+      campaign_id || null, campaignAdvancePaymentPct !== null ? campaignAdvancePaymentPct : 30.00
     ]);
     const newOrder = orderResult.rows[0];
 
@@ -246,6 +266,10 @@ router.post('/', requireAuth, async (req, res) => {
     );
 
     await client.query('COMMIT');
+
+    // Notificar la reserva de forma asíncrona
+    EmailService.sendReservationCreatedEmail(newOrder.id, req.headers.origin);
+
     res.status(201).json({ message: 'Pedido B2B registrado con éxito.', order: newOrder });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
