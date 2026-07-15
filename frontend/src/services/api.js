@@ -104,6 +104,9 @@ export const products = {
   delete: (id) =>
     request('DELETE', `/api/products/${id}`),
 
+  bulkDelete: (ids) =>
+    request('POST', '/api/products/bulk-delete', { ids }),
+
   bulkUpload: (productsData) =>
     request('POST', '/api/products/bulk', { products: productsData }),
 
@@ -121,14 +124,45 @@ export const orders = {
   getAll: () =>
     request('GET', '/api/orders'),
 
-  create: (items, notes = null, incoterm = 'FOB China') =>
-    request('POST', '/api/orders', { items, notes, incoterm }),
+  create: (items, notes = null, incoterm = 'FOB China', campaign_id = null) =>
+    request('POST', '/api/orders', { items, notes, incoterm, campaign_id }),
 
   updateStatus: (id, status) =>
     request('PUT', `/api/orders/${id}/status`, { status }),
 
-  payWithStripe: (id) =>
-    request('POST', `/api/orders/${id}/pay-stripe`),
+  updatePayment: (id, payment_status, balance_receipt_url = null) =>
+    request('PUT', `/api/orders/${id}/payment`, { payment_status, balance_receipt_url }),
+
+  uploadVoucher: (id, fileData, mimeType) =>
+    request('POST', `/api/orders/${id}/upload-voucher`, { fileData, mimeType }),
+
+  payWithStripe: (id, origin) =>
+    request('POST', `/api/orders/${id}/pay-stripe`, { origin }),
+
+  verifyStripePayment: (id, sessionId) =>
+    request('POST', `/api/orders/${id}/verify-stripe-payment`, { sessionId }),
+
+  getStripeReceipt: (id) =>
+    request('GET', `/api/orders/${id}/stripe-receipt`),
+
+  approvePayment: (id) =>
+    request('POST', `/api/orders/${id}/approve-payment`),
+
+  updateCreditDueDate: (id, credit_due_date) =>
+    request('PUT', `/api/orders/${id}/credit-due-date`, { credit_due_date }),
+
+  sendWhatsApp: (id, number, origin) =>
+    request('POST', `/api/orders/${id}/send-whatsapp`, { number, origin }),
+
+  sendEmail: (id, email, origin) =>
+    request('POST', `/api/orders/${id}/send-email`, { email, origin }),
+
+  getPublicDetail: (id) =>
+    fetch(`${API_BASE}/api/orders/public/${id}`).then(async (res) => {
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al obtener pedido público.');
+      return data;
+    }),
 };
 
 // ============================================================
@@ -174,6 +208,15 @@ export const tenants = {
     const qs = new URLSearchParams(params).toString();
     return request('GET', `/api/tenants/current/dashboard${qs ? `?${qs}` : ''}`);
   },
+
+  getCurrentWarehouses: () =>
+    request('GET', '/api/tenants/current/warehouses'),
+
+  createWarehouse: (warehouseData) =>
+    request('POST', '/api/tenants/current/warehouses', warehouseData),
+
+  updateWarehouse: (id, warehouseData) =>
+    request('PUT', `/api/tenants/current/warehouses/${id}`, warehouseData),
 };
 
 // ============================================================
@@ -236,6 +279,12 @@ export const config = {
     create: (data) => request('POST', '/api/config/brands', data),
     update: (id, data) => request('PUT', `/api/config/brands/${id}`, data),
     delete: (id) => request('DELETE', `/api/config/brands/${id}`),
+  },
+  skuVolumeRules: {
+    getAll: () => request('GET', '/api/config/sku-volume-rules'),
+    create: (data) => request('POST', '/api/config/sku-volume-rules', data),
+    update: (id, data) => request('PUT', `/api/config/sku-volume-rules/${id}`, data),
+    delete: (id) => request('DELETE', `/api/config/sku-volume-rules/${id}`),
   }
 };
 
@@ -247,4 +296,16 @@ export const pricingTiers = {
   create: (data) => request('POST', '/api/pricing-tiers', data),
   update: (id, data) => request('PUT', `/api/pricing-tiers/${id}`, data),
   delete: (id) => request('DELETE', `/api/pricing-tiers/${id}`),
+};
+
+// ============================================================
+// Campaigns (Print Runs)
+// ============================================================
+export const campaigns = {
+  getAll: () => request('GET', '/api/campaigns'),
+  getById: (id) => request('GET', `/api/campaigns/${id}`),
+  create: (data) => request('POST', '/api/campaigns', data),
+  update: (id, data) => request('PUT', `/api/campaigns/${id}`, data),
+  delete: (id) => request('DELETE', `/api/campaigns/${id}`),
+  assignProducts: (id, productsList) => request('POST', `/api/campaigns/${id}/products`, { products: productsList }),
 };

@@ -184,4 +184,94 @@ router.delete('/brands/:id', requireAuth, requireTenantAdmin, async (req, res) =
   }
 });
 
+// ============================================================
+// SKU VOLUME DISCOUNT RULES CRUD (Filtered by tenant_id)
+// ============================================================
+
+router.get('/sku-volume-rules', requireAuth, async (req, res) => {
+  const { tenant_id } = req.user;
+  try {
+    const result = await pool.query(
+      'SELECT id, min_units, discount_pct FROM sku_volume_discount_rules WHERE tenant_id = $1 ORDER BY min_units',
+      [tenant_id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error al obtener reglas de volumen SKU:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+router.post('/sku-volume-rules', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { min_units, discount_pct } = req.body;
+
+  if (min_units === undefined || discount_pct === undefined) {
+    return res.status(400).json({ error: 'Cantidad mínima y porcentaje de descuento son requeridos.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO sku_volume_discount_rules (tenant_id, min_units, discount_pct)
+       VALUES ($1, $2, $3)
+       RETURNING *`,
+      [tenant_id, parseInt(min_units), parseFloat(discount_pct)]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Ya existe una regla para esta cantidad de unidades.' });
+    }
+    console.error('Error al crear regla de volumen SKU:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+router.put('/sku-volume-rules/:id', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { id } = req.params;
+  const { min_units, discount_pct } = req.body;
+
+  if (min_units === undefined || discount_pct === undefined) {
+    return res.status(400).json({ error: 'Cantidad mínima y porcentaje de descuento son requeridos.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE sku_volume_discount_rules
+       SET min_units = $1, discount_pct = $2
+       WHERE id = $3 AND tenant_id = $4
+       RETURNING *`,
+      [parseInt(min_units), parseFloat(discount_pct), id, tenant_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Regla de volumen SKU no encontrada.' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error al actualizar regla de volumen SKU:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+router.delete('/sku-volume-rules/:id', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { id } = req.params;
+
+  try {
+    const result = await pool.query(
+      'DELETE FROM sku_volume_discount_rules WHERE id = $1 AND tenant_id = $2 RETURNING id',
+      [id, tenant_id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Regla de volumen SKU no encontrada.' });
+    }
+    res.json({ message: 'Regla de volumen SKU eliminada con éxito.' });
+  } catch (err) {
+    console.error('Error al eliminar regla de volumen SKU:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
 export default router;

@@ -15,7 +15,7 @@ router.get('/', requireAuth, async (req, res) => {
 
   // Campos comerciales base comunes a todos
   let selectFields = `
-    p.id, p.tenant_id, p.sku, p.name, p.category, p.image_url, p.is_active,
+    p.id, p.tenant_id, p.sku, p.name, p.category, p.image_url, p.is_active, p.campaign_id,
     p.commercial_description, p.price_per_case_usd, p.units_per_case, p.finished_measurements, p.color,
     p.case_weight_kg, p.case_length_cm, p.case_width_cm, p.case_height_cm, p.case_cbm,
     p.created_at, p.updated_at,
@@ -41,7 +41,18 @@ router.get('/', requireAuth, async (req, res) => {
 
   if (category && category !== 'all') {
     params.push(category);
-    query += ` AND p.category = $${params.length}`;
+    query += ` AND (
+      LOWER(p.category) = LOWER($${params.length})
+      OR EXISTS (
+        SELECT 1 FROM categories c
+        WHERE c.tenant_id = p.tenant_id
+          AND c.slug = $${params.length}
+          AND (
+            LOWER(c.name) = LOWER(p.category)
+            OR c.slug = LOWER(REPLACE(REPLACE(p.category, ' ', '-'), '_', '-'))
+          )
+      )
+    )`;
   }
 
   if (search) {
@@ -71,7 +82,7 @@ router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
     commercial_description, price_per_case_usd, units_per_case, finished_measurements, color,
     factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
     case_weight_kg, case_length_cm, case_width_cm, case_height_cm,
-    stock_physical_cases, stock_in_production_cases, production_files_url
+    stock_physical_cases, stock_in_production_cases, production_files_url, campaign_id
   } = req.body;
 
   if (!name || !sku || !category || !price_per_case_usd || !case_weight_kg || !case_length_cm || !case_width_cm || !case_height_cm) {
@@ -82,22 +93,34 @@ router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // Asegurar que la categoría existe en la tabla categories
+    const cleanCat = category.trim();
+    const catSlug = cleanCat.toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-_]/g, '');
+
+    await client.query(`
+      INSERT INTO categories (tenant_id, name, slug)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (tenant_id, slug) DO NOTHING
+    `, [tenant_id, cleanCat, catSlug]);
+
     // 1. Insertar el producto en products
     const productResult = await client.query(
       `INSERT INTO products (
         tenant_id, sku, name, category, image_url, is_active,
         commercial_description, price_per_case_usd, units_per_case, finished_measurements, color,
         factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
-        case_weight_kg, case_length_cm, case_width_cm, case_height_cm, production_files_url
+        case_weight_kg, case_length_cm, case_width_cm, case_height_cm, production_files_url, campaign_id
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
        RETURNING *`,
       [
         tenant_id, sku, name, category, image_url || null, is_active !== false,
         commercial_description || null, price_per_case_usd, units_per_case || 1, finished_measurements || null, color || null,
         factory_name || null, factory_sku || null, factory_cost_per_case_usd || null, pantone_codes || null,
         cut_measurements || null, fabrication_notes || null,
-        case_weight_kg, case_length_cm, case_width_cm, case_height_cm, production_files_url || null
+        case_weight_kg, case_length_cm, case_width_cm, case_height_cm, production_files_url || null, campaign_id || null
       ]
     );
 
@@ -147,12 +170,26 @@ router.put('/:id', requireAuth, requireTenantAdmin, async (req, res) => {
     commercial_description, price_per_case_usd, units_per_case, finished_measurements, color,
     factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
     case_weight_kg, case_length_cm, case_width_cm, case_height_cm,
-    stock_physical_cases, stock_in_production_cases, production_files_url
+    stock_physical_cases, stock_in_production_cases, production_files_url, campaign_id
   } = req.body;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // Asegurar que la categoría existe en la tabla categories
+    if (category) {
+      const cleanCat = category.trim();
+      const catSlug = cleanCat.toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^a-z0-9-_]/g, '');
+
+      await client.query(`
+        INSERT INTO categories (tenant_id, name, slug)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (tenant_id, slug) DO NOTHING
+      `, [tenant_id, cleanCat, catSlug]);
+    }
 
     // 1. Actualizar el producto en products
     const productResult = await client.query(
@@ -161,15 +198,15 @@ router.put('/:id', requireAuth, requireTenantAdmin, async (req, res) => {
            commercial_description=$6, price_per_case_usd=$7, units_per_case=$8, finished_measurements=$9, color=$10,
            factory_name=$11, factory_sku=$12, factory_cost_per_case_usd=$13, pantone_codes=$14, cut_measurements=$15, fabrication_notes=$16,
            case_weight_kg=$17, case_length_cm=$18, case_width_cm=$19, case_height_cm=$20, production_files_url=$21,
-           updated_at=CURRENT_TIMESTAMP
-       WHERE id=$22 AND tenant_id=$23
+           campaign_id=$22, updated_at=CURRENT_TIMESTAMP
+       WHERE id=$23 AND tenant_id=$24
        RETURNING *`,
       [
         name, sku, category, image_url, is_active !== false,
         commercial_description, price_per_case_usd, units_per_case, finished_measurements, color,
         factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
         case_weight_kg, case_length_cm, case_width_cm, case_height_cm, production_files_url || null,
-        id, tenant_id
+        campaign_id || null, id, tenant_id
       ]
     );
 
@@ -230,6 +267,21 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // Asegurar que las nuevas categorías existan en la tabla categories
+    const uniqueCategories = [...new Set(products.map(p => p.category).filter(Boolean))];
+    for (const cat of uniqueCategories) {
+      const cleanCat = cat.trim();
+      const slug = cleanCat.toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^a-z0-9-_]/g, '');
+      
+      await client.query(`
+        INSERT INTO categories (tenant_id, name, slug)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (tenant_id, slug) DO NOTHING
+      `, [tenant_id, cleanCat, slug]);
+    }
+
     let insertedCount = 0;
     let updatedCount = 0;
 
@@ -240,7 +292,7 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
         commercial_description, price_per_case_usd, units_per_case, finished_measurements, color,
         factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
         case_weight_kg, case_length_cm, case_width_cm, case_height_cm,
-        stock_physical_cases, stock_in_production_cases, production_files_url
+        stock_physical_cases, stock_in_production_cases, production_files_url, campaign_id
       } = p;
 
       // Validación simple
@@ -261,9 +313,9 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
           tenant_id, sku, name, category, image_url, is_active,
           commercial_description, price_per_case_usd, units_per_case, finished_measurements, color,
           factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, cut_measurements, fabrication_notes,
-          case_weight_kg, case_length_cm, case_width_cm, case_height_cm, production_files_url
+          case_weight_kg, case_length_cm, case_width_cm, case_height_cm, production_files_url, campaign_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
         ON CONFLICT (tenant_id, sku)
         DO UPDATE SET
           name = EXCLUDED.name,
@@ -286,6 +338,7 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
           case_width_cm = EXCLUDED.case_width_cm,
           case_height_cm = EXCLUDED.case_height_cm,
           production_files_url = COALESCE(EXCLUDED.production_files_url, products.production_files_url),
+          campaign_id = COALESCE(EXCLUDED.campaign_id, products.campaign_id),
           updated_at = CURRENT_TIMESTAMP
         RETURNING id;
       `;
@@ -312,7 +365,8 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
         parseFloat(case_length_cm) || 40.00,
         parseFloat(case_width_cm) || 30.00,
         parseFloat(case_height_cm) || 20.00,
-        production_files_url || null
+        production_files_url || null,
+        campaign_id || null
       ]);
 
       const productId = productResult.rows[0].id;
@@ -355,6 +409,64 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
     res.status(500).json({ error: err.message || 'Error al procesar la carga masiva en la base de datos.' });
   } finally {
     client.release();
+  }
+});
+
+// ============================================================
+// POST /api/products/bulk-delete (Solo Tenant Admin)
+// Elimina múltiples productos de forma masiva (evitando violar restricciones históricas)
+// ============================================================
+router.post('/bulk-delete', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { ids } = req.body;
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'Faltan los identificadores de productos a eliminar.' });
+  }
+
+  try {
+    // 1. Obtener nombres y SKUs de los productos para reporte
+    const productsInfoQuery = await pool.query(
+      'SELECT id, name, sku FROM products WHERE id = ANY($1) AND tenant_id = $2',
+      [ids, tenant_id]
+    );
+    const productsMap = {};
+    productsInfoQuery.rows.forEach(p => {
+      productsMap[p.id] = { name: p.name, sku: p.sku };
+    });
+
+    // 2. Comprobar referencias en sales_order_items y production_order_items
+    const referencedQuery = await pool.query(
+      `SELECT DISTINCT product_id FROM sales_order_items WHERE product_id = ANY($1) AND tenant_id = $2
+       UNION
+       SELECT DISTINCT product_id FROM production_order_items WHERE product_id = ANY($1) AND tenant_id = $2`,
+      [ids, tenant_id]
+    );
+
+    const referencedIds = referencedQuery.rows.map(r => r.product_id);
+    const deletableIds = ids.filter(id => !referencedIds.includes(id));
+
+    let deletedIds = [];
+    if (deletableIds.length > 0) {
+      const deleteResult = await pool.query(
+        'DELETE FROM products WHERE id = ANY($1) AND tenant_id = $2 RETURNING id',
+        [deletableIds, tenant_id]
+      );
+      deletedIds = deleteResult.rows.map(r => r.id);
+    }
+
+    const referencedProducts = referencedIds.map(id => productsMap[id] || { id, name: 'Producto referenciado', sku: 'N/A' });
+
+    res.json({
+      message: 'Proceso de eliminación masiva finalizado.',
+      deleted_count: deletedIds.length,
+      deleted_ids: deletedIds,
+      referenced_count: referencedIds.length,
+      referenced_products: referencedProducts
+    });
+  } catch (err) {
+    console.error('Error al eliminar productos de forma masiva:', err);
+    res.status(500).json({ error: 'Error interno del servidor al realizar la eliminación masiva.' });
   }
 });
 

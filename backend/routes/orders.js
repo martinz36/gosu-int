@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
 import { requireAuth, requireTenantAdmin } from '../middleware/auth.js';
+import { EmailService } from '../utils/email.js';
 
 const router = Router();
 
@@ -19,7 +20,7 @@ router.get('/', requireAuth, async (req, res) => {
       so.discount_usd, so.shipping_cost_usd, so.total_usd,
       so.advance_payment_pct, so.deposit_paid_usd, so.deposit_receipt_url,
       so.balance_paid_usd, so.balance_receipt_url, so.bl_number, so.bl_document_url,
-      so.notes, so.created_at,
+      so.notes, so.created_at, so.payment_status, so.payment_method, so.stripe_session_id, so.credit_due_date,
       u.name as client_name, u.email as client_email,
       SUM(soi.qty_cases * p.case_cbm) as total_cbm,
       SUM(soi.qty_cases) as total_cases,
@@ -70,7 +71,7 @@ router.get('/', requireAuth, async (req, res) => {
 // ============================================================
 router.post('/', requireAuth, async (req, res) => {
   const { tenant_id, id: client_id, role } = req.user;
-  const { items, notes, incoterm } = req.body;
+  const { items, notes, incoterm, campaign_id } = req.body;
 
   if (role !== 'b2b_client') {
     return res.status(403).json({ error: 'Solo los clientes B2B pueden realizar pedidos.' });
@@ -83,6 +84,33 @@ router.post('/', requireAuth, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // Obtener configuración del tenant
+    const tenantResult = await client.query(
+      'SELECT discount_policy, default_incoterm FROM tenants WHERE id = $1',
+      [tenant_id]
+    );
+    if (tenantResult.rows.length === 0) {
+      throw new Error('Tenant no encontrado.');
+    }
+    const { discount_policy = 'tier', default_incoterm = 'FOB China' } = tenantResult.rows[0];
+
+    // Validar campaña si se especifica
+    let campaignAdvancePaymentPct = null;
+    if (campaign_id) {
+      const campaignResult = await client.query(
+        'SELECT status, advance_payment_pct FROM campaigns WHERE id = $1 AND tenant_id = $2',
+        [campaign_id, tenant_id]
+      );
+      if (campaignResult.rows.length === 0) {
+        throw new Error('La campaña seleccionada no existe para esta empresa.');
+      }
+      const campaign = campaignResult.rows[0];
+      if (campaign.status !== 'open') {
+        throw new Error('La campaña seleccionada no está abierta para reservas.');
+      }
+      campaignAdvancePaymentPct = parseFloat(campaign.advance_payment_pct);
+    }
 
     // 1. Obtener perfil B2B del cliente para datos fiscales y MOA (uniendo a su Pricing Tier)
     const profileResult = await client.query(
@@ -103,7 +131,7 @@ router.post('/', requireAuth, async (req, res) => {
     // 2. Obtener productos y validar pertenencia al tenant
     const productIds = items.map(i => i.product_id);
     const productsResult = await client.query(
-      `SELECT id, name, sku, price_per_case_usd, case_cbm FROM products
+      `SELECT id, name, sku, price_per_case_usd, case_cbm, units_per_case FROM products
        WHERE id = ANY($1::uuid[]) AND tenant_id = $2`,
       [productIds, tenant_id]
     );
@@ -126,31 +154,67 @@ router.post('/', requireAuth, async (req, res) => {
     }
 
     // 4. Calcular descuentos de forma secuencial (Internacional B2B)
-    // a. Descuento por Volumen
-    const discountRulesResult = await client.query(
-      `SELECT min_cases, discount_pct
-       FROM volume_discount_rules
-       WHERE tenant_id = $1
-       ORDER BY min_cases DESC`,
-      [tenant_id]
-    );
+    let totalDiscountUsd = 0;
+    let volumeDiscountAmount = 0;
+    let distributorDiscountAmount = 0;
 
-    let volumeDiscountPct = 0;
-    for (const rule of discountRulesResult.rows) {
-      if (totalCases >= rule.min_cases) {
-        volumeDiscountPct = parseFloat(rule.discount_pct);
-        break;
+    if (discount_policy === 'volume') {
+      const skuRulesResult = await client.query(
+        `SELECT min_units, discount_pct
+         FROM sku_volume_discount_rules
+         WHERE tenant_id = $1
+         ORDER BY min_units DESC`,
+        [tenant_id]
+      );
+      const skuRules = skuRulesResult.rows;
+
+      for (const item of items) {
+        const prod = productMap[item.product_id];
+        const qtyCases = parseInt(item.qty_cases) || 0;
+        const unitsPerCase = parseInt(prod.units_per_case) || 1;
+        const totalUnits = qtyCases * unitsPerCase;
+        const pricePerCase = parseFloat(prod.price_per_case_usd) || 0;
+        const itemSubtotal = pricePerCase * qtyCases;
+
+        let itemDiscountPct = 0;
+        for (const rule of skuRules) {
+          if (totalUnits >= rule.min_units) {
+            itemDiscountPct = parseFloat(rule.discount_pct);
+            break;
+          }
+        }
+
+        totalDiscountUsd += itemSubtotal * (itemDiscountPct / 100);
       }
+    } else {
+      // Política por defecto: Descuento por Tier de Cliente
+      // a. Descuento por Volumen general de la orden (por cajas)
+      const discountRulesResult = await client.query(
+        `SELECT min_cases, discount_pct
+         FROM volume_discount_rules
+         WHERE tenant_id = $1
+         ORDER BY min_cases DESC`,
+        [tenant_id]
+      );
+
+      let volumeDiscountPct = 0;
+      for (const rule of discountRulesResult.rows) {
+        if (totalCases >= rule.min_cases) {
+          volumeDiscountPct = parseFloat(rule.discount_pct);
+          break;
+        }
+      }
+
+      volumeDiscountAmount = subtotalUsd * (volumeDiscountPct / 100);
+      const subtotalAfterVolume = subtotalUsd - volumeDiscountAmount;
+
+      // b. Descuento por Pricing Tier
+      const distributorDiscountPct = parseFloat(profile.discount_percentage) || 0.00;
+      distributorDiscountAmount = subtotalAfterVolume * (distributorDiscountPct / 100);
+
+      totalDiscountUsd = volumeDiscountAmount + distributorDiscountAmount;
     }
 
-    const volumeDiscountAmount = subtotalUsd * (volumeDiscountPct / 100);
-    const subtotalAfterVolume = subtotalUsd - volumeDiscountAmount;
-
-    // b. Descuento por Pricing Tier comercial
-    const distributorDiscountPct = parseFloat(profile.discount_percentage) || 0.00;
-    const distributorDiscountAmount = subtotalAfterVolume * (distributorDiscountPct / 100);
-
-    const totalDiscountUsd = volumeDiscountAmount + distributorDiscountAmount;
     const finalTotalUsd = subtotalUsd - totalDiscountUsd;
 
     // 5. Validar MOA (Monto Mínimo de Orden)
@@ -159,27 +223,41 @@ router.post('/', requireAuth, async (req, res) => {
       throw new Error(`Monto Mínimo de Orden no alcanzado. Orden mínima: $${moaLimit.toFixed(2)} USD. Total actual: $${finalTotalUsd.toFixed(2)} USD.`);
     }
 
-    // 6. Generar número correlativo de PO por tenant (PO-0001, PO-0002...)
-    const countResult = await client.query(
-      'SELECT COUNT(*) FROM sales_orders WHERE tenant_id = $1',
-      [tenant_id]
-    );
-    const count = parseInt(countResult.rows[0].count);
-    const poNumber = `PO-${String(count + 1).padStart(4, '0')}`;
+    // 6. Generar número correlativo de PO (stock) o PS (preventa) por tenant
+    let poNumber = '';
+    if (campaign_id) {
+      const countResult = await client.query(
+        'SELECT COUNT(*) FROM sales_orders WHERE tenant_id = $1 AND campaign_id IS NOT NULL',
+        [tenant_id]
+      );
+      const count = parseInt(countResult.rows[0].count);
+      poNumber = `PS-${String(count + 1).padStart(4, '0')}`;
+    } else {
+      const countResult = await client.query(
+        'SELECT COUNT(*) FROM sales_orders WHERE tenant_id = $1 AND campaign_id IS NULL',
+        [tenant_id]
+      );
+      const count = parseInt(countResult.rows[0].count);
+      poNumber = `PO-${String(count + 1).padStart(4, '0')}`;
+    }
 
-    // 7. Insertar cabecera de orden en sales_orders
+    // 7. Insertar cabecera de orden en sales_orders (con incoterm del Tenant y estado logístico 'En Revisión')
+    const tenantIncoterm = default_incoterm;
+
     const insertOrderQuery = `
       INSERT INTO sales_orders (
         tenant_id, client_id, status, incoterm, company_name, tax_id, 
-        billing_address, forwarder_address, subtotal_usd, discount_usd, total_usd, po_number
+        billing_address, forwarder_address, subtotal_usd, discount_usd, total_usd, po_number,
+        campaign_id, advance_payment_pct
       )
-      VALUES ($1, $2, 'Proforma', $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      VALUES ($1, $2, 'En Revisión', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `;
     const orderResult = await client.query(insertOrderQuery, [
-      tenant_id, client_id, incoterm || 'FOB China',
+      tenant_id, client_id, tenantIncoterm,
       profile.company_name, profile.tax_id, profile.billing_address, profile.forwarder_address,
-      subtotalUsd, totalDiscountUsd, finalTotalUsd, poNumber
+      subtotalUsd, totalDiscountUsd, finalTotalUsd, poNumber,
+      campaign_id || null, campaignAdvancePaymentPct !== null ? campaignAdvancePaymentPct : 30.00
     ]);
     const newOrder = orderResult.rows[0];
 
@@ -240,6 +318,10 @@ router.post('/', requireAuth, async (req, res) => {
     );
 
     await client.query('COMMIT');
+
+    // Notificar la reserva de forma asíncrona
+    EmailService.sendReservationCreatedEmail(newOrder.id, req.headers.origin);
+
     res.status(201).json({ message: 'Pedido B2B registrado con éxito.', order: newOrder });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
@@ -259,9 +341,9 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
-  const validStatuses = ['Draft', 'Proforma', 'Production', 'QC Inspection', 'Port', 'Transit', 'Delivered'];
+  const validStatuses = ['En Revisión', 'En Preparación', 'Enviado', 'Entregado'];
   if (!validStatuses.includes(status)) {
-    return res.status(400).json({ error: 'Estado no válido en la máquina de estados.' });
+    return res.status(400).json({ error: 'Estado no válido en la máquina de estados logísticos.' });
   }
 
   const client = await pool.connect();
@@ -305,6 +387,139 @@ router.put('/:id/status', requireAuth, requireTenantAdmin, async (req, res) => {
     res.status(500).json({ error: 'Error interno del servidor.' });
   } finally {
     client.release();
+  }
+});
+
+// ============================================================
+// PUT /api/orders/:id/payment  (Solo admin del Tenant)
+// Actualiza el estado de pago del pedido B2B y el comprobante.
+// ============================================================
+router.put('/:id/payment', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { id } = req.params;
+  const { payment_status, balance_receipt_url } = req.body;
+
+  const validPaymentStatuses = ['Pendiente', 'En Revisión', 'Pagado', 'Crédito'];
+  if (!validPaymentStatuses.includes(payment_status)) {
+    return res.status(400).json({ error: 'Estado de pago no válido.' });
+  }
+
+  try {
+    // Verificar si la orden fue pagada por Stripe
+    const checkOrder = await pool.query(
+      'SELECT payment_method, payment_status FROM sales_orders WHERE id = $1 AND tenant_id = $2',
+      [id, tenant_id]
+    );
+
+    if (checkOrder.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    const order = checkOrder.rows[0];
+    if (order.payment_method === 'stripe') {
+      return res.status(400).json({ error: 'Las órdenes pagadas a través de Stripe son electrónicas e inalterables manualmente.' });
+    }
+
+    const result = await pool.query(
+      `UPDATE sales_orders 
+       SET payment_status=$1, balance_receipt_url=$2, updated_at=CURRENT_TIMESTAMP 
+       WHERE id=$3 AND tenant_id=$4 
+       RETURNING *`,
+      [payment_status, balance_receipt_url || null, id, tenant_id]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error al actualizar pago:', err);
+    res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ============================================================
+// POST /api/orders/:id/approve-payment (Solo admin del Tenant)
+// Aprueba el voucher de pago de transferencia para una orden, cambiando el estado a "Pagado".
+// ============================================================
+router.post('/:id/approve-payment', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { id } = req.params;
+
+  try {
+    const checkOrder = await pool.query(
+      'SELECT id, payment_status, payment_method, balance_receipt_url FROM sales_orders WHERE id = $1 AND tenant_id = $2',
+      [id, tenant_id]
+    );
+
+    if (checkOrder.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    const order = checkOrder.rows[0];
+    if (order.payment_method === 'stripe') {
+      return res.status(400).json({ error: 'Las órdenes de Stripe no requieren aprobación manual.' });
+    }
+
+    const result = await pool.query(
+      `UPDATE sales_orders 
+       SET payment_status = 'Pagado', updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $1 AND tenant_id = $2 
+       RETURNING *`,
+      [id, tenant_id]
+    );
+
+    // Guardar auditoría de la aprobación
+    await pool.query(
+      `INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, old_value, new_value)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [tenant_id, req.user.id, 'APPROVE_PAYMENT_SUCCESS', 'sales_orders', id, order.payment_status, 'Pagado']
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error al aprobar pago:', err);
+    res.status(500).json({ error: 'Error interno del servidor al aprobar el pago.' });
+  }
+});
+
+// ============================================================
+// PUT /api/orders/:id/credit-due-date (Solo admin del Tenant)
+// Establece o actualiza la fecha de vencimiento límite de cobro para pedidos a Crédito.
+// ============================================================
+router.put('/:id/credit-due-date', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { id } = req.params;
+  const { credit_due_date } = req.body;
+
+  try {
+    const checkOrder = await pool.query(
+      'SELECT id, payment_status, credit_due_date FROM sales_orders WHERE id = $1 AND tenant_id = $2',
+      [id, tenant_id]
+    );
+
+    if (checkOrder.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    const order = checkOrder.rows[0];
+
+    const result = await pool.query(
+      `UPDATE sales_orders 
+       SET credit_due_date = $1, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $2 AND tenant_id = $3 
+       RETURNING *`,
+      [credit_due_date || null, id, tenant_id]
+    );
+
+    // Guardar auditoría
+    await pool.query(
+      `INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, old_value, new_value)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [tenant_id, req.user.id, 'UPDATE_CREDIT_DUE_DATE', 'sales_orders', id, order.credit_due_date, credit_due_date || null]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error al actualizar fecha de vencimiento:', err);
+    res.status(500).json({ error: 'Error interno del servidor al actualizar la fecha de vencimiento.' });
   }
 });
 
@@ -736,17 +951,18 @@ router.get('/:id/packing-list', requireAuth, async (req, res) => {
 
 // ============================================================
 // POST /api/orders/:id/pay-stripe (Autenticado, para Clientes B2B)
-// Simula o concreta el pago con tarjeta a través de Stripe.
-// Actualiza el estado de la orden a 'Paid' tras la confirmación.
+// Crea una sesión de Stripe Checkout real usando las credenciales del Tenant.
 // ============================================================
 router.post('/:id/pay-stripe', requireAuth, async (req, res) => {
   const { tenant_id } = req.user;
   const { id: orderId } = req.params;
+  const { origin } = req.body; // El origen frontend (ej. https://gosu-int.vercel.app)
 
   try {
+    // 1. Obtener la orden y validar pertenencia
     const orderRes = await pool.query(
-      'SELECT id, status FROM sales_orders WHERE id = $1 AND tenant_id = $2 AND client_id = $3',
-      [orderId, tenant_id, req.user.id]
+      'SELECT id, po_number, total_usd, payment_status, client_id FROM sales_orders WHERE id = $1 AND tenant_id = $2',
+      [orderId, tenant_id]
     );
 
     if (orderRes.rows.length === 0) {
@@ -754,22 +970,610 @@ router.post('/:id/pay-stripe', requireAuth, async (req, res) => {
     }
 
     const order = orderRes.rows[0];
-    if (order.status === 'Paid') {
+    if (req.user.role === 'b2b_client' && order.client_id !== req.user.id) {
+      return res.status(403).json({ error: 'No tienes acceso a este pedido.' });
+    }
+
+    if (order.payment_status === 'Pagado') {
       return res.status(400).json({ error: 'El pedido ya se encuentra pagado.' });
     }
 
+    // 2. Obtener las credenciales de Stripe del Tenant
+    const tenantRes = await pool.query(
+      'SELECT stripe_secret_key, stripe_publishable_key FROM tenants WHERE id = $1',
+      [tenant_id]
+    );
+
+    if (tenantRes.rows.length === 0 || !tenantRes.rows[0].stripe_secret_key) {
+      return res.status(400).json({ 
+        error: 'El pago con tarjeta (Stripe) no está configurado por esta empresa. Por favor configure la API Key secreta en Configuración o use transferencia bancaria.' 
+      });
+    }
+
+    const { stripe_secret_key, stripe_publishable_key } = tenantRes.rows[0];
+
+    // 3. Crear sesión de Stripe Checkout usando la API REST nativa
+    const orderRef = order.po_number || orderId.split('-')[0].toUpperCase();
+    const successUrl = `${origin || 'http://localhost:5173'}/?stripe_success=true&order_id=${orderId}&session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = `${origin || 'http://localhost:5173'}/?stripe_cancel=true&order_id=${orderId}`;
+
+    const params = new URLSearchParams();
+    params.append('payment_method_types[0]', 'card');
+    params.append('mode', 'payment');
+    params.append('success_url', successUrl);
+    params.append('cancel_url', cancelUrl);
+    params.append('line_items[0][price_data][currency]', 'usd');
+    params.append('line_items[0][price_data][product_data][name]', `Pedido B2B ${orderRef}`);
+    
+    // Stripe requiere el monto en centavos (con recargo de pasarela de 3.5% + 0.30 USD)
+    const orderTotal = parseFloat(order.total_usd);
+    const totalWithSurcharge = (orderTotal * 1.035) + 0.30;
+    const amountCents = Math.round(totalWithSurcharge * 100);
+
+    params.append('line_items[0][price_data][unit_amount]', String(amountCents));
+    params.append('line_items[0][quantity]', '1');
+    params.append('metadata[order_id]', orderId);
+    params.append('metadata[tenant_id]', tenant_id);
+
+    const authHeader = 'Basic ' + Buffer.from(stripe_secret_key + ':').toString('base64');
+    
+    console.log(`Creando Stripe Checkout Session para PO: ${orderRef} (${amountCents} centavos)...`);
+    const stripeResponse = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+      method: 'POST',
+      headers: {
+        'Authorization': authHeader,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: params.toString()
+    });
+
+    const sessionData = await stripeResponse.json();
+    if (!stripeResponse.ok) {
+      console.error('Error de Stripe API:', sessionData);
+      return res.status(502).json({ error: `Error de Stripe: ${sessionData.error?.message || 'Error desconocido'}` });
+    }
+
+    // Guardar stripe_session_id en la base de datos para consultas directas instantáneas
     await pool.query(
-      "UPDATE sales_orders SET status = 'Paid', updated_at = CURRENT_TIMESTAMP WHERE id = $1",
-      [orderId]
+      'UPDATE sales_orders SET stripe_session_id = $1 WHERE id = $2 AND tenant_id = $3',
+      [sessionData.id, orderId, tenant_id]
     );
 
     res.json({
       success: true,
-      message: 'Pago con tarjeta simulado con éxito. Pedido actualizado a Pagado.'
+      url: sessionData.url,
+      sessionId: sessionData.id,
+      publishableKey: stripe_publishable_key
     });
+
   } catch (err) {
-    console.error('Error al simular pago con Stripe:', err);
+    console.error('Error al iniciar pago con Stripe:', err);
+    res.status(500).json({ error: 'Error interno del servidor al procesar el pago con Stripe.' });
+  }
+});
+
+// ============================================================
+// POST /api/orders/:id/verify-stripe-payment (Autenticado, para Clientes B2B)
+// Verifica la sesión de Stripe Checkout y actualiza el estado de pago del pedido en Neon.
+// ============================================================
+router.post('/:id/verify-stripe-payment', requireAuth, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { id: orderId } = req.params;
+  const { sessionId } = req.body;
+
+  if (!sessionId) {
+    return res.status(400).json({ error: 'Se requiere el identificador de sesión de Stripe (sessionId).' });
+  }
+
+  try {
+    // 1. Obtener la orden y validar pertenencia
+    const orderRes = await pool.query(
+      'SELECT id, po_number, total_usd, payment_status, client_id FROM sales_orders WHERE id = $1 AND tenant_id = $2',
+      [orderId, tenant_id]
+    );
+
+    if (orderRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    const order = orderRes.rows[0];
+    if (req.user.role === 'b2b_client' && order.client_id !== req.user.id) {
+      return res.status(403).json({ error: 'No tienes acceso a este pedido.' });
+    }
+
+    // 2. Obtener las credenciales de Stripe del Tenant
+    const tenantRes = await pool.query(
+      'SELECT stripe_secret_key FROM tenants WHERE id = $1',
+      [tenant_id]
+    );
+
+    if (tenantRes.rows.length === 0 || !tenantRes.rows[0].stripe_secret_key) {
+      return res.status(400).json({ 
+        error: 'El pago con tarjeta (Stripe) no está configurado para esta empresa.' 
+      });
+    }
+
+    const { stripe_secret_key } = tenantRes.rows[0];
+
+    // 3. Consultar estado en Stripe (expandiendo payment_intent y latest_charge para obtener la URL del recibo)
+    const authHeader = 'Basic ' + Buffer.from(stripe_secret_key + ':').toString('base64');
+    console.log(`Verificando Stripe Checkout Session: ${sessionId}...`);
+    const stripeResponse = await fetch(`https://api.stripe.com/v1/checkout/sessions/${sessionId}?expand[]=payment_intent.latest_charge`, {
+      method: 'GET',
+      headers: {
+        'Authorization': authHeader
+      }
+    });
+
+    const sessionData = await stripeResponse.json();
+    if (!stripeResponse.ok) {
+      console.error('Error de Stripe API al consultar sesión:', sessionData);
+      return res.status(502).json({ error: `Error de Stripe al verificar: ${sessionData.error?.message || 'Error desconocido'}` });
+    }
+
+    // 4. Si el pago es exitoso, actualizar Neon
+    if (sessionData.payment_status === 'paid') {
+      const receiptUrl = sessionData.payment_intent?.latest_charge?.receipt_url || null;
+      const updateResult = await pool.query(
+        `UPDATE sales_orders 
+         SET payment_status = 'Pagado', payment_method = 'stripe', balance_receipt_url = $1, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $2 AND tenant_id = $3
+         RETURNING *`,
+        [receiptUrl, orderId, tenant_id]
+      );
+
+      // Guardar auditoría
+      await pool.query(
+        `INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, old_value, new_value)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [tenant_id, req.user.id, 'VERIFY_STRIPE_PAYMENT_SUCCESS', 'sales_orders', orderId, order.payment_status, 'Pagado']
+      );
+
+      res.json({
+        success: true,
+        message: 'Pago verificado con éxito.',
+        order: updateResult.rows[0]
+      });
+    } else {
+      res.json({
+        success: false,
+        paymentStatus: sessionData.payment_status,
+        message: 'La sesión de pago de Stripe aún no ha sido completada.'
+      });
+    }
+
+  } catch (err) {
+    console.error('Error al verificar pago con Stripe:', err);
+    res.status(500).json({ error: 'Error interno del servidor al verificar el pago con Stripe.' });
+  }
+});
+
+// ============================================================
+// GET /api/orders/:id/stripe-receipt (Autenticado, para Admins y Clientes distribuidores)
+// Busca y recupera la URL del recibo oficial de Stripe para un pedido B2B.
+// ============================================================
+router.get('/:id/stripe-receipt', requireAuth, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { id: orderId } = req.params;
+
+  try {
+    // 1. Obtener la orden y validar pertenencia
+    const orderRes = await pool.query(
+      'SELECT id, payment_status, payment_method, balance_receipt_url, stripe_session_id, client_id FROM sales_orders WHERE id = $1 AND tenant_id = $2',
+      [orderId, tenant_id]
+    );
+
+    if (orderRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    const order = orderRes.rows[0];
+    if (req.user.role === 'b2b_client' && order.client_id !== req.user.id) {
+      return res.status(403).json({ error: 'No tienes acceso a este pedido.' });
+    }
+
+    // Si ya tenemos el recibo guardado localmente, retornarlo directamente
+    if (order.balance_receipt_url) {
+      return res.json({ success: true, url: order.balance_receipt_url });
+    }
+
+    if (order.payment_method !== 'stripe' && !order.stripe_session_id) {
+      return res.status(400).json({ error: 'Este pedido no posee un registro de pago Stripe iniciado.' });
+    }
+
+    // 2. Obtener las credenciales de Stripe del Tenant
+    const tenantRes = await pool.query(
+      'SELECT stripe_secret_key FROM tenants WHERE id = $1',
+      [tenant_id]
+    );
+
+    if (tenantRes.rows.length === 0 || !tenantRes.rows[0].stripe_secret_key) {
+      return res.status(400).json({ 
+        error: 'El pago con tarjeta (Stripe) no está configurado para esta empresa.' 
+      });
+    }
+
+    const { stripe_secret_key } = tenantRes.rows[0];
+    const authHeader = 'Basic ' + Buffer.from(stripe_secret_key + ':').toString('base64');
+
+    let receiptUrl = null;
+
+    // 3. Si posee stripe_session_id, consultar de manera directa (instantáneo)
+    if (order.stripe_session_id) {
+      console.log(`Recuperando directamente recibo de sesión Stripe: ${order.stripe_session_id}...`);
+      const directResponse = await fetch(`https://api.stripe.com/v1/checkout/sessions/${order.stripe_session_id}?expand=payment_intent.latest_charge`, {
+        method: 'GET',
+        headers: {
+          'Authorization': authHeader
+        }
+      });
+
+      if (directResponse.ok) {
+        const sessionData = await directResponse.json();
+        receiptUrl = sessionData.payment_intent?.latest_charge?.receipt_url;
+      }
+    }
+
+    // Fallback: Si no tiene stripe_session_id o la consulta directa falló, buscar por listado de metadata
+    if (!receiptUrl) {
+      console.log(`Buscando sesión por listado de metadata para el pedido ${orderId}...`);
+      const stripeResponse = await fetch('https://api.stripe.com/v1/checkout/sessions?limit=50&expand[]=data.payment_intent.latest_charge', {
+        method: 'GET',
+        headers: {
+          'Authorization': authHeader
+        }
+      });
+
+      const listData = await stripeResponse.json();
+      if (stripeResponse.ok) {
+        const session = listData.data?.find(s => s.metadata?.order_id === orderId);
+        if (session) {
+          receiptUrl = session.payment_intent?.latest_charge?.receipt_url;
+          // Aprovechamos de guardar el stripe_session_id para agilizar consultas futuras
+          await pool.query(
+            'UPDATE sales_orders SET stripe_session_id = $1 WHERE id = $2',
+            [session.id, orderId]
+          );
+        }
+      }
+    }
+
+    if (!receiptUrl) {
+      return res.status(404).json({ error: 'No se encontró la URL de recibo de Stripe para esta orden en la pasarela.' });
+    }
+
+    // Actualizar base de datos local para persistir la URL del recibo
+    await pool.query(
+      'UPDATE sales_orders SET balance_receipt_url = $1, payment_status = \'Pagado\', updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [receiptUrl, orderId]
+    );
+
+    res.json({
+      success: true,
+      url: receiptUrl
+    });
+
+  } catch (err) {
+    console.error('Error al recuperar recibo de Stripe:', err);
+    res.status(500).json({ error: 'Error interno del servidor al recuperar el recibo de Stripe.' });
+  }
+});
+
+// ============================================================
+// GET /api/orders/public/:id
+// Acceso público para visualizar/imprimir Invoice o Packing List.
+// ============================================================
+router.get('/public/:id', async (req, res) => {
+  const { id } = req.params;
+
+  const query = `
+    SELECT
+      so.id, so.po_number, so.status, so.incoterm, so.company_name, so.tax_id, 
+      so.billing_address, so.forwarder_address, so.subtotal_usd, 
+      so.discount_usd, so.shipping_cost_usd, so.total_usd,
+      so.advance_payment_pct, so.deposit_paid_usd, so.deposit_receipt_url,
+      so.balance_paid_usd, so.balance_receipt_url, so.bl_number, so.bl_document_url,
+      so.notes, so.created_at,
+      u.name as client_name, u.email as client_email,
+      SUM(soi.qty_cases * p.case_cbm) as total_cbm,
+      SUM(soi.qty_cases) as total_cases,
+      json_agg(json_build_object(
+        'id', soi.id,
+        'product_id', soi.product_id,
+        'name', p.name,
+        'sku', p.sku,
+        'qty_cases', soi.qty_cases,
+        'price_case_usd', soi.price_case_usd,
+        'discount_pct', soi.discount_pct,
+        'total_item_usd', soi.total_item_usd,
+        'case_cbm', p.case_cbm,
+        'units_per_case', p.units_per_case
+      ) ORDER BY p.name) AS items
+    FROM sales_orders so
+    JOIN users u ON u.id = so.client_id
+    JOIN sales_order_items soi ON soi.sales_order_id = so.id AND soi.tenant_id = so.tenant_id
+    JOIN products p ON p.id = soi.product_id AND p.tenant_id = so.tenant_id
+    WHERE so.id = $1
+    GROUP BY so.id, u.name, u.email
+  `;
+
+  try {
+    const result = await pool.query(query, [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error al obtener pedido público:', err);
     res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ============================================================
+// POST /api/orders/:id/send-whatsapp
+// Envía los enlaces de la Factura y Packing List por WhatsApp usando la API de json.pe.
+// Body: { number, origin }
+// ============================================================
+router.post('/:id/send-whatsapp', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { number, origin } = req.body;
+  const { tenant_id } = req.user;
+
+  if (!number) {
+    return res.status(400).json({ error: 'Debe proporcionar un número de teléfono.' });
+  }
+
+  try {
+    // 1. Obtener la API key de WhatsApp del Tenant
+    const tenantResult = await pool.query(
+      'SELECT name, whatsapp_api_key FROM tenants WHERE id = $1',
+      [tenant_id]
+    );
+    if (tenantResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Tenant no encontrado.' });
+    }
+
+    const { name: tenantName, whatsapp_api_key } = tenantResult.rows[0];
+    if (!whatsapp_api_key) {
+      return res.status(400).json({ error: 'La API Key de WhatsApp (json.pe) no está configurada en la sección de Configuración.' });
+    }
+
+    // 2. Obtener los detalles de la orden
+    const orderResult = await pool.query(
+      'SELECT po_number FROM sales_orders WHERE id = $1 AND tenant_id = $2',
+      [id, tenant_id]
+    );
+    if (orderResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+    const order = orderResult.rows[0];
+    const orderRef = order.po_number || id.split('-')[0].toUpperCase();
+
+    // 3. Construir links y mensaje
+    const invoiceUrl = `${origin || 'http://localhost:5173'}/?print_order=${id}&doc_type=invoice`;
+    const packingUrl = `${origin || 'http://localhost:5173'}/?print_order=${id}&doc_type=packing_list`;
+    const message = `*${tenantName} B2B*\n\nHola, te compartimos los documentos oficiales de tu pedido *${orderRef}*:\n\n📄 *Commercial Invoice (Factura):*\n${invoiceUrl}\n\n📦 *Packing List (Lista de empaque):*\n${packingUrl}\n\n¡Gracias por tu compra!`;
+
+    // 4. Enviar mediante la API de WhatsApp de json.pe
+    const cleanNumber = number.replace(/\+/g, '').trim(); // Asegurar sin "+"
+    const response = await fetch('https://api.whatsapp.json.pe/send/text', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${whatsapp_api_key}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        number: cleanNumber,
+        text: message
+      })
+    });
+
+    const resData = await response.json();
+    if (!response.ok) {
+      return res.status(response.status).json({ error: resData.error || 'Error al enviar WhatsApp a través de json.pe.' });
+    }
+
+    res.json({ success: true, details: resData });
+  } catch (err) {
+    console.error('Error enviando WhatsApp:', err);
+    res.status(500).json({ error: err.message || 'Error interno al procesar el envío de WhatsApp.' });
+  }
+});
+
+// ============================================================
+// POST /api/orders/:id/send-email
+// Envía la cotización y enlaces de documentos por correo usando la API de Resend.
+// Body: { email, origin }
+// ============================================================
+router.post('/:id/send-email', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { email, origin } = req.body;
+  const { tenant_id } = req.user;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Debe proporcionar una dirección de correo electrónico.' });
+  }
+
+  try {
+    // 1. Obtener la API key de Resend del Tenant
+    const tenantResult = await pool.query(
+      'SELECT name, resend_api_key FROM tenants WHERE id = $1',
+      [tenant_id]
+    );
+    if (tenantResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Tenant no encontrado.' });
+    }
+
+    const { name: tenantName, resend_api_key } = tenantResult.rows[0];
+    if (!resend_api_key) {
+      return res.status(400).json({ error: 'La API Key de Resend no está configurada en la sección de Configuración.' });
+    }
+
+    // 2. Obtener los detalles de la orden
+    const orderResult = await pool.query(
+      'SELECT po_number, total_usd FROM sales_orders WHERE id = $1 AND tenant_id = $2',
+      [id, tenant_id]
+    );
+    if (orderResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+    const order = orderResult.rows[0];
+    const orderRef = order.po_number || id.split('-')[0].toUpperCase();
+
+    // 3. Construir links y contenido HTML
+    const invoiceUrl = `${origin || 'http://localhost:5173'}/?print_order=${id}&doc_type=invoice`;
+    const packingUrl = `${origin || 'http://localhost:5173'}/?print_order=${id}&doc_type=packing_list`;
+
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.05);">
+        <div style="background-color: #121212; padding: 24px; text-align: center; border-bottom: 3px solid #00bcd4;">
+          <h1 style="color: #00bcd4; margin: 0; font-size: 24px; text-transform: uppercase;">${tenantName} B2B</h1>
+        </div>
+        <div style="padding: 24px; line-height: 1.6;">
+          <h2 style="margin-top: 0; color: #111;">Documentación del Pedido ${orderRef}</h2>
+          <p>Hola,</p>
+          <p>Te adjuntamos los accesos a los documentos comerciales de tu pedido registrado en la plataforma B2B de <strong>${tenantName}</strong> por un monto total de <strong>$${parseFloat(order.total_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</strong>:</p>
+          
+          <div style="margin: 32px 0; text-align: center;">
+            <a href="${invoiceUrl}" target="_blank" style="display: inline-block; background-color: #00bcd4; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; margin-right: 10px; box-shadow: 0 4px 6px rgba(0, 188, 212, 0.2);">
+              📄 Ver Commercial Invoice (Factura)
+            </a>
+            <a href="${packingUrl}" target="_blank" style="display: inline-block; background-color: #e91e63; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; box-shadow: 0 4px 6px rgba(233, 30, 99, 0.2);">
+              📦 Ver Packing List (Lista de Empaque)
+            </a>
+          </div>
+          
+          <p style="color: #666; font-size: 12px; border-top: 1px solid #eee; padding-top: 16px; margin-top: 32px;">
+            Este enlace te permite ver o imprimir el documento oficial. Si tienes alguna consulta comercial, por favor responde a este correo electrónico.
+          </p>
+        </div>
+      </div>
+    `;
+
+    // 4. Enviar mediante Resend API
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${resend_api_key}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'B2B Gosu <onboarding@resend.dev>',
+        to: email,
+        subject: `Documentos de tu Pedido B2B ${orderRef} - ${tenantName}`,
+        html: htmlContent
+      })
+    });
+
+    const resData = await response.json();
+    if (!response.ok) {
+      return res.status(response.status).json({ error: resData.message || 'Error al enviar correo a través de Resend.' });
+    }
+
+    res.json({ success: true, details: resData });
+  } catch (err) {
+    console.error('Error enviando email:', err);
+    res.status(500).json({ error: err.message || 'Error interno al procesar el envío de correo.' });
+  }
+});
+
+// ============================================================
+// POST /api/orders/:id/upload-voucher (Solo admin del Tenant o Cliente B2B dueño del pedido)
+// Sube el comprobante de pago a Cloudinary usando las credenciales del Tenant y lo guarda en Neon.
+// ============================================================
+router.post('/:id/upload-voucher', requireAuth, async (req, res) => {
+  const { tenant_id, role, id: userId } = req.user;
+  const { id } = req.params;
+  const { fileData, mimeType } = req.body; // fileData contains base64 string
+
+  if (!fileData) {
+    return res.status(400).json({ error: 'Falta el archivo en formato Base64.' });
+  }
+
+  try {
+    // 1. Obtener la orden y validar pertenencia
+    const orderQuery = await pool.query(
+      'SELECT client_id, payment_status, balance_receipt_url FROM sales_orders WHERE id=$1 AND tenant_id=$2',
+      [id, tenant_id]
+    );
+
+    if (orderQuery.rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+
+    const order = orderQuery.rows[0];
+    if (role === 'b2b_client' && order.client_id !== userId) {
+      return res.status(403).json({ error: 'Acceso denegado a este pedido.' });
+    }
+
+    // 2. Obtener credenciales de Cloudinary del Tenant
+    const tenantQuery = await pool.query(
+      'SELECT cloudinary_cloud_name, cloudinary_upload_preset, cloudinary_api_key, cloudinary_api_secret FROM tenants WHERE id=$1',
+      [tenant_id]
+    );
+
+    const tenant = tenantQuery.rows[0];
+    if (!tenant.cloudinary_cloud_name || !tenant.cloudinary_upload_preset) {
+      return res.status(400).json({ error: 'Cloudinary no está configurado para esta empresa. Por favor configure las credenciales en Configuración.' });
+    }
+
+    // 3. Subir a Cloudinary
+    const cloudName = tenant.cloudinary_cloud_name;
+    const uploadPreset = tenant.cloudinary_upload_preset;
+
+    const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`;
+    
+    const uploadPayload = {
+      file: fileData.startsWith('data:') ? fileData : `data:${mimeType || 'image/jpeg'};base64,${fileData}`,
+      upload_preset: uploadPreset
+    };
+
+    console.log(`Subiendo comprobante a Cloudinary (${cloudName})...`);
+    const cloudResponse = await fetch(cloudinaryUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(uploadPayload)
+    });
+
+    const cloudData = await cloudResponse.json();
+    if (!cloudResponse.ok) {
+      console.error('Error de Cloudinary API:', cloudData);
+      let errMsg = cloudData.error?.message || 'Error desconocido al subir a la nube.';
+      if (errMsg.includes('Upload preset not found')) {
+        errMsg = `El preset de subida "${uploadPreset}" no fue encontrado en tu cuenta de Cloudinary. Por favor, asegúrate de crear un Upload Preset de tipo "Unsigned" (sin firma) en la configuración de tu cuenta de Cloudinary y registrar su nombre exacto en el panel de Configuración de Gosu.`;
+      }
+      return res.status(502).json({ error: `Cloudinary error: ${errMsg}` });
+    }
+
+    const uploadedUrl = cloudData.secure_url;
+
+    // 4. Guardar URL en Neon y establecer el estado de pago "En Revisión"
+    const updateResult = await pool.query(
+      `UPDATE sales_orders 
+       SET balance_receipt_url=$1, payment_status='En Revisión', payment_method='transfer', updated_at=CURRENT_TIMESTAMP 
+       WHERE id=$2 AND tenant_id=$3 
+       RETURNING *`,
+      [uploadedUrl, id, tenant_id]
+    );
+
+    // Guardar auditoría
+    await pool.query(
+      `INSERT INTO audit_logs (tenant_id, user_id, action, entity_type, entity_id, old_value, new_value)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [tenant_id, req.user.id, 'UPLOAD_SALES_ORDER_VOUCHER', 'sales_orders', id, order.balance_receipt_url, uploadedUrl]
+    );
+
+    res.json({
+      message: 'Comprobante de pago subido e integrado con éxito.',
+      order: updateResult.rows[0],
+      url: uploadedUrl
+    });
+
+  } catch (err) {
+    console.error('Error al subir comprobante a Cloudinary:', err);
+    res.status(500).json({ error: 'Error interno del servidor al procesar el archivo.' });
   }
 });
 

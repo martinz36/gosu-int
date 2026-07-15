@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import LoginPage from './components/LoginPage';
-import { auth, products as productsApi, orders as ordersApi, production as productionApi, tenants as tenantsApi, plans as plansApi, users as usersApi, audit as auditApi, config as configApi, pricingTiers as pricingTiersApi, API_URL } from './services/api';
+import { TRANSLATIONS } from './services/translations';
+import SalesMapWidget, { COUNTRY_OPTIONS, getCountryName } from './components/SalesMapWidget';
+import { auth, products as productsApi, orders as ordersApi, production as productionApi, tenants as tenantsApi, plans as plansApi, users as usersApi, audit as auditApi, config as configApi, pricingTiers as pricingTiersApi, campaigns as campaignsApi, API_URL } from './services/api';
 
 // Reglas de descuento (se obtendrán del backend en futuras versiones)
 const VOLUME_DISCOUNTS = [
@@ -40,9 +42,25 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [allProducts, setAllProducts] = useState([]); // cache completo para filtrado local
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [adminFilterCategory, setAdminFilterCategory] = useState('all');
+  const [adminFilterStockStatus, setAdminFilterStockStatus] = useState('all');
+  const [adminFilterFactory, setAdminFilterFactory] = useState('all');
+  const [selectedProductIds, setSelectedProductIds] = useState([]);
+  
+  // Estados para Filtros en la vista de Inventario & Stock
+  const [invSearchQuery, setInvSearchQuery] = useState('');
+  const [invFilterCategory, setInvFilterCategory] = useState('all');
+  const [invFilterStockStatus, setInvFilterStockStatus] = useState('all');
+  const [invFilterFactory, setInvFilterFactory] = useState('all');
+  // Estados para compartir documentos de forma pública (Vistas de impresión)
+  const [publicPrintOrder, setPublicPrintOrder] = useState(null);
+  const [publicPrintDocType, setPublicPrintDocType] = useState('');
+  const [loadingPublicPrint, setLoadingPublicPrint] = useState(false);
+
   const [cart, setCart] = useState({});
   const [showCart, setShowCart] = useState(false);
   const [receiptUploaded, setReceiptUploaded] = useState(false);
+  const [billingFilter, setBillingFilter] = useState('all'); // 'all' | 'pending' | 'review' | 'credit' | 'paid'
   const [selectedOrderForDoc, setSelectedOrderForDoc] = useState(null);
   const [docType, setDocType] = useState('invoice');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
@@ -59,6 +77,14 @@ function App() {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(''); // 'bank' | 'stripe'
   const [simulatingStripePayment, setSimulatingStripePayment] = useState(false);
   const [stripePaidSuccess, setStripePaidSuccess] = useState(false);
+  const [selectedProdOrder, setSelectedProdOrder] = useState(null);
+  const [showProdOrderDetailModal, setShowProdOrderDetailModal] = useState(false);
+
+  // Estados para Almacenes (Warehouses)
+  const [warehouses, setWarehouses] = useState([]);
+  const [showWarehouseForm, setShowWarehouseForm] = useState(false);
+  const [newWarehouseForm, setNewWarehouseForm] = useState({ name: '', code: '', address: '', contact_info: '' });
+  const [editingWarehouseId, setEditingWarehouseId] = useState(null);
   const [tenantPublicInfo, setTenantPublicInfo] = useState(null);
 
   // Formulario para nuevo Tenant / Edición
@@ -88,6 +114,13 @@ function App() {
   const [categoriesList, setCategoriesList] = useState([]);
   const [brandsList, setBrandsList] = useState([]);
   const [pricingTiersList, setPricingTiersList] = useState([]);
+  const [campaignsList, setCampaignsList] = useState([]);
+  const [newCampaign, setNewCampaign] = useState({ name: '', start_date_reservations: '', end_date_reservations: '', start_date_production: '', estimated_end_date_production: '', advance_payment_pct: 30.00, status: 'open' });
+  const [editingCampaign, setEditingCampaign] = useState(null);
+  const [showCampaignProductsModal, setShowCampaignProductsModal] = useState(false);
+  const [selectedCampaignForProducts, setSelectedCampaignForProducts] = useState(null);
+  const [campaignProductSelections, setCampaignProductSelections] = useState({});
+  const [campaignProductsFilter, setCampaignProductsFilter] = useState('');
 
   // Formulario para Marcas/Categorías/PricingTiers
   const [newCategory, setNewCategory] = useState({ name: '', slug: '' });
@@ -96,6 +129,29 @@ function App() {
   const [editingCategory, setEditingCategory] = useState(null);
   const [editingBrand, setEditingBrand] = useState(null);
   const [editingPricingTier, setEditingPricingTier] = useState(null);
+  const [skuVolumeRulesList, setSkuVolumeRulesList] = useState([]);
+  const [newSkuVolumeRule, setNewSkuVolumeRule] = useState({ min_units: '', discount_pct: '' });
+  const [editingSkuVolumeRule, setEditingSkuVolumeRule] = useState(null);
+  const [showSkuVolumeRulesModal, setShowSkuVolumeRulesModal] = useState(false);
+  const [showPricingTiersModal, setShowPricingTiersModal] = useState(false);
+  const [toasts, setToasts] = useState([]);
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, message: '', onConfirm: null });
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [lang, setLang] = useState(localStorage.getItem('gosu_lang') || 'es');
+
+  const toggleLanguage = (newLang) => {
+    setLang(newLang);
+    localStorage.setItem('gosu_lang', newLang);
+  };
+
+  const t = (key) => {
+    return TRANSLATIONS[lang]?.[key] || key;
+  };
+  
+  const handleNavClick = (tabName) => {
+    setActiveTab(tabName);
+    setMobileSidebarOpen(false);
+  };
 
   const isSleevesCategory = (categorySlug) => {
     if (!categorySlug) return false;
@@ -108,15 +164,25 @@ function App() {
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkResult, setBulkResult] = useState(null);
 
+  const [activeUploadOrderId, setActiveUploadOrderId] = useState(null);
+  const fileInputRef = useRef(null);
+
   // Estados para API Keys (json.pe y Resend)
   const [tenantSettings, setTenantSettings] = useState({ 
     whatsapp_api_key: '', 
     resend_api_key: '',
+    cloudinary_cloud_name: '',
+    cloudinary_upload_preset: '',
+    cloudinary_api_key: '',
+    cloudinary_api_secret: '',
+    stripe_secret_key: '',
+    stripe_publishable_key: '',
     bank_name: '',
     bank_account_name: '',
     bank_account_number: '',
     bank_routing_number: '',
-    logo_url: ''
+    logo_url: '',
+    default_incoterm: 'FOB China'
   });
   const [savingSettings, setSavingSettings] = useState(false);
 
@@ -125,7 +191,8 @@ function App() {
     summary: { total_sales: 0, total_costs: 0, total_profit: 0, margin_percent: 0 },
     sales_by_day: [],
     sales_by_category: [],
-    top_products: []
+    top_products: [],
+    sales_by_country: null
   });
   const [dashboardFilter, setDashboardFilter] = useState('30days'); // '7days' | '30days' | 'thismonth' | 'thisyear' | 'custom'
   const [dashboardStartDate, setDashboardStartDate] = useState('');
@@ -171,7 +238,8 @@ function App() {
     // Inventarios
     stock_physical_cases: 0,
     stock_in_production_cases: 0,
-    production_files_url: ''
+    production_files_url: '',
+    campaign_id: ''
   });
   const [editingProduct, setEditingProduct] = useState(null);
   const [creatingProduct, setCreatingProduct] = useState(false);
@@ -183,11 +251,13 @@ function App() {
     factory_name: 'Dongguan Card Supplies Factory',
     estimated_completion_date: '',
     tracking_number: '',
-    status: 'Draft',
+    status: 'Proforma',
     items: []
   });
   const [productionAuditLogs, setProductionAuditLogs] = useState([]);
   const [activeAuditOrderId, setActiveAuditOrderId] = useState(null);
+  const [selectedProductionOrder, setSelectedProductionOrder] = useState(null);
+  const [showProductionDetailModal, setShowProductionDetailModal] = useState(false);
 
   // Estados para Módulo de Selección Rápida en Fabricación
   const [showQuickSelect, setShowQuickSelect] = useState(false);
@@ -225,13 +295,68 @@ function App() {
   const isImpersonating = !!localStorage.getItem('gosu_superadmin_token');
   const isTenantImpersonating = !!localStorage.getItem('gosu_admin_token');
 
+  // Valuaciones e Inventario Filtrado
+  const pctTienda = (() => {
+    const t = pricingTiersList.find(x => x.tier_name.toLowerCase().includes('tienda'));
+    return t ? parseFloat(t.discount_percentage) : 35.00;
+  })();
+  const pctDist = (() => {
+    const t = pricingTiersList.find(x => x.tier_name.toLowerCase().includes('distrib') || x.tier_name.toLowerCase().includes('distribut'));
+    return t ? parseFloat(t.discount_percentage) : 40.00;
+  })();
+  const pctPartner = (() => {
+    const t = pricingTiersList.find(x => x.tier_name.toLowerCase().includes('partner'));
+    return t ? parseFloat(t.discount_percentage) : 70.00;
+  })();
+
+  const filteredInventoryList = allProducts.filter(p => {
+    if (invSearchQuery.trim()) {
+      const q = invSearchQuery.toLowerCase();
+      const match = (p.name || '').toLowerCase().includes(q) ||
+                    (p.sku || '').toLowerCase().includes(q) ||
+                    (p.commercial_description || '').toLowerCase().includes(q) ||
+                    (p.factory_name || '').toLowerCase().includes(q) ||
+                    (p.factory_sku || '').toLowerCase().includes(q);
+      if (!match) return false;
+    }
+    if (invFilterCategory !== 'all' && p.category !== invFilterCategory) {
+      return false;
+    }
+    if (invFilterStockStatus === 'in_stock') {
+      if ((p.stock_physical_cases || 0) <= 0) return false;
+    } else if (invFilterStockStatus === 'low_stock') {
+      if ((p.stock_physical_cases || 0) <= 0 || (p.stock_physical_cases || 0) >= 50) return false;
+    } else if (invFilterStockStatus === 'out_of_stock') {
+      if ((p.stock_physical_cases || 0) !== 0) return false;
+    } else if (invFilterStockStatus === 'in_production') {
+      if ((p.stock_in_production_cases || 0) === 0) return false;
+    }
+    if (invFilterFactory !== 'all' && p.factory_name !== invFilterFactory) {
+      return false;
+    }
+    return true;
+  });
+
+  const invTotals = filteredInventoryList.reduce((acc, p) => {
+    const stock = parseInt(p.stock_physical_cases) || 0;
+    const cost = parseFloat(p.factory_cost_per_case_usd) || 0;
+    const price = parseFloat(p.price_per_case_usd) || 0;
+
+    acc.cost += stock * cost;
+    acc.tienda += stock * price * (1 - pctTienda / 100);
+    acc.distributor += stock * price * (1 - pctDist / 100);
+    acc.partner += stock * price * (1 - pctPartner / 100);
+
+    return acc;
+  }, { cost: 0, tienda: 0, distributor: 0, partner: 0 });
+
   // -------------------------------------------------------
   // Carga de datos
   // -------------------------------------------------------
   const loadProducts = useCallback(async () => {
     try {
       const params = {};
-      if (selectedCategory !== 'all') params.category = selectedCategory;
+      if (!isAdmin && selectedCategory !== 'all') params.category = selectedCategory;
       // searchQuery ya NO va al servidor – se filtra localmente
       const data = await productsApi.getAll(params);
       setAllProducts(data);
@@ -239,7 +364,7 @@ function App() {
     } catch (err) {
       console.error('Error cargando productos:', err);
     }
-  }, [selectedCategory]);
+  }, [selectedCategory, isAdmin]);
 
   const loadOrders = useCallback(async () => {
     try {
@@ -269,6 +394,35 @@ function App() {
       console.error('Error cargando clientes distribuidores:', err);
     }
   }, [isAdmin]);
+
+  const loadWarehouses = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const data = await tenantsApi.getCurrentWarehouses();
+      setWarehouses(data);
+    } catch (err) {
+      console.error('Error cargando almacenes:', err);
+    }
+  }, [isAdmin]);
+
+  const handleCreateOrUpdateWarehouse = async (e) => {
+    e.preventDefault();
+    try {
+      if (editingWarehouseId) {
+        await tenantsApi.updateWarehouse(editingWarehouseId, newWarehouseForm);
+        alert('Almacén actualizado con éxito.');
+      } else {
+        await tenantsApi.createWarehouse(newWarehouseForm);
+        alert('Almacén registrado con éxito.');
+      }
+      setNewWarehouseForm({ name: '', code: '', address: '', contact_info: '' });
+      setEditingWarehouseId(null);
+      setShowWarehouseForm(false);
+      loadWarehouses();
+    } catch (err) {
+      alert(err.error || err.message || 'Error al procesar el almacén.');
+    }
+  };
 
   const loadTenants = useCallback(async () => {
     if (!isSuperAdmin) return;
@@ -300,6 +454,26 @@ function App() {
     }
   }, [currentUser, isSuperAdmin, isAdmin]);
 
+  const loadCampaigns = useCallback(async () => {
+    if (!currentUser || isSuperAdmin) return;
+    try {
+      const data = await campaignsApi.getAll();
+      setCampaignsList(data);
+    } catch (err) {
+      console.error('Error cargando Campañas:', err);
+    }
+  }, [currentUser, isSuperAdmin]);
+
+  const loadSkuVolumeRules = useCallback(async () => {
+    if (!currentUser || isSuperAdmin || !isAdmin) return;
+    try {
+      const data = await configApi.skuVolumeRules.getAll();
+      setSkuVolumeRulesList(data);
+    } catch (err) {
+      console.error('Error cargando reglas de volumen SKU:', err);
+    }
+  }, [currentUser, isSuperAdmin, isAdmin]);
+
   const loadCatalogConfig = useCallback(async () => {
     if (!currentUser || isSuperAdmin) return;
     try {
@@ -310,12 +484,14 @@ function App() {
       setCategoriesList(catData);
       setBrandsList(brandData);
       if (isAdmin) {
-        await Promise.all([loadClients(), loadPricingTiers()]);
+        await Promise.all([loadClients(), loadPricingTiers(), loadCampaigns(), loadSkuVolumeRules()]);
+      } else {
+        await loadCampaigns();
       }
     } catch (err) {
       console.error('Error cargando marcas/categorías:', err);
     }
-  }, [currentUser, isSuperAdmin, isAdmin, loadClients, loadPricingTiers]);
+  }, [currentUser, isSuperAdmin, isAdmin, loadClients, loadPricingTiers, loadCampaigns, loadSkuVolumeRules]);
 
   const loadTenantPublicInfo = useCallback(async () => {
     if (!currentUser || isSuperAdmin || isAdmin) return;
@@ -334,11 +510,19 @@ function App() {
       setTenantSettings({
         whatsapp_api_key: data.whatsapp_api_key || '',
         resend_api_key: data.resend_api_key || '',
+        cloudinary_cloud_name: data.cloudinary_cloud_name || '',
+        cloudinary_upload_preset: data.cloudinary_upload_preset || '',
+        cloudinary_api_key: data.cloudinary_api_key || '',
+        cloudinary_api_secret: data.cloudinary_api_secret || '',
+        stripe_secret_key: data.stripe_secret_key || '',
+        stripe_publishable_key: data.stripe_publishable_key || '',
         bank_name: data.bank_name || '',
         bank_account_name: data.bank_account_name || '',
         bank_account_number: data.bank_account_number || '',
         bank_routing_number: data.bank_routing_number || '',
-        logo_url: data.logo_url || ''
+        logo_url: data.logo_url || '',
+        default_incoterm: data.default_incoterm || 'FOB China',
+        discount_policy: data.discount_policy || 'tier'
       });
     } catch (err) {
       console.error('Error al cargar API keys del tenant:', err);
@@ -398,6 +582,38 @@ function App() {
     }
   }, [currentUser, isSuperAdmin, isAdmin, dashboardFilter, dashboardStartDate, dashboardEndDate]);
 
+  // -------------------------------------------------------
+  // Sistema de Notificaciones Toasts y Confirmaciones Custom
+  // -------------------------------------------------------
+  const showToast = (message, type = 'success', duration = 4000) => {
+    const id = Date.now() + Math.random().toString(36).substr(2, 9);
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, duration);
+  };
+
+  const alert = (message) => {
+    let t = 'success';
+    if (message.includes('❌') || message.toLowerCase().includes('error')) {
+      t = 'error';
+    } else if (message.includes('⚠️') || message.includes('warn') || message.includes('atención')) {
+      t = 'warning';
+    }
+    showToast(message, t);
+  };
+
+  const requestConfirm = (message, onConfirm) => {
+    setConfirmModal({
+      isOpen: true,
+      message,
+      onConfirm: () => {
+        onConfirm();
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+      }
+    });
+  };
+
   // Carga inicial cuando el usuario se autentifica
   useEffect(() => {
     if (!currentUser) return;
@@ -434,46 +650,131 @@ function App() {
     loadAll();
   }, [currentUser, isSuperAdmin, isAdmin, loadTenants, loadProducts, loadOrders, loadProduction, loadCatalogConfig, loadTenantSettings, loadDashboardData, loadTenantPublicInfo]);
 
+  // Hook de inicio para revisar si hay solicitudes públicas de visualización/impresión de documentos
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const printOrderId = params.get('print_order');
+    const docTypeParam = params.get('doc_type');
+    if (printOrderId && docTypeParam) {
+      setLoadingPublicPrint(true);
+      setPublicPrintDocType(docTypeParam);
+      ordersApi.getPublicDetail(printOrderId)
+        .then(data => {
+          setPublicPrintOrder(data);
+          setLoadingPublicPrint(false);
+          // Disparar la ventana de impresión del navegador tras un breve delay para permitir el renderizado
+          setTimeout(() => {
+            window.print();
+          }, 1000);
+        })
+        .catch(err => {
+          console.error(err);
+          alert('❌ Error al cargar el documento público: ' + err.message);
+          setLoadingPublicPrint(false);
+        });
+    }
+
+    // Manejar el retorno exitoso o cancelado de Stripe Checkout
+    const stripeSuccess = params.get('stripe_success');
+    const stripeCancel = params.get('stripe_cancel');
+    const orderId = params.get('order_id');
+    const sessionId = params.get('session_id');
+
+    if (stripeSuccess === 'true' && orderId && sessionId) {
+      const verifyPayment = async () => {
+        try {
+          console.log(`Verificando pago Stripe para pedido ${orderId}...`);
+          const res = await ordersApi.verifyStripePayment(orderId, sessionId);
+          if (res && res.success) {
+            alert('🎉 ¡Pago procesado con éxito! Tu pedido ha sido registrado como Pagado.');
+          } else {
+            alert('⚠️ El pago de Stripe aún no se ha reflejado. Lo verificaremos a la brevedad.');
+          }
+          await loadOrders();
+        } catch (err) {
+          console.error('Error verificando pago:', err);
+          alert(`❌ Error al verificar pago de Stripe: ${err.message}`);
+        } finally {
+          // Limpiar la URL de los parámetros para evitar ejecuciones repetidas en recargas de página
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      };
+      verifyPayment();
+    } else if (stripeCancel === 'true' && orderId) {
+      alert('⚠️ El proceso de pago por tarjeta de crédito fue cancelado o no se concretó.');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [loadOrders]);
+
   // Recargar desde servidor solo cuando cambia categoría
   useEffect(() => {
     if (!currentUser || isSuperAdmin) return;
     loadProducts();
   }, [selectedCategory, currentUser, isSuperAdmin, loadProducts]);
 
-  // Filtrado local instantáneo cuando cambia el texto de búsqueda
+  // Filtrado local instantáneo cuando cambia el texto de búsqueda o filtros admin
   useEffect(() => {
-    if (!searchQuery.trim()) {
-      setProductList(allProducts);
-      return;
-    }
-    const q = searchQuery.toLowerCase();
-    setProductList(
-      allProducts.filter(p =>
+    let filtered = [...allProducts];
+
+    // 1. Filtrar por búsqueda de texto
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(p =>
         (p.name || '').toLowerCase().includes(q) ||
         (p.sku || '').toLowerCase().includes(q) ||
-        (p.description || '').toLowerCase().includes(q)
-      )
-    );
-  }, [searchQuery, allProducts]);
+        (p.commercial_description || '').toLowerCase().includes(q) ||
+        (p.factory_name || '').toLowerCase().includes(q) ||
+        (p.factory_sku || '').toLowerCase().includes(q)
+      );
+    }
 
-  // Recargar según la tab activa
+    // Filtros específicos para el Admin
+    if (isAdmin) {
+      // 2. Filtrar por categoría
+      if (adminFilterCategory !== 'all') {
+        filtered = filtered.filter(p => p.category === adminFilterCategory);
+      }
+
+      // 3. Filtrar por estado de stock
+      if (adminFilterStockStatus === 'out_of_stock') {
+        filtered = filtered.filter(p => (p.stock_physical_cases || 0) === 0);
+      } else if (adminFilterStockStatus === 'low_stock') {
+        filtered = filtered.filter(p => (p.stock_physical_cases || 0) > 0 && (p.stock_physical_cases || 0) < 10);
+      } else if (adminFilterStockStatus === 'in_production') {
+        filtered = filtered.filter(p => (p.stock_in_production_cases || 0) > 0);
+      }
+
+      // 4. Filtrar por fábrica
+      if (adminFilterFactory !== 'all') {
+        filtered = filtered.filter(p => p.factory_name === adminFilterFactory);
+      }
+    }
+
+    setProductList(filtered);
+  }, [searchQuery, allProducts, isAdmin, adminFilterCategory, adminFilterStockStatus, adminFilterFactory]);
+
   useEffect(() => {
     if (!currentUser) return;
     if (activeTab === 'orders') loadOrders();
-    if (activeTab === 'admin') loadProduction();
+    if (activeTab === 'admin') {
+      loadProduction();
+      loadWarehouses();
+    }
     if (activeTab === 'dashboard') loadDashboardData();
     if (activeTab === 'clients') {
       loadClients();
       loadPricingTiers();
     }
-    if (activeTab === 'catalog' || activeTab === 'config' || activeTab === 'inventory') {
+    if (activeTab === 'catalog' || activeTab === 'config' || activeTab === 'inventory' || activeTab === 'campaigns') {
       loadCatalogConfig();
       loadTenantSettings();
+      loadWarehouses();
+      loadCampaigns();
     }
     if (['saas-tenants', 'saas-users', 'saas-billing', 'saas-audit'].includes(activeTab)) {
       loadTenants();
     }
-  }, [activeTab, currentUser, loadOrders, loadProduction, loadClients, loadPricingTiers, loadTenants, loadCatalogConfig, loadTenantSettings, loadDashboardData]);
+  }, [activeTab, currentUser, loadOrders, loadProduction, loadClients, loadPricingTiers, loadTenants, loadCatalogConfig, loadTenantSettings, loadDashboardData, loadWarehouses, loadCampaigns]);
 
   // Recargar datos del dashboard cuando cambian los filtros
   useEffect(() => {
@@ -681,6 +982,131 @@ function App() {
     } finally {
       setCreatingSuperAdmin(false);
     }
+  };
+
+  // ============================================================
+  // CRUD de Campañas (Print Runs)
+  // ============================================================
+  const handleCreateOrUpdateCampaign = async (e) => {
+    e.preventDefault();
+    if (!newCampaign.name || !newCampaign.start_date_reservations || !newCampaign.end_date_reservations) {
+      alert('Nombre y fechas de reservas son requeridos.');
+      return;
+    }
+    try {
+      if (editingCampaign) {
+        await campaignsApi.update(editingCampaign.id, newCampaign);
+        alert('🎉 Campaña actualizada con éxito.');
+        setEditingCampaign(null);
+      } else {
+        await campaignsApi.create(newCampaign);
+        alert('🎉 Campaña creada con éxito.');
+      }
+      setNewCampaign({ name: '', start_date_reservations: '', end_date_reservations: '', start_date_production: '', estimated_end_date_production: '', advance_payment_pct: 30.00, status: 'open' });
+      await loadCampaigns();
+    } catch (err) {
+      console.error('Error al guardar campaña:', err);
+      alert('❌ Error al guardar campaña: ' + (err.error || err.message || err));
+    }
+  };
+
+  const handleDeleteCampaign = async (id) => {
+    requestConfirm('⚠️ ¿Estás seguro de que deseas eliminar esta campaña?', async () => {
+      try {
+        await campaignsApi.delete(id);
+        alert('🗑️ Campaña eliminada.');
+        await loadCampaigns();
+      } catch (err) {
+        console.error('Error al eliminar campaña:', err);
+        alert('❌ Error al eliminar campaña: ' + (err.error || err.message || err));
+      }
+    });
+  };
+
+  const handleOpenCampaignProductsModal = (campaign) => {
+    setSelectedCampaignForProducts(campaign);
+    setCampaignProductsFilter('');
+    
+    const selections = {};
+    allProducts.forEach(p => {
+      const isAssigned = p.campaign_id === campaign.id;
+      selections[p.id] = {
+        selected: isAssigned,
+        qty_cases: isAssigned ? (p.stock_in_production_cases || 0) : 0
+      };
+    });
+    setCampaignProductSelections(selections);
+    setShowCampaignProductsModal(true);
+  };
+
+  const handleSaveCampaignProducts = async () => {
+    if (!selectedCampaignForProducts) return;
+    
+    const productsToAssign = [];
+    Object.entries(campaignProductSelections).forEach(([prodId, val]) => {
+      if (val.selected) {
+        productsToAssign.push({
+          product_id: prodId,
+          qty_cases: parseInt(val.qty_cases) || 0
+        });
+      }
+    });
+
+    try {
+      await campaignsApi.assignProducts(selectedCampaignForProducts.id, productsToAssign);
+      alert('🎉 Productos y cantidades asociados con éxito a la campaña.');
+      setShowCampaignProductsModal(false);
+      await loadProducts();
+    } catch (err) {
+      console.error('Error al guardar productos de campaña:', err);
+      alert('❌ Error al guardar productos: ' + (err.error || err.message || err));
+    }
+  };
+
+  // ============================================================
+  // CRUD de Reglas de Volumen SKU
+  // ============================================================
+  const handleCreateOrUpdateSkuVolumeRule = async (e) => {
+    e.preventDefault();
+    if (!newSkuVolumeRule.min_units || !newSkuVolumeRule.discount_pct) {
+      alert('Cantidad mínima y porcentaje de descuento son requeridos.');
+      return;
+    }
+
+    try {
+      if (editingSkuVolumeRule) {
+        await configApi.skuVolumeRules.update(editingSkuVolumeRule.id, {
+          min_units: parseInt(newSkuVolumeRule.min_units),
+          discount_pct: parseFloat(newSkuVolumeRule.discount_pct)
+        });
+        alert('🎉 Regla de volumen actualizada.');
+      } else {
+        await configApi.skuVolumeRules.create({
+          min_units: parseInt(newSkuVolumeRule.min_units),
+          discount_pct: parseFloat(newSkuVolumeRule.discount_pct)
+        });
+        alert('🎉 Regla de volumen creada.');
+      }
+      setNewSkuVolumeRule({ min_units: '', discount_pct: '' });
+      setEditingSkuVolumeRule(null);
+      await loadSkuVolumeRules();
+    } catch (err) {
+      console.error('Error al guardar regla de volumen SKU:', err);
+      alert('❌ Error al guardar regla: ' + (err.error || err.message || err));
+    }
+  };
+
+  const handleDeleteSkuVolumeRule = async (id) => {
+    requestConfirm('⚠️ ¿Estás seguro de que deseas eliminar esta regla?', async () => {
+      try {
+        await configApi.skuVolumeRules.delete(id);
+        alert('🗑️ Regla de volumen eliminada.');
+        await loadSkuVolumeRules();
+      } catch (err) {
+        console.error('Error al eliminar regla de volumen SKU:', err);
+        alert('❌ Error al eliminar regla: ' + (err.error || err.message || err));
+      }
+    });
   };
 
   // ============================================================
@@ -1042,7 +1468,8 @@ function App() {
         case_height_cm: 20,
         stock_physical_cases: 0,
         stock_in_production_cases: 0,
-        production_files_url: ''
+        production_files_url: '',
+        campaign_id: ''
       });
       await loadProducts();
     } catch (err) {
@@ -1057,10 +1484,69 @@ function App() {
     try {
       await productsApi.delete(id);
       alert('Producto eliminado con éxito.');
+      setSelectedProductIds(prev => prev.filter(pId => pId !== id));
       await loadProducts();
     } catch (err) {
       alert(`❌ Error: ${err.message}`);
     }
+  };
+
+  const handleBulkDeleteProducts = async () => {
+    if (selectedProductIds.length === 0) return;
+    if (!confirm(`¿Está seguro de eliminar los ${selectedProductIds.length} productos seleccionados del catálogo? Esta acción es irreversible.`)) return;
+    try {
+      const res = await productsApi.bulkDelete(selectedProductIds);
+      
+      let msg = '';
+      if (res.deleted_count > 0) {
+        msg += `🎉 Se eliminaron exitosamente ${res.deleted_count} producto(s).\n\n`;
+      }
+      
+      if (res.referenced_count > 0) {
+        msg += `⚠️ ${res.referenced_count} producto(s) no se pudieron eliminar por tener historial de transacciones (ventas o producción):\n`;
+        res.referenced_products.forEach(p => {
+          msg += `- [${p.sku}] ${p.name}\n`;
+        });
+      }
+      
+      alert(msg || 'Operación completada.');
+      setSelectedProductIds([]);
+      await loadProducts();
+    } catch (err) {
+      alert(`❌ Error: ${err.message}`);
+    }
+  };
+
+  const handleTriggerEditProduct = (product) => {
+    setActiveTab('catalog');
+    setEditingProduct(product);
+    setCreatingProduct(false);
+    setNewProduct({
+      name: product.name,
+      sku: product.sku,
+      category: product.category,
+      image_url: product.image_url || '',
+      commercial_description: product.commercial_description || '',
+      price_per_case_usd: product.price_per_case_usd,
+      units_per_case: product.units_per_case,
+      finished_measurements: product.finished_measurements || '',
+      factory_name: product.factory_name || '',
+      factory_sku: product.factory_sku || '',
+      factory_cost_per_case_usd: product.factory_cost_per_case_usd || '',
+      pantone_codes: product.pantone_codes || '',
+      cut_measurements: product.cut_measurements || '',
+      fabrication_notes: product.fabrication_notes || '',
+      production_files_url: product.production_files_url || '',
+      case_weight_kg: product.case_weight_kg || '',
+      case_length_cm: product.case_length_cm || '',
+      case_width_cm: product.case_width_cm || '',
+      case_height_cm: product.case_height_cm || '',
+      stock_physical_cases: product.stock_physical_cases || '',
+      stock_in_production_cases: product.stock_in_production_cases || '',
+      color: product.color || '',
+      brand: product.brand || '',
+      campaign_id: product.campaign_id || ''
+    });
   };
 
   const handleOpenKardex = async (product) => {
@@ -1206,6 +1692,118 @@ function App() {
       await Promise.all([loadProduction(), loadProducts()]);
     } catch (err) {
       alert(`❌ Error al cambiar estado: ${err.message}`);
+    }
+  };
+
+  const handleShareWhatsApp = async (order) => {
+    const num = prompt(`Ingresa el número de WhatsApp del cliente para enviar los enlaces del pedido B2B ${order.po_number || order.id.split('-')[0].toUpperCase()} (código de país seguido del número, sin espacios ni caracteres especiales, ej: 51987654321):`, "");
+    if (!num) return;
+    try {
+      await ordersApi.sendWhatsApp(order.id, num, window.location.origin);
+      alert('🎉 Mensaje enviado por WhatsApp con éxito (vía json.pe).');
+    } catch(err) {
+      alert(`❌ Error al enviar WhatsApp: ${err.message}`);
+    }
+  };
+
+  const handleShareEmail = async (order) => {
+    const defaultEmail = order.client_email || "";
+    const email = prompt(`Ingresa el correo electrónico del cliente para enviar la factura y packing list del pedido ${order.po_number || order.id.split('-')[0].toUpperCase()}:`, defaultEmail);
+    if (!email) return;
+    try {
+      await ordersApi.sendEmail(order.id, email, window.location.origin);
+      alert('🎉 Correo electrónico enviado con éxito (vía Resend).');
+    } catch(err) {
+      alert(`❌ Error al enviar correo: ${err.message}`);
+    }
+  };
+
+  const handleUpdatePaymentStatus = async (orderId, paymentStatus, currentUrl) => {
+    let balance_receipt_url = currentUrl;
+    if (paymentStatus === 'Pagado' && !currentUrl) {
+      const inputUrl = prompt('Ingrese la URL del comprobante de pago / voucher (Opcional):');
+      if (inputUrl !== null) {
+        balance_receipt_url = inputUrl;
+      }
+    }
+    try {
+      await ordersApi.updatePayment(orderId, paymentStatus, balance_receipt_url);
+      alert('🎉 Estado de pago actualizado con éxito.');
+      await loadOrders();
+    } catch (err) {
+      alert(`❌ Error al actualizar pago: ${err.message}`);
+    }
+  };
+
+  const handleEditPaymentReceipt = async (order) => {
+    const inputUrl = prompt('Ingrese la URL del comprobante de pago / voucher:', order.balance_receipt_url || '');
+    if (inputUrl === null) return;
+    try {
+      await ordersApi.updatePayment(order.id, order.payment_status || 'Pagado', inputUrl);
+      alert('🎉 Comprobante de pago actualizado con éxito.');
+      await loadOrders();
+    } catch (err) {
+      alert(`❌ Error al actualizar comprobante: ${err.message}`);
+    }
+  };
+
+  const handleUploadPaymentReceipt = async (orderId, file) => {
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      alert('❌ Error: El archivo supera el límite de tamaño de 10 MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64Data = reader.result;
+      try {
+        alert('📤 Subiendo comprobante a Cloudinary...');
+        await ordersApi.uploadVoucher(orderId, base64Data, file.type);
+        alert('🎉 Comprobante de pago subido e integrado con éxito.');
+        await loadOrders();
+      } catch (err) {
+        alert(`❌ Error al subir comprobante: ${err.message}`);
+      }
+    };
+    reader.onerror = () => {
+      alert('❌ Error al leer el archivo local.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleViewStripeReceipt = async (orderId) => {
+    try {
+      alert('⏳ Recuperando comprobante de Stripe...');
+      const res = await ordersApi.getStripeReceipt(orderId);
+      if (res && res.url) {
+        window.open(res.url, '_blank');
+        await loadOrders();
+      } else {
+        throw new Error('La transacción no posee una URL de recibo disponible.');
+      }
+    } catch (err) {
+      alert(`❌ Error al cargar comprobante de Stripe: ${err.message}`);
+    }
+  };
+
+  const handleApprovePayment = async (orderId) => {
+    requestConfirm('¿Está seguro de que desea aprobar el comprobante y marcar esta orden como Pagada?', async () => {
+      try {
+        await ordersApi.approvePayment(orderId);
+        alert('🎉 Pago aprobado con éxito.');
+        await loadOrders();
+      } catch (err) {
+        alert(`❌ Error al aprobar pago: ${err.message}`);
+      }
+    });
+  };
+
+  const handleUpdateCreditDueDate = async (orderId, dateValue) => {
+    try {
+      await ordersApi.updateCreditDueDate(orderId, dateValue);
+      await loadOrders();
+    } catch (err) {
+      alert(`❌ Error al actualizar fecha de vencimiento: ${err.message}`);
     }
   };
 
@@ -1383,7 +1981,30 @@ function App() {
   // -------------------------------------------------------
   // Lógica del Carrito
   // -------------------------------------------------------
+  const validateCartAddition = (productId) => {
+    const productToAdd = allProducts.find(p => p.id === productId);
+    if (!productToAdd) return true;
+
+    const targetCampaignId = productToAdd.campaign_id || null;
+    const cartItemIds = Object.keys(cart);
+
+    if (cartItemIds.length === 0) return true;
+
+    for (const itemId of cartItemIds) {
+      const existingProduct = allProducts.find(p => p.id === itemId);
+      if (existingProduct) {
+        const existingCampaignId = existingProduct.campaign_id || null;
+        if (existingCampaignId !== targetCampaignId) {
+          alert('⚠️ Restricción de preventa B2B:\nNo puedes mezclar productos de diferentes campañas de fabricación o productos regulares en el mismo pedido.\n\nPor favor realiza una orden independiente para cada tiraje o limpia tu carrito.');
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+
   const handleAddToCart = (productId) => {
+    if (!validateCartAddition(productId)) return;
     setCart(prev => ({ ...prev, [productId]: (prev[productId] || 0) + 1 }));
   };
 
@@ -1400,6 +2021,7 @@ function App() {
   };
 
   const handleSetCartQty = (productId, qty) => {
+    if (!validateCartAddition(productId)) return;
     const parsedQty = parseInt(qty);
     if (isNaN(parsedQty) || parsedQty <= 0) {
       setCart(prev => {
@@ -1429,19 +2051,42 @@ function App() {
       }
     });
 
-    // Descuento por volumen
-    let volumeDiscountPercent = 0;
-    VOLUME_DISCOUNTS.forEach(d => {
-      if (totalItemsCases >= d.min_cases) volumeDiscountPercent = d.discount_percentage;
-    });
-    const volumeDiscountAmount = subtotal * (volumeDiscountPercent / 100);
-    const subtotalAfterVolume = subtotal - volumeDiscountAmount;
+    const discountPolicy = isAdmin ? (tenantSettings.discount_policy || 'tier') : (tenantPublicInfo?.discount_policy || 'tier');
 
-    // Descuento por Pricing Tier comercial
-    let categoryDiscountPercent = currentUser?.discount_percentage !== undefined ? parseFloat(currentUser.discount_percentage) : 0;
-    const distributorDiscountAmount = subtotalAfterVolume * (categoryDiscountPercent / 100);
+    let totalDiscountAmount = 0;
 
-    const totalDiscountAmount = volumeDiscountAmount + distributorDiscountAmount;
+    if (discountPolicy === 'volume') {
+      const sortedRules = [...skuVolumeRulesList].sort((a, b) => b.min_units - a.min_units);
+
+      itemsDetail.forEach(item => {
+        const unitsPerCase = parseInt(item.units_per_case) || 1;
+        const totalUnits = item.qty * unitsPerCase;
+        const itemSubtotal = parseFloat(item.price_per_case_usd) * item.qty;
+
+        let itemDiscountPct = 0;
+        for (const rule of sortedRules) {
+          if (totalUnits >= rule.min_units) {
+            itemDiscountPct = parseFloat(rule.discount_pct);
+            break;
+          }
+        }
+
+        totalDiscountAmount += itemSubtotal * (itemDiscountPct / 100);
+      });
+    } else {
+      let volumeDiscountPercent = 0;
+      VOLUME_DISCOUNTS.forEach(d => {
+        if (totalItemsCases >= d.min_cases) volumeDiscountPercent = d.discount_percentage;
+      });
+      const volumeDiscountAmount = subtotal * (volumeDiscountPercent / 100);
+      const subtotalAfterVolume = subtotal - volumeDiscountAmount;
+
+      let categoryDiscountPercent = currentUser?.discount_percentage !== undefined ? parseFloat(currentUser.discount_percentage) : 0;
+      const distributorDiscountAmount = subtotalAfterVolume * (categoryDiscountPercent / 100);
+
+      totalDiscountAmount = volumeDiscountAmount + distributorDiscountAmount;
+    }
+
     const finalTotal = subtotal - totalDiscountAmount;
     const effectiveDiscountPercent = subtotal > 0 ? ((totalDiscountAmount / subtotal) * 100) : 0;
 
@@ -1478,7 +2123,11 @@ function App() {
         qty_cases: i.qty,
       }));
 
-      const res = await ordersApi.create(items, null, incoterm);
+      const firstCartItem = cartTotals.items[0];
+      const matchedProduct = allProducts.find(p => p.id === firstCartItem.id);
+      const campaignId = matchedProduct ? matchedProduct.campaign_id : null;
+
+      const res = await ordersApi.create(items, null, incoterm, campaignId);
       
       // Intentar cargar la info bancaria del tenant de forma pública y segura
       setLoadingBankDetails(true);
@@ -1505,19 +2154,168 @@ function App() {
     }
   };
 
-  const handleSimulateStripePayment = async () => {
+  const handleRealStripePayment = async () => {
     if (!createdOrder) return;
     setSimulatingStripePayment(true);
     try {
-      await ordersApi.payWithStripe(createdOrder.id);
-      setStripePaidSuccess(true);
-      await loadOrders();
+      // 1. Obtener la sesión de Stripe Checkout real desde el backend
+      const res = await ordersApi.payWithStripe(createdOrder.id, window.location.origin);
+      if (res && res.url) {
+        // 2. Redirigir al cliente al portal seguro de Stripe Checkout
+        window.location.href = res.url;
+      } else {
+        throw new Error('No se recibió la URL de redirección de Stripe.');
+      }
     } catch (err) {
-      alert(`❌ Error al procesar pago simulado: ${err.message}`);
+      alert(`❌ Error al iniciar pago con Stripe: ${err.message}`);
     } finally {
       setSimulatingStripePayment(false);
     }
   };
+
+  // -------------------------------------------------------
+  // Renderizar la vista de impresión pública si se solicita
+  // -------------------------------------------------------
+  if (loadingPublicPrint) {
+    return (
+      <div style={{ background: '#0d0d0f', color: '#fff', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
+        <div style={{ textAlign: 'center' }}>
+          <h2 style={{ color: 'var(--cyan-neon)' }}>⏳ Cargando Documento...</h2>
+          <p style={{ color: '#888' }}>Preparando la vista de impresión oficial</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (publicPrintOrder) {
+    const order = publicPrintOrder;
+    const isInvoice = publicPrintDocType === 'invoice';
+    const clientName = order.client_name || order.company_name;
+    const clientEmail = order.client_email || '';
+
+    return (
+      <div className="public-print-container" style={{ background: '#fff', color: '#000', padding: '40px', fontFamily: 'Segoe UI, sans-serif', minHeight: '100vh', boxSizing: 'border-box' }}>
+        <style dangerouslySetInnerHTML={{__html: `
+          @media print {
+            body { background: #fff !important; color: #000 !important; padding: 0 !important; }
+            .no-print { display: none !important; }
+            .public-print-container { padding: 0 !important; }
+          }
+        `}} />
+        
+        <div className="no-print" style={{ background: '#f5f5f7', borderBottom: '1px solid #ddd', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', borderRadius: '8px' }}>
+          <div>
+            <h3 style={{ margin: '0 0 4px', color: '#111' }}>Modo de Visualización de Documento B2B</h3>
+            <span style={{ fontSize: '12px', color: '#666' }}>Esta vista está formateada para imprimir o exportar como PDF directamente en tu navegador.</span>
+          </div>
+          <button 
+            onClick={() => window.print()} 
+            style={{ background: '#00bcd4', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}
+          >
+            🖨️ Imprimir / Guardar como PDF
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '3px solid #00bcd4', paddingBottom: '20px', marginBottom: '30px' }}>
+          <div>
+            <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', color: '#00bcd4', fontWeight: '800' }}>
+              {isInvoice ? 'COMMERCIAL INVOICE' : 'COMMERCIAL PACKING LIST'}
+            </h1>
+            <span style={{ fontSize: '14px', color: '#555' }}>Gosu Accessories Ltd. / Shenzhen Export Warehouse, China</span>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <span style={{ fontSize: '18px', fontWeight: 'bold', color: '#111' }}>Orden: {order.po_number || order.id.split('-')[0].toUpperCase()}</span><br />
+            <span style={{ fontSize: '13px', color: '#666' }}>Fecha: {new Date(order.created_at).toLocaleDateString('es-ES')}</span>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '40px', background: '#f9f9f9', padding: '20px', borderRadius: '8px', border: '1px solid #eee' }}>
+          <div>
+            <h4 style={{ margin: '0 0 8px', color: '#00bcd4', textTransform: 'uppercase', fontSize: '11px', letterSpacing: '0.5px' }}>Destinatario (Cliente B2B)</h4>
+            <strong style={{ fontSize: '15px', color: '#111' }}>{clientName}</strong><br />
+            {clientEmail && <span style={{ color: '#555', fontSize: '13px' }}>{clientEmail}</span>}<br />
+            <span style={{ color: '#666', fontSize: '13px' }}>Tax ID: {order.tax_id || '-'}</span>
+          </div>
+          <div>
+            <h4 style={{ margin: '0 0 8px', color: '#00bcd4', textTransform: 'uppercase', fontSize: '11px', letterSpacing: '0.5px' }}>Dirección de Facturación / Envío</h4>
+            <span style={{ color: '#111', fontSize: '13px', display: 'block', marginBottom: '4px' }}><strong>Factura:</strong> {order.billing_address || '-'}</span>
+            <span style={{ color: '#111', fontSize: '13px', display: 'block' }}><strong>Forwarder:</strong> {order.forwarder_address || '-'}</span>
+          </div>
+        </div>
+
+        {isInvoice ? (
+          <div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '30px' }}>
+              <thead>
+                <tr style={{ background: '#333', color: '#fff' }}>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'left' }}>Producto</th>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'center', width: '100px' }}>SKU</th>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'center', width: '80px' }}>Cajas</th>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'right', width: '120px' }}>Precio/Caja</th>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'right', width: '140px' }}>Total USD</th>
+                </tr>
+              </thead>
+              <tbody>
+                {order.items?.map((item, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                    <td style={{ padding: '12px 10px', fontSize: '13.5px', fontWeight: '600' }}>{item.name}</td>
+                    <td style={{ padding: '12px 10px', fontSize: '12px', fontFamily: 'monospace', textAlign: 'center' }}>{item.sku}</td>
+                    <td style={{ padding: '12px 10px', fontSize: '13.5px', textAlign: 'center' }}>{item.qty_cases}</td>
+                    <td style={{ padding: '12px 10px', fontSize: '13.5px', textAlign: 'right' }}>${parseFloat(item.price_case_usd || item.price_per_case_usd || 0).toFixed(2)}</td>
+                    <td style={{ padding: '12px 10px', fontSize: '13.5px', textAlign: 'right', fontWeight: 'bold' }}>${parseFloat(item.total_item_usd || 0).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '16px', borderTop: '2px solid #333', paddingTop: '15px' }}>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ color: '#555' }}>Total Comercial FOB: </span>
+                <strong style={{ fontSize: '20px', color: '#000', marginLeft: '10px' }}>${parseFloat(order.total_usd || order.total_amount_usd || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</strong>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '30px' }}>
+              <thead>
+                <tr style={{ background: '#333', color: '#fff' }}>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'left' }}>Descripción del Producto</th>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'center', width: '120px' }}>SKU</th>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'center', width: '100px' }}>Cajas Master</th>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'right', width: '120px' }}>Total Unidades</th>
+                  <th style={{ padding: '12px 10px', fontSize: '12px', textTransform: 'uppercase', textAlign: 'center', width: '140px' }}>Volumen (CBM)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {order.items?.map((item, idx) => {
+                  const totalUnits = (item.qty_cases || 0) * (item.units_per_case || 100);
+                  const itemCbm = (item.qty_cases || 0) * (parseFloat(item.case_cbm) || 0.024);
+                  return (
+                    <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                      <td style={{ padding: '12px 10px', fontSize: '13.5px', fontWeight: '600' }}>{item.name}</td>
+                      <td style={{ padding: '12px 10px', fontSize: '12px', fontFamily: 'monospace', textAlign: 'center' }}>{item.sku}</td>
+                      <td style={{ padding: '12px 10px', fontSize: '13.5px', textAlign: 'center' }}>{item.qty_cases}</td>
+                      <td style={{ padding: '12px 10px', fontSize: '13.5px', textAlign: 'right' }}>{totalUnits.toLocaleString('en-US')} uds</td>
+                      <td style={{ padding: '12px 10px', fontSize: '13.5px', textAlign: 'center' }}>{itemCbm.toFixed(4)} CBM</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '15px', borderTop: '2px solid #333', paddingTop: '15px', gap: '40px' }}>
+              <div>Cajas Totales: <strong>{order.total_cases || order.items?.reduce((a, c) => a + c.qty_cases, 0)}</strong></div>
+              <div>Volumen Total: <strong>{parseFloat(order.total_cbm || 0).toFixed(4)} CBM</strong></div>
+            </div>
+          </div>
+        )}
+
+        <div className="footer" style={{ textAlign: 'center', marginTop: '80px', fontSize: '12px', color: '#666', borderTop: '1px solid #eee', paddingTop: '20px' }}>
+          Documento comercial auto-generado por la plataforma B2B de Gosu Accessories Ltd.<br />
+          Soporte: info@gosu.com | Shenzhen Port Logistics Hub, China
+        </div>
+      </div>
+    );
+  }
 
   // -------------------------------------------------------
   // Si no está autenticado, mostrar Login
@@ -1672,9 +2470,14 @@ function App() {
       )}
 
       <div className="layout-wrapper" style={{ marginTop: (isImpersonating || isTenantImpersonating) ? '43px' : 0 }}>
+        {/* Overlay para cerrar sidebar móvil al hacer click fuera */}
+        {mobileSidebarOpen && (
+          <div className="mobile-sidebar-overlay" onClick={() => setMobileSidebarOpen(false)} />
+        )}
+
         {/* Sidebar Lateral */}
-        <aside className="premium-sidebar">
-          <div style={{ marginBottom: '32px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+        <aside className={`premium-sidebar ${mobileSidebarOpen ? 'open' : ''}`}>
+          <div style={{ marginBottom: '20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
             {activeLogoUrl ? (
               <img 
                 src={activeLogoUrl} 
@@ -1691,51 +2494,75 @@ function App() {
             )}
           </div>
 
-          <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px', flexGrow: 1 }}>
+          <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexGrow: 1 }}>
             {isSuperAdmin ? (
               <>
-                <span className={`nav-link-btn ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => setActiveTab('saas-tenants')}>
-                  🏢 Inquilinos (Tenants)
+                <div className="sidebar-section-title">{t('plataforma_saas')}</div>
+                <span className={`nav-link-btn ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => handleNavClick('saas-tenants')}>
+                  {t('inquilinos')}
                 </span>
-                <span className={`nav-link-btn ${activeTab === 'saas-users' ? 'active' : ''}`} onClick={() => setActiveTab('saas-users')}>
-                  👥 Usuarios Globales
+                <span className={`nav-link-btn ${activeTab === 'saas-users' ? 'active' : ''}`} onClick={() => handleNavClick('saas-users')}>
+                  {t('usuarios_globales')}
                 </span>
-                <span className={`nav-link-btn ${activeTab === 'saas-billing' ? 'active' : ''}`} onClick={() => setActiveTab('saas-billing')}>
-                  💳 Planes & Billing
+                <span className={`nav-link-btn ${activeTab === 'saas-billing' ? 'active' : ''}`} onClick={() => handleNavClick('saas-billing')}>
+                  {t('planes_billing')}
                 </span>
-                <span className={`nav-link-btn ${activeTab === 'saas-audit' ? 'active' : ''}`} onClick={() => setActiveTab('saas-audit')}>
-                  📋 Auditoría & Logs
+                <span className={`nav-link-btn ${activeTab === 'saas-audit' ? 'active' : ''}`} onClick={() => handleNavClick('saas-audit')}>
+                  {t('auditoria_logs')}
                 </span>
               </>
             ) : (
               <>
-                <span className={`nav-link-btn ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>
-                  📂 Catálogo B2B
-                </span>
-                {!isAdmin && (
-                  <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
-                    📜 Mis Pedidos & Bóveda
-                  </span>
-                )}
-                {isAdmin && (
+                {isAdmin ? (
                   <>
-                    <span className={`nav-link-btn ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
-                      📈 Control de Mando
+                    <div className="sidebar-section-title">{t('general')}</div>
+                    <span className={`nav-link-btn ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => handleNavClick('dashboard')}>
+                      {t('control_mando')}
                     </span>
-                    <span className={`nav-link-btn ${activeTab === 'inventory' ? 'active' : ''}`} onClick={() => setActiveTab('inventory')}>
-                      📦 Inventario & Stock
+
+                    <div className="sidebar-section-title">{t('operaciones')}</div>
+                    <span className={`nav-link-btn ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => handleNavClick('catalog')}>
+                      {t('catalogo_productos')}
                     </span>
-                    <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
-                      📊 Registro de Ventas
+                    <span className={`nav-link-btn ${activeTab === 'inventory' ? 'active' : ''}`} onClick={() => handleNavClick('inventory')}>
+                      {t('inventario_stock')}
                     </span>
-                    <span className={`nav-link-btn ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
-                      🏭 Fábrica & Producción
+                    <span className={`nav-link-btn ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => handleNavClick('admin')}>
+                      {t('fabrica_produccion')}
                     </span>
-                    <span className={`nav-link-btn ${activeTab === 'clients' ? 'active' : ''}`} onClick={() => setActiveTab('clients')}>
-                      👥 Clientes & Leads
+                    <span className={`nav-link-btn ${activeTab === 'campaigns' ? 'active' : ''}`} onClick={() => handleNavClick('campaigns')}>
+                      {t('preventas_print_runs')}
                     </span>
-                    <span className={`nav-link-btn ${activeTab === 'config' ? 'active' : ''}`} onClick={() => setActiveTab('config')}>
-                      ⚙️ Configuración
+
+                    <div className="sidebar-section-title">{t('comercial')}</div>
+                    <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => handleNavClick('orders')}>
+                      {t('historial_ventas')}
+                    </span>
+                    <span className={`nav-link-btn ${activeTab === 'billing' ? 'active' : ''}`} onClick={() => handleNavClick('billing')}>
+                      {t('cobranzas_b2b')}
+                    </span>
+                    <span className={`nav-link-btn ${activeTab === 'clients' ? 'active' : ''}`} onClick={() => handleNavClick('clients')}>
+                      {t('directorio_clientes')}
+                    </span>
+
+                    <div className="sidebar-section-title">{t('configuracion')}</div>
+                    <span className={`nav-link-btn ${activeTab === 'config' ? 'active' : ''}`} onClick={() => handleNavClick('config')}>
+                      {t('ajustes_empresa')}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <div className="sidebar-section-title">{t('compras')}</div>
+                    <span className={`nav-link-btn ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => handleNavClick('catalog')}>
+                      {t('catalogo_b2b')}
+                    </span>
+                    <span className={`nav-link-btn ${activeTab === 'campaigns' ? 'active' : ''}`} onClick={() => handleNavClick('campaigns')}>
+                      {t('preventas_print_runs')}
+                    </span>
+
+                    <div className="sidebar-section-title">{t('mi_cuenta')}</div>
+                    <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => handleNavClick('orders')}>
+                      {t('mis_pedidos_boveda')}
                     </span>
                   </>
                 )}
@@ -1751,11 +2578,11 @@ function App() {
                 {isSuperAdmin ? 'SUPER ADMIN' : isAdmin ? 'ADMIN' : currentUser.client_category?.replace('_', ' ')}
               </span>
             </div>
-            <button onClick={() => setActiveTab('profile')} className="btn-glass-cyan" style={{ width: '100%', padding: '8px', fontSize: '12px', marginBottom: '-4px' }}>
-              ⚙️ Mi Perfil
+            <button onClick={() => handleNavClick('profile')} className="btn-glass-cyan" style={{ width: '100%', padding: '8px', fontSize: '12px', marginBottom: '-4px' }}>
+              {t('mi_perfil')}
             </button>
             <button onClick={handleLogout} className="btn-glass-pink" style={{ width: '100%', padding: '8px', fontSize: '12px' }}>
-              Cerrar Sesión
+              {t('cerrar_sesion')}
             </button>
           </div>
         </aside>
@@ -1764,52 +2591,71 @@ function App() {
         <div className="main-layout">
           {/* Header Bar */}
           <header className="premium-header">
+            {/* Botón hamburguesa móvil */}
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#fff',
+                fontSize: '24px',
+                cursor: 'pointer',
+                padding: '4px',
+                marginRight: '12px'
+              }}
+              className="mobile-hamburger-btn"
+            >
+              ☰
+            </button>
+
             {/* Logo en versión mobile */}
-            <div className="mobile-only-logo" style={{ display: 'none' }}>
+            <div className="mobile-logo-wrapper">
               {activeLogoUrl ? (
-                <img src={activeLogoUrl} alt="Logo" style={{ maxHeight: '35px', objectFit: 'contain' }} />
+                <img src={activeLogoUrl} alt="Logo" style={{ maxHeight: '35px', maxWidth: '140px', objectFit: 'contain', borderRadius: '4px' }} />
               ) : (
-                <span className="logo-text" style={{ fontSize: '16px', fontWeight: '900' }}>
+                <span className="logo-text" style={{ fontSize: '16px', fontWeight: '900', color: 'var(--cyan-neon)' }}>
                   {isSuperAdmin ? 'GOSU SAAS' : currentUser.tenant_name?.toUpperCase() || 'GOSU B2B'}
                 </span>
               )}
             </div>
-            <div className="premium-header-content">
+            
+            <div className="premium-header-content" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              {/* Dropdown de Selección de Idioma */}
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={lang}
+                  onChange={(e) => toggleLanguage(e.target.value)}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    border: '1px solid var(--border-color)',
+                    color: '#fff',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                    paddingRight: '30px',
+                    boxShadow: '0 4px 10px rgba(0,0,0,0.2)'
+                  }}
+                >
+                  <option value="es" style={{ background: '#0a0a0c', color: '#fff' }}>🇪🇸 ES</option>
+                  <option value="en" style={{ background: '#0a0a0c', color: '#fff' }}>🇺🇸 EN</option>
+                </select>
+                <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', fontSize: '10px', color: 'var(--text-secondary)' }}>
+                  ▼
+                </span>
+              </div>
+
               {!isSuperAdmin && (
                 <button className="btn-glass-neon" onClick={() => setShowCart(true)}>
-                  🛒 Carrito ({cartTotals.totalCases} {cartTotals.totalCases === 1 ? 'Caja' : 'Cajas'})
+                  🛒 {t('carrito')} ({cartTotals.totalCases} {cartTotals.totalCases === 1 ? t('caja') : t('cajas')})
                 </button>
               )}
             </div>
           </header>
-
-          {/* Mobile Floating Nav */}
-          <div className="floating-mobile-nav">
-            {isSuperAdmin ? (
-              <>
-                <span className={`mobile-nav-item ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => setActiveTab('saas-tenants')}>🏢 Tenants</span>
-                <span className={`mobile-nav-item ${activeTab === 'saas-users' ? 'active' : ''}`} onClick={() => setActiveTab('saas-users')}>👥 Users</span>
-                <span className={`mobile-nav-item ${activeTab === 'saas-billing' ? 'active' : ''}`} onClick={() => setActiveTab('saas-billing')}>💳 Billing</span>
-                <span className={`mobile-nav-item ${activeTab === 'saas-audit' ? 'active' : ''}`} onClick={() => setActiveTab('saas-audit')}>📋 Logs</span>
-              </>
-            ) : (
-              <>
-                <span className={`mobile-nav-item ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>📂 Catálogo</span>
-                {!isAdmin && (
-                  <span className={`mobile-nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>📜 Pedidos</span>
-                )}
-                {isAdmin && (
-                  <>
-                    <span className={`mobile-nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>📈 Dash</span>
-                    <span className={`mobile-nav-item ${activeTab === 'inventory' ? 'active' : ''}`} onClick={() => setActiveTab('inventory')}>📦 Stock</span>
-                    <span className={`mobile-nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>📊 Ventas</span>
-                    <span className={`mobile-nav-item ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>🏭 Fábrica</span>
-                    <span className={`mobile-nav-item ${activeTab === 'config' ? 'active' : ''}`} onClick={() => setActiveTab('config')}>⚙️ Config</span>
-                  </>
-                )}
-              </>
-            )}
-          </div>
 
           <main className="main-content" style={{ flexGrow: 1, padding: '24px', boxSizing: 'border-box' }}>
             {/* Loading global */}
@@ -2369,9 +3215,15 @@ function App() {
           <div>
             <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '16px', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Catálogo Mayorista</h1>
+                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>
+                  {isAdmin ? t('gestion_productos') : (lang === 'es' ? '📂 Catálogo Mayorista' : '📂 Wholesale Catalog')}
+                </h1>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                  Precios especiales para distribuidores despachados directamente de fábrica.
+                  {isAdmin
+                    ? t('crea_edita_productos')
+                    : (lang === 'es'
+                        ? 'Precios especiales para distribuidores despachados directamente de fábrica.'
+                        : 'Wholesale prices for distributors shipped directly from factory.')}
                 </p>
               </div>
               <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -2381,27 +3233,29 @@ function App() {
                     className="btn-pink"
                     style={{ padding: '8px 16px', fontSize: '13px' }}
                   >
-                    {creatingProduct ? 'Cerrar Formulario' : '➕ Añadir Producto'}
+                    {creatingProduct ? (lang === 'es' ? 'Cerrar Formulario' : 'Close Form') : t('registrar_producto')}
                   </button>
                 )}
-                <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '2px' }}>
-                  <button
-                    onClick={() => setCatalogViewMode('grid')}
-                    style={{ background: catalogViewMode === 'grid' ? 'var(--cyan-neon)' : 'transparent', color: catalogViewMode === 'grid' ? '#000' : '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
-                  >
-                    🔲 Vista Rejilla
-                  </button>
-                  <button
-                    onClick={() => setCatalogViewMode('list')}
-                    style={{ background: catalogViewMode === 'list' ? 'var(--cyan-neon)' : 'transparent', color: catalogViewMode === 'list' ? '#000' : '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
-                  >
-                    ≡ Vista Lista
-                  </button>
-                </div>
+                {!isAdmin && (
+                  <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '2px' }}>
+                    <button
+                      onClick={() => setCatalogViewMode('grid')}
+                      style={{ background: catalogViewMode === 'grid' ? 'var(--cyan-neon)' : 'transparent', color: catalogViewMode === 'grid' ? '#000' : '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                    >
+                      {lang === 'es' ? '🔲 Vista Rejilla' : '🔲 Grid View'}
+                    </button>
+                    <button
+                      onClick={() => setCatalogViewMode('list')}
+                      style={{ background: catalogViewMode === 'list' ? 'var(--cyan-neon)' : 'transparent', color: catalogViewMode === 'list' ? '#000' : '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                    >
+                      {lang === 'es' ? '≡ Vista Lista' : '≡ List View'}
+                    </button>
+                  </div>
+                )}
                 <input
                   type="text"
                   id="product-search"
-                  placeholder="Buscar producto..."
+                  placeholder={t('placeholder_buscar')}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 16px', borderRadius: '8px', width: '200px' }}
@@ -2414,11 +3268,25 @@ function App() {
                 <span style={{ fontSize: '24px' }}>🏷️</span>
                 <div>
                   <h3 style={{ margin: '0 0 2px', fontSize: '15px', color: 'var(--cyan-neon)', fontWeight: '800' }}>
-                    Tu Nivel de Precios Comercial: {currentUser.tier_name || 'Precio Base Comercial'}
+                    {lang === 'es' ? 'Tu Nivel de Precios Comercial' : 'Your Commercial Pricing Tier'}: {currentUser.tier_name || (lang === 'es' ? 'Precio Base Comercial' : 'Base Commercial Price')}
                   </h3>
                   <p style={{ margin: '0', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    Beneficios activos: <strong>-{currentUser.discount_percentage || 0}% de descuento</strong> en todo el catálogo y un Monto Mínimo de Orden (MOV) de <strong>${parseFloat(currentUser.min_order_amount || 1000).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</strong>.
-                    {currentUser.only_master_cases && <span style={{ color: 'var(--orange-neon)', marginLeft: '6px', fontWeight: '600' }}>📦 Compras restringidas únicamente a Master Cases (cajas enteras).</span>}
+                    {lang === 'es' ? (
+                      <>
+                        Beneficios activos: <strong>-{currentUser.discount_percentage || 0}% de descuento</strong> en todo el catálogo y un Monto Mínimo de Orden (MOV) de <strong>${parseFloat(currentUser.min_order_amount || 1000).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</strong>.
+                      </>
+                    ) : (
+                      <>
+                        Active benefits: <strong>-{currentUser.discount_percentage || 0}% discount</strong> storewide and a Minimum Order Value (MOV) of <strong>${parseFloat(currentUser.min_order_amount || 1000).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</strong>.
+                      </>
+                    )}
+                    {currentUser.only_master_cases && (
+                      <span style={{ color: 'var(--orange-neon)', marginLeft: '6px', fontWeight: '600' }}>
+                        {lang === 'es' 
+                          ? '📦 Compras restringidas únicamente a Master Cases (cajas enteras).' 
+                          : '📦 Purchases restricted strictly to Master Cases (full cartons).'}
+                      </span>
+                    )}
                   </p>
                 </div>
               </div>
@@ -2471,6 +3339,19 @@ function App() {
                         >
                           {categoriesList.map(cat => (
                             <option key={cat.id} value={cat.slug}>{cat.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Campaña / Print Run (Pre-venta)</label>
+                        <select
+                          value={newProduct.campaign_id || ''}
+                          onChange={(e) => setNewProduct(prev => ({ ...prev, campaign_id: e.target.value || null }))}
+                          style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                        >
+                          <option value="">-- Ninguna (Catálogo Regular) --</option>
+                          {campaignsList.map(camp => (
+                            <option key={camp.id} value={camp.id}>{camp.name} ({camp.status})</option>
                           ))}
                         </select>
                       </div>
@@ -2758,54 +3639,307 @@ function App() {
               </div>
             )}
 
-            {/* Filtros de Categoría Dinámicos */}
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '24px', flexWrap: 'wrap' }}>
-              {[{ id: 'all', name: 'Ver Todos', slug: 'all' }, ...categoriesList].map(cat => (
-                <button
-                  key={cat.id || cat.slug}
-                  id={`filter-${cat.slug}`}
-                  onClick={() => setSelectedCategory(cat.slug)}
-                  style={{
-                    background: selectedCategory === cat.slug ? 'var(--cyan-neon)' : 'rgba(255,255,255,0.05)',
-                    color: selectedCategory === cat.slug ? '#000' : '#fff',
-                    border: 'none',
-                    padding: '8px 16px',
-                    borderRadius: '20px',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    textTransform: 'uppercase',
-                    transition: 'all 0.2s',
-                  }}
-                >
-                  {cat.name}
-                </button>
-              ))}
-            </div>
+            {isAdmin ? (
+              <div>
+                {/* Panel de Filtros Avanzados para Admin */}
+                <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>{t('filtro_categoria')}</label>
+                    <select
+                      value={adminFilterCategory}
+                      onChange={(e) => setAdminFilterCategory(e.target.value)}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '160px' }}
+                    >
+                      <option value="all">{t('todas_categorias')}</option>
+                      {categoriesList.map(cat => (
+                        <option key={cat.id} value={cat.slug}>{cat.name}</option>
+                      ))}
+                    </select>
+                  </div>
 
-            {/* Banner de Descuentos */}
-            <div className="glass-panel" style={{ padding: '16px', marginBottom: '24px', borderLeft: '3px solid var(--pink-neon)' }}>
-              <span className="badge badge-pink" style={{ marginBottom: '8px' }}>Descuentos Automáticos por Volumen</span>
-              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                Comprar <strong>5+ cajas</strong> da 5% | <strong>10+ cajas</strong> da 10% | <strong>20+ cajas</strong> da 15% de descuento.
-                {currentUser?.client_category === 'wholesale_distributor' && <> + <strong>5% extra</strong> como Distribuidor Mayorista.</>}
-              </p>
-            </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>{t('filtro_inventario')}</label>
+                    <select
+                      value={adminFilterStockStatus}
+                      onChange={(e) => setAdminFilterStockStatus(e.target.value)}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '180px' }}
+                    >
+                      <option value="all">{t('todos_stocks')}</option>
+                      <option value="out_of_stock">{lang === 'es' ? '⚠️ Sin Stock Físico' : '⚠️ Out of Physical Stock'}</option>
+                      <option value="low_stock">{lang === 'es' ? '⚠️ Stock Bajo (<10 cajas)' : '⚠️ Low Stock (<10 cases)'}</option>
+                      <option value="in_production">{lang === 'es' ? '⚙️ En Producción activa' : '⚙️ Active Production'}</option>
+                    </select>
+                  </div>
 
-            {/* Renderizado de Catálogo según el Modo de Vista */}
-            {productList.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
-                {searchQuery ? `Sin resultados para "${searchQuery}"` : 'No hay productos disponibles.'}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>{t('filtro_fabrica')}</label>
+                    <select
+                      value={adminFilterFactory}
+                      onChange={(e) => setAdminFilterFactory(e.target.value)}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '180px' }}
+                    >
+                      <option value="all">{t('todas_fabricas')}</option>
+                      {(() => {
+                        const factories = allProducts
+                          .map(p => p.factory_name)
+                          .filter(name => name && name.trim() !== '');
+                        const uniqueFactories = Array.from(new Set(factories));
+                        return uniqueFactories.map(fac => (
+                          <option key={fac} value={fac}>{fac}</option>
+                        ));
+                      })()}
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'flex-end', marginLeft: 'auto', gap: '8px' }}>
+                    {selectedProductIds.length > 0 && (
+                      <button
+                        onClick={handleBulkDeleteProducts}
+                        className="btn-glass-pink"
+                        style={{ padding: '8px 16px', fontSize: '12px', borderRadius: '8px', height: '36px', display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 9, 187, 0.15)', border: '1px solid var(--pink-neon)', color: 'var(--pink-neon)', fontWeight: 'bold' }}
+                      >
+                        🗑️ {lang === 'es' ? 'Eliminar Seleccionados' : 'Delete Selected'} ({selectedProductIds.length})
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setAdminFilterCategory('all');
+                        setAdminFilterStockStatus('all');
+                        setAdminFilterFactory('all');
+                        setSearchQuery('');
+                        setSelectedProductIds([]);
+                      }}
+                      className="btn-glass"
+                      style={{ padding: '8px 16px', fontSize: '12px', borderRadius: '8px', height: '36px' }}
+                    >
+                      {t('limpiar_filtros')}
+                    </button>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)', alignSelf: 'center', marginLeft: '8px' }}>
+                      {t('resultados_productos').replace('{count}', productList.length)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Tabla de Gestión Avanzada para Admin */}
+                {productList.length === 0 ? (
+                  <div className="glass-panel" style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
+                    {lang === 'es' ? 'No se encontraron productos con los filtros aplicados.' : 'No products found matching filters.'}
+                  </div>
+                ) : (
+                  <div className="glass-panel" style={{ overflowX: 'auto', padding: '0', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '1150px', fontSize: '13px' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.02)', fontWeight: '700' }}>
+                          <th style={{ padding: '12px', width: '40px', textAlign: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={productList.length > 0 && selectedProductIds.length === productList.length}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedProductIds(productList.map(p => p.id));
+                                } else {
+                                  setSelectedProductIds([]);
+                                }
+                              }}
+                              style={{ cursor: 'pointer' }}
+                            />
+                          </th>
+                          <th style={{ padding: '12px' }}>{t('col_miniatura')}</th>
+                          <th style={{ padding: '12px' }}>{t('col_producto_sku')}</th>
+                          <th style={{ padding: '12px' }}>{t('col_categoria')}</th>
+                          <th style={{ padding: '12px' }}>{t('col_detalles')}</th>
+                          <th style={{ padding: '12px' }}>{t('col_fabrica_sku')}</th>
+                          <th style={{ padding: '12px' }}>{t('col_costo_fabrica')}</th>
+                          <th style={{ padding: '12px' }}>{t('col_precio_b2b')}</th>
+                          <th style={{ padding: '12px' }}>{t('col_inventario')}</th>
+                          <th style={{ padding: '12px', textAlign: 'center' }}>{t('col_acciones')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {productList.map(product => {
+                          const costPerUnit = parseFloat(product.factory_cost_per_case_usd || 0);
+                          const units = parseInt(product.units_per_case) || 1;
+                          const calculatedCostPerCase = costPerUnit * units;
+                          
+                          return (
+                            <tr key={product.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.2s', background: selectedProductIds.includes(product.id) ? 'rgba(0, 232, 255, 0.03)' : 'transparent' }} className="table-row-hover">
+                              <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedProductIds.includes(product.id)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedProductIds(prev => [...prev, product.id]);
+                                    } else {
+                                      setSelectedProductIds(prev => prev.filter(id => id !== product.id));
+                                    }
+                                  }}
+                                  style={{ cursor: 'pointer' }}
+                                />
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                {product.image_url ? (
+                                  <img src={product.image_url} alt={product.name} style={{ width: '40px', height: '40px', borderRadius: '6px', objectFit: 'contain', background: 'rgba(255,255,255,0.02)' }} />
+                                ) : (
+                                  <div style={{ width: '40px', height: '40px', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px' }}>📦</div>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <div style={{ fontWeight: '700', color: '#fff' }}>{product.name}</div>
+                                <div style={{ fontSize: '11px', color: 'var(--cyan-neon)', fontFamily: 'monospace', marginTop: '2px' }}>{product.sku}</div>
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <span className="badge badge-pink" style={{ fontSize: '9px', textTransform: 'uppercase' }}>{product.category}</span>
+                              </td>
+                              <td style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                {product.finished_measurements && <div>📏 {product.finished_measurements}</div>}
+                                {product.color && <div>🎨 {product.color}</div>}
+                                <div>📦 {product.units_per_case} {lang === 'es' ? 'uds / caja' : 'units / case'}</div>
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <div style={{ fontWeight: '600', color: '#fff' }}>{product.factory_name || 'N/A'}</div>
+                                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{product.factory_sku || 'N/A'}</div>
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <div style={{ fontWeight: '700', color: 'var(--pink-neon)' }}>
+                                  ${calculatedCostPerCase.toFixed(2)} / {t('celda_caja')}
+                                </div>
+                                <div style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
+                                  ${costPerUnit.toFixed(4)} / {t('celda_unidad')}
+                                </div>
+                              </td>
+                              <td style={{ padding: '10px 12px', fontWeight: '700', color: 'var(--green-neon)', fontSize: '14px' }}>
+                                ${parseFloat(product.price_per_case_usd).toFixed(2)}
+                              </td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <div style={{ fontWeight: '700', color: product.stock_physical_cases === 0 ? 'var(--pink-neon)' : product.stock_physical_cases < 10 ? 'var(--orange-neon)' : 'var(--green-neon)' }}>
+                                  {product.stock_physical_cases === 0 ? (lang === 'es' ? '⚠️ Agotado' : '⚠️ Out of Stock') : `${product.stock_physical_cases} ${product.stock_physical_cases === 1 ? t('caja') : t('cajas')}`}
+                                </div>
+                                {product.stock_in_production_cases > 0 && (
+                                  <div style={{ fontSize: '11px', color: 'var(--cyan-neon)', marginTop: '2px' }}>
+                                    ⚙️ {product.stock_in_production_cases} {t('celda_en_produccion')}
+                                  </div>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                                <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                  <button
+                                    onClick={() => {
+                                      setEditingProduct(product);
+                                      setCreatingProduct(false);
+                                      setNewProduct({
+                                        name: product.name,
+                                        sku: product.sku,
+                                        category: product.category,
+                                        image_url: product.image_url || '',
+                                        commercial_description: product.commercial_description || '',
+                                        price_per_case_usd: product.price_per_case_usd,
+                                        units_per_case: product.units_per_case,
+                                        finished_measurements: product.finished_measurements || '',
+                                        factory_name: product.factory_name || '',
+                                        factory_sku: product.factory_sku || '',
+                                        factory_cost_per_case_usd: product.factory_cost_per_case_usd || '',
+                                        pantone_codes: product.pantone_codes || '',
+                                        cut_measurements: product.cut_measurements || '',
+                                        fabrication_notes: product.fabrication_notes || '',
+                                        case_weight_kg: product.case_weight_kg,
+                                        case_length_cm: product.case_length_cm,
+                                        case_width_cm: product.case_width_cm,
+                                        case_height_cm: product.case_height_cm,
+                                        stock_physical_cases: product.stock_physical_cases || 0,
+                                        stock_in_production_cases: product.stock_in_production_cases || 0,
+                                        production_files_url: product.production_files_url || ''
+                                      });
+                                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                                    }}
+                                    className="btn-glass-neon"
+                                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                                    title={lang === 'es' ? 'Editar parámetros del producto' : 'Edit product parameters'}
+                                  >
+                                    ✏️ {t('celda_editar')}
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteProduct(product.id)}
+                                    className="btn-glass-pink"
+                                    style={{ padding: '6px 10px', fontSize: '12px' }}
+                                    title="Eliminar del catálogo"
+                                  >
+                                    🗑️
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
-            ) : catalogViewMode === 'grid' ? (
+            ) : (
+              <div>
+                {/* Filtros de Categoría Dinámicos */}
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '24px', flexWrap: 'wrap' }}>
+                  {[{ id: 'all', name: 'Ver Todos', slug: 'all' }, ...categoriesList].map(cat => (
+                    <button
+                      key={cat.id || cat.slug}
+                      id={`filter-${cat.slug}`}
+                      onClick={() => setSelectedCategory(cat.slug)}
+                      style={{
+                        background: selectedCategory === cat.slug ? 'var(--cyan-neon)' : 'rgba(255,255,255,0.05)',
+                        color: selectedCategory === cat.slug ? '#000' : '#fff',
+                        border: 'none',
+                        padding: '8px 16px',
+                        borderRadius: '20px',
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        textTransform: 'uppercase',
+                        transition: 'all 0.2s',
+                      }}
+                    >
+                      {cat.name}
+                    </button>
+                  ))}
+                </div>
+
+
+                {/* Renderizado de Catálogo según el Modo de Vista */}
+                {productList.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
+                    {searchQuery ? `Sin resultados para "${searchQuery}"` : 'No hay productos disponibles.'}
+                  </div>
+                ) : catalogViewMode === 'grid' ? (
               <div className="catalog-grid">
                 {productList.map(product => {
                   const inCartQty = cart[product.id] || 0;
                   const priceNum = parseFloat(product.price_per_case_usd);
                   const isExpanded = expandedFactoryProductId === product.id;
+                  const campaign = product.campaign_id ? campaignsList.find(c => c.id === product.campaign_id) : null;
+                  const isReservationsClosed = campaign && campaign.status !== 'open';
                   
                   return (
                     <div key={product.id} className="glass-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '440px', position: 'relative', border: isExpanded ? '1px solid var(--pink-neon)' : '1px solid rgba(255,255,255,0.08)' }}>
+                      {campaign && (
+                        <div style={{
+                          position: 'absolute',
+                          top: '12px',
+                          right: '12px',
+                          background: campaign.status === 'open' ? 'rgba(0, 232, 255, 0.9)' :
+                                      campaign.status === 'production' ? 'rgba(255, 152, 0, 0.9)' : 'rgba(76, 175, 80, 0.9)',
+                          color: '#000',
+                          padding: '3px 8px',
+                          borderRadius: '12px',
+                          fontSize: '10px',
+                          fontWeight: '800',
+                          zIndex: 2,
+                          boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
+                          textTransform: 'uppercase'
+                        }}>
+                          {campaign.status === 'open' ? '📅 Preventa' :
+                           campaign.status === 'production' ? '🏭 En Prod.' : '✅ Finalizada'}
+                        </div>
+                      )}
                       <div>
                         {/* Imagen del Producto con Glow Halo Dinámico Adaptable */}
                         <div style={{ 
@@ -2879,7 +4013,13 @@ function App() {
                             📦 Contenido: <strong>{product.units_per_case} unidades / caja</strong>
                           </span>
                           <span style={{ color: 'var(--text-secondary)' }}>
-                            Disponible: <strong style={{ color: product.stock_physical_cases > 10 ? 'var(--green-neon)' : 'var(--orange-neon)' }}>{product.stock_physical_cases} cajas</strong>
+                            Disponible: <strong style={{ color: product.stock_physical_cases > 10 ? 'var(--green-neon)' : product.stock_physical_cases > 0 ? 'var(--orange-neon)' : 'var(--pink-neon)' }}>
+                              {product.stock_physical_cases > 0 
+                                ? `${product.stock_physical_cases} cajas` 
+                                : (product.stock_in_production_cases || 0) > 0 
+                                  ? `0 físicas (⚙️ ${product.stock_in_production_cases} en producción)` 
+                                  : '⚠️ Agotado'}
+                            </strong>
                           </span>
                         </div>
 
@@ -2911,7 +4051,7 @@ function App() {
                                 <div>⚖️ Peso Master Case: <strong>{product.case_weight_kg} kg</strong></div>
                                 <div>📏 Dimensiones Caja: <strong>{product.case_length_cm}x{product.case_width_cm}x{product.case_height_cm} cm</strong></div>
                                 <div>🚢 Volumen Calculado: <strong style={{ color: 'var(--cyan-neon)' }}>{parseFloat(product.case_cbm).toFixed(5)} CBM</strong></div>
-                                {product.fabrication_notes && (
+                                {product.production_files_url && (
                                   <div style={{ borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '6px' }}>
                                     📝 <em style={{ fontStyle: 'normal', color: 'var(--text-muted)' }}>Notas: {product.fabrication_notes}</em>
                                   </div>
@@ -2933,14 +4073,22 @@ function App() {
 
                         {/* Controles de Carrito para Clientes B2B */}
                         {!isAdmin && (
-                          inCartQty > 0 ? (
+                          isReservationsClosed ? (
+                            <button
+                              className="btn-glass"
+                              style={{ width: '100%', padding: '10px 16px', fontSize: '13px', cursor: 'not-allowed', color: 'var(--text-muted)', border: '1px solid rgba(255,255,255,0.05)' }}
+                              disabled
+                            >
+                              🔒 Reservas Cerradas
+                            </button>
+                          ) : inCartQty > 0 ? (
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center', width: '100%' }}>
                                 <button onClick={() => handleRemoveFromCart(product.id)} className="btn-glass" style={{ padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontWeight: '700' }}>-</button>
                                 <input 
                                   type="number"
                                   min="1"
-                                  max={product.stock_physical_cases || 1000}
+                                  max={product.stock_physical_cases || product.stock_in_production_cases || 1000}
                                   value={inCartQty}
                                   onChange={(e) => handleSetCartQty(product.id, parseInt(e.target.value))}
                                   style={{
@@ -2967,9 +4115,15 @@ function App() {
                               className="btn-glass-neon"
                               style={{ width: '100%', padding: '10px 16px', fontSize: '13px' }}
                               onClick={() => handleAddToCart(product.id)}
-                              disabled={product.stock_physical_cases === 0}
+                              disabled={product.stock_physical_cases === 0 && (product.stock_in_production_cases || 0) === 0 && !campaign}
                             >
-                              {product.stock_physical_cases === 0 ? 'Sin Stock' : 'Añadir al Pedido B2B'}
+                              {campaign 
+                                ? '📅 Reservar Preventa'
+                                : product.stock_physical_cases > 0 
+                                  ? 'Añadir al Pedido B2B' 
+                                  : (product.stock_in_production_cases || 0) > 0 
+                                    ? 'Pre-comprar (Reserva)' 
+                                    : 'Sin Stock'}
                             </button>
                           )
                         )}
@@ -3120,8 +4274,15 @@ function App() {
                           
                           <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                             {/* Vista Cliente: Controles de compra */}
-                            {!isAdmin && (
-                              product.stock_physical_cases > 0 ? (
+                            {!isAdmin && (() => {
+                              const campaign = product.campaign_id ? campaignsList.find(c => c.id === product.campaign_id) : null;
+                              const isReservationsClosed = campaign && campaign.status !== 'open';
+                              
+                              if (isReservationsClosed) {
+                                return <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>🔒 Cerrado</span>;
+                              }
+                              
+                              return (product.stock_physical_cases > 0 || campaign) ? (
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
                                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center' }}>
                                     {inCartQty > 0 ? (
@@ -3130,7 +4291,7 @@ function App() {
                                         <input 
                                           type="number"
                                           min="1"
-                                          max={product.stock_physical_cases || 1000}
+                                          max={product.stock_physical_cases || product.stock_in_production_cases || 1000}
                                           value={inCartQty}
                                           onChange={(e) => handleSetCartQty(product.id, parseInt(e.target.value))}
                                           style={{
@@ -3149,7 +4310,7 @@ function App() {
                                       </>
                                     ) : (
                                       <button onClick={() => handleAddToCart(product.id)} className="btn-neon" style={{ padding: '6px 14px', fontSize: '12px', fontWeight: '700', borderRadius: '6px' }}>
-                                        Añadir
+                                        {campaign ? 'Reservar' : 'Añadir'}
                                       </button>
                                     )}
                                   </div>
@@ -3161,8 +4322,8 @@ function App() {
                                 </div>
                               ) : (
                                 <span style={{ color: 'var(--text-muted)' }}>Agotado</span>
-                              )
-                            )}
+                              );
+                            })()}
 
                             {/* Vista Admin: Controles de edición */}
                             {isAdmin && (
@@ -3222,29 +4383,56 @@ function App() {
             )}
           </div>
         )}
+          </div>
+        )}
 
         {/* ===================================================== */}
         {/* TAB 2: REGISTRO DE VENTAS (ADMIN) / MIS PEDIDOS (CLIENTE) */}
         {/* ===================================================== */}
         {activeTab === 'orders' && !dataLoading && (
           <div>
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+              accept="image/*,application/pdf"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file && activeUploadOrderId) {
+                  handleUploadPaymentReceipt(activeUploadOrderId, file);
+                }
+                e.target.value = '';
+              }}
+            />
             <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
               <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>
-                {isAdmin ? '📊 Registro de Ventas B2B' : 'Bóveda de Documentos B2B'}
+                {isAdmin 
+                  ? (lang === 'es' ? '📊 Registro de Ventas B2B' : '📊 B2B Sales Registry') 
+                  : (lang === 'es' ? 'Bóveda de Documentos B2B' : 'B2B Document Vault')}
               </h1>
               <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
                 {isAdmin
-                  ? 'Monitorea, aprueba y haz tracking logístico de todos los pedidos realizados por tus clientes B2B.'
-                  : 'Monitorea el tracking de tus pedidos y descarga tus Invoices y Packing Lists.'}
+                  ? (lang === 'es' 
+                      ? 'Monitorea, aprueba y haz tracking logístico de todos los pedidos realizados por tus clientes B2B.'
+                      : 'Monitor, approve, and logistically track all orders placed by your B2B clients.')
+                  : (lang === 'es'
+                      ? 'Monitorea el tracking de tus pedidos y descarga tus Invoices y Packing Lists.'
+                      : 'Monitor your order tracking and download your Invoices and Packing Lists.')}
               </p>
             </div>
 
             {clientOrders.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
                 <p style={{ fontSize: '18px', marginBottom: '8px' }}>
-                  {isAdmin ? 'No hay registros de ventas en el sistema.' : 'No tienes pedidos aún en el sistema.'}
+                  {isAdmin 
+                    ? (lang === 'es' ? 'No hay registros de ventas en el sistema.' : 'No sales records found in the system.') 
+                    : (lang === 'es' ? 'No tienes pedidos aún en el sistema.' : 'You don\'t have any orders in the system yet.')}
                 </p>
-                {!isAdmin && <button className="btn-neon" onClick={() => setActiveTab('catalog')}>Ir al Catálogo Comercial</button>}
+                {!isAdmin && (
+                  <button className="btn-neon" onClick={() => setActiveTab('catalog')}>
+                    {lang === 'es' ? 'Ir al Catálogo Comercial' : 'Go to Catalog'}
+                  </button>
+                )}
               </div>
             ) : (
               <div className="glass-panel" style={{ padding: '0', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
@@ -3252,14 +4440,14 @@ function App() {
                   <table className="premium-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
-                        <th style={{ padding: '16px', minWidth: '110px' }}>N° Purchase Order</th>
-                        <th style={{ padding: '16px' }}>Fecha</th>
-                        {isAdmin && <th style={{ padding: '16px' }}>Cliente B2B</th>}
-                        <th style={{ padding: '16px', textAlign: 'right' }}>Cajas</th>
-                        <th style={{ padding: '16px', textAlign: 'right' }}>Volumen</th>
+                        <th style={{ padding: '16px' }}>PO</th>
+                        <th style={{ padding: '16px' }}>{lang === 'es' ? 'Fecha Creación' : 'Created Date'}</th>
+                        {isAdmin && <th style={{ padding: '16px' }}>{lang === 'es' ? 'Cliente B2B' : 'B2B Client'}</th>}
+                        <th style={{ padding: '16px', textAlign: 'right' }}>{lang === 'es' ? 'Volumen/Cajas' : 'Volume/Cartons'}</th>
                         <th style={{ padding: '16px', textAlign: 'right' }}>Total FOB</th>
-                        <th style={{ padding: '16px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Estado</th>
-                        <th style={{ padding: '16px', textAlign: 'center' }}>Acciones</th>
+                        <th style={{ padding: '16px' }}>{lang === 'es' ? 'Estado de Pago' : 'Payment Status'}</th>
+                        <th style={{ padding: '16px' }}>{lang === 'es' ? 'Estado Logístico' : 'Logistics Status'}</th>
+                        <th style={{ padding: '16px', textAlign: 'center' }}>{lang === 'es' ? 'Acciones (Docs)' : 'Actions (Docs)'}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -3277,39 +4465,132 @@ function App() {
                               <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{order.client_name}</div>
                             </td>
                           )}
-                          <td style={{ padding: '16px', textAlign: 'right', fontWeight: '600' }}>
-                            {order.total_cases || 0}
-                          </td>
-                          <td style={{ padding: '16px', textAlign: 'right', color: 'var(--cyan-neon)' }}>
-                            {parseFloat(order.total_cbm || 0).toFixed(4)} CBM
+                          <td style={{ padding: '16px', textAlign: 'right' }}>
+                            <div style={{ fontWeight: '600', color: '#fff' }}>{order.total_cases || 0} {order.total_cases === 1 ? t('caja') : t('cajas')}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--cyan-neon)', marginTop: '2px' }}>{parseFloat(order.total_cbm || 0).toFixed(4)} CBM</div>
                           </td>
                           <td style={{ padding: '16px', textAlign: 'right', fontWeight: 'bold', color: 'var(--green-neon)' }}>
                             ${parseFloat(order.total_usd || order.total_amount_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                           </td>
                           <td style={{ padding: '16px' }}>
                             <span className={`badge ${
-                              order.status === 'Draft' ? 'badge-pink' :
-                              order.status === 'Proforma' ? 'badge-cyan' :
-                              order.status === 'Production' ? 'badge-orange' :
-                              order.status === 'QC Inspection' ? 'badge-orange' :
-                              order.status === 'Port' ? 'badge-cyan' :
-                              order.status === 'Transit' ? 'badge-orange' :
-                              'badge-green'
+                              order.payment_status === 'Pagado' ? 'badge-green' :
+                              order.payment_status === 'Crédito' ? 'badge-cyan' :
+                              order.payment_status === 'En Revisión' ? 'badge-orange' :
+                              'badge-red'
                             }`} style={{ fontSize: '11px', padding: '4px 8px' }}>
-                              {order.status}
+                              {order.payment_status === 'Pagado' ? '🟢 Pagado' :
+                               order.payment_status === 'Crédito' ? '🔵 Crédito' :
+                               order.payment_status === 'En Revisión' ? '🟠 En Revisión' :
+                               '🔴 Pendiente'}
                             </span>
                           </td>
+                          <td style={{ padding: '16px' }}>
+                            {isAdmin ? (
+                              <select
+                                value={order.status}
+                                onChange={async (e) => {
+                                  try {
+                                    await ordersApi.updateStatus(order.id, e.target.value);
+                                    await loadOrders();
+                                  } catch(err) {
+                                    alert(`❌ Error al cambiar estado: ${err.message}`);
+                                  }
+                                }}
+                                style={{
+                                  background: 'rgba(0,0,0,0.3)',
+                                  border: '1px solid var(--border-color)',
+                                  color: order.status === 'Entregado' ? 'var(--green-neon)' : order.status === 'Enviado' ? 'var(--orange-neon)' : order.status === 'En Preparación' ? 'var(--cyan-neon)' : 'var(--pink-neon)',
+                                  padding: '6px 10px',
+                                  borderRadius: '6px',
+                                  fontSize: '12px',
+                                  fontWeight: '700'
+                                }}
+                              >
+                                <option value="En Revisión" style={{ color: '#fff', background: '#121212' }}>En Revisión</option>
+                                <option value="En Preparación" style={{ color: '#fff', background: '#121212' }}>En Preparación</option>
+                                <option value="Enviado" style={{ color: '#fff', background: '#121212' }}>Enviado</option>
+                                <option value="Entregado" style={{ color: '#fff', background: '#121212' }}>Entregado</option>
+                              </select>
+                            ) : (
+                              <span className={`badge ${
+                                order.status === 'En Revisión' ? 'badge-pink' :
+                                order.status === 'En Preparación' ? 'badge-cyan' :
+                                order.status === 'Enviado' ? 'badge-orange' :
+                                'badge-green'
+                              }`} style={{ fontSize: '11px', padding: '4px 8px' }}>
+                                {order.status}
+                              </span>
+                            )}
+                          </td>
                           <td style={{ padding: '16px', textAlign: 'center' }}>
-                            <button
-                              onClick={() => {
-                                setSelectedOrderDetail(order);
-                                setShowOrderDetailModal(true);
-                              }}
-                              className="btn-glass-cyan"
-                              style={{ padding: '6px 14px', fontSize: '12px' }}
-                            >
-                              👁️ Ver Detalle
-                            </button>
+                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                              <button
+                                onClick={() => {
+                                  setSelectedOrderDetail(order);
+                                  setShowOrderDetailModal(true);
+                                }}
+                                className="btn-glass-cyan"
+                                style={{ padding: '6px 10px', fontSize: '12px' }}
+                                title="Ver Detalle"
+                              >
+                                👁️
+                              </button>
+                              {/* Botón de Comprobante / Subida a Cloudinary */}
+                              {order.balance_receipt_url ? (
+                                <a
+                                  href={order.balance_receipt_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="btn-glass"
+                                  style={{ padding: '6px 10px', fontSize: '12px', background: 'rgba(0, 232, 255, 0.15)', border: '1px solid var(--cyan-neon)', color: 'var(--cyan-neon)', display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}
+                                  title="Ver Comprobante de Pago (Cloudinary)"
+                                >
+                                  🧾
+                                </a>
+                              ) : order.payment_method === 'stripe' ? (
+                                <button
+                                  onClick={() => handleViewStripeReceipt(order.id)}
+                                  className="btn-glass"
+                                  style={{ padding: '6px 10px', fontSize: '12px', background: 'rgba(0, 232, 255, 0.15)', border: '1px solid var(--cyan-neon)', color: 'var(--cyan-neon)' }}
+                                  title="Ver Recibo de Pago Stripe"
+                                >
+                                  💳
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    setActiveUploadOrderId(order.id);
+                                    fileInputRef.current.click();
+                                  }}
+                                  className="btn-glass"
+                                  style={{ padding: '6px 10px', fontSize: '12px', background: 'rgba(255, 9, 187, 0.15)', border: '1px solid var(--pink-neon)', color: 'var(--pink-neon)' }}
+                                  title="Subir Comprobante a Cloudinary"
+                                >
+                                  📤
+                                </button>
+                              )}
+                              {isAdmin && (
+                                <>
+                                  <button
+                                    onClick={() => handleShareWhatsApp(order)}
+                                    className="btn-glass"
+                                    style={{ padding: '6px 10px', fontSize: '12px', background: 'rgba(37, 211, 102, 0.15)', border: '1px solid #25d366', color: '#25d366' }}
+                                    title="Enviar por WhatsApp (json.pe)"
+                                  >
+                                    💬
+                                  </button>
+                                  <button
+                                    onClick={() => handleShareEmail(order)}
+                                    className="btn-glass"
+                                    style={{ padding: '6px 10px', fontSize: '12px', background: 'rgba(233, 30, 99, 0.15)', border: '1px solid #e91e63', color: '#e91e63' }}
+                                    title="Enviar por Email (Resend)"
+                                  >
+                                    ✉️
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -3322,15 +4603,337 @@ function App() {
         )}
 
         {/* ===================================================== */}
+        {/* TAB: COBRANZAS B2B (Solo Admin)                       */}
+        {/* ===================================================== */}
+        {activeTab === 'billing' && isAdmin && !dataLoading && (() => {
+          // Filtrado local de órdenes
+          const filteredBillingOrders = clientOrders.filter(order => {
+            if (billingFilter === 'pending') return order.payment_status === 'Pendiente';
+            if (billingFilter === 'review') return order.payment_status === 'En Revisión';
+            if (billingFilter === 'credit') return order.payment_status === 'Crédito';
+            if (billingFilter === 'paid') return order.payment_status === 'Pagado';
+            return true;
+          });
+
+          // Cálculos de KPIs
+          const totalPaid = clientOrders
+            .filter(o => o.payment_status === 'Pagado')
+            .reduce((acc, o) => acc + parseFloat(o.total_usd || 0), 0);
+
+          const totalCredit = clientOrders
+            .filter(o => o.payment_status === 'Crédito')
+            .reduce((acc, o) => acc + parseFloat(o.total_usd || 0), 0);
+
+          const pendingReviews = clientOrders.filter(o => o.payment_status === 'En Revisión').length;
+
+          // Helper para comprobar si una fecha de crédito está vencida
+          const isCreditOverdue = (dueDateStr) => {
+            if (!dueDateStr) return false;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const dueDate = new Date(dueDateStr);
+            dueDate.setHours(0, 0, 0, 0);
+            return dueDate < today;
+          };
+
+          return (
+            <div>
+              {/* Tarjetas de Métricas de Cobranza */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+                <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--green-neon)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '600', marginBottom: '4px' }}>
+                    {lang === 'es' ? '💰 Total Recaudado / Cobrado' : '💰 Total Collected / Paid'}
+                  </div>
+                  <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--green-neon)' }}>
+                    ${totalPaid.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    {lang === 'es' ? 'Pagos liquidados por Stripe y transferencias aprobadas.' : 'Payments settled via Stripe and approved wire transfers.'}
+                  </div>
+                </div>
+
+                <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--cyan-neon)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '600', marginBottom: '4px' }}>
+                    {lang === 'es' ? '🔵 Crédito Comercial Vigente' : '🔵 Active Commercial Credit'}
+                  </div>
+                  <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--cyan-neon)' }}>
+                    ${totalCredit.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    {lang === 'es' ? 'Cuentas B2B por cobrar con vencimiento pactado.' : 'B2B accounts receivable with agreed due date.'}
+                  </div>
+                </div>
+
+                <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--orange-neon)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: '600', marginBottom: '4px' }}>
+                    {lang === 'es' ? '🟠 Vouchers en Revisión' : '🟠 Payment Slips under Review'}
+                  </div>
+                  <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--orange-neon)' }}>
+                    {pendingReviews} {lang === 'es' ? (pendingReviews === 1 ? 'pedido' : 'pedidos') : (pendingReviews === 1 ? 'order' : 'orders')}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    {lang === 'es' ? 'Transferencias bancarias pendientes de validación.' : 'Bank transfers pending approval.'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Título y Controles de Filtros */}
+              <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
+                  <div>
+                    <h1 style={{ fontSize: '24px', margin: '0 0 4px', fontWeight: '800', color: '#fff' }}>
+                      {lang === 'es' ? '💳 Control de Cobranzas B2B' : '💳 B2B Credit Collections'}
+                    </h1>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
+                      {lang === 'es'
+                        ? 'Gestiona la conciliación de transferencias, aprueba comprobantes de pago y define vencimientos de créditos comerciales.'
+                        : 'Manage wire reconciliations, approve payment vouchers, and set due dates for commercial credits.'}
+                    </p>
+                  </div>
+
+                  {/* Filtros rápidos */}
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => setBillingFilter('all')}
+                      className={billingFilter === 'all' ? 'btn-neon' : 'btn-glass'}
+                      style={{ padding: '8px 16px', fontSize: '12px' }}
+                    >
+                      {lang === 'es' ? 'Todos' : 'All'}
+                    </button>
+                    <button
+                      onClick={() => setBillingFilter('review')}
+                      className={billingFilter === 'review' ? 'btn-neon-orange' : 'btn-glass'}
+                      style={{ padding: '8px 16px', fontSize: '12px', borderColor: billingFilter === 'review' ? 'var(--orange-neon)' : '' }}
+                    >
+                      {lang === 'es' ? `🟠 Por Revisar (${pendingReviews})` : `🟠 Pending Review (${pendingReviews})`}
+                    </button>
+                    <button
+                      onClick={() => setBillingFilter('credit')}
+                      className={billingFilter === 'credit' ? 'btn-neon-cyan' : 'btn-glass'}
+                      style={{ padding: '8px 16px', fontSize: '12px', borderColor: billingFilter === 'credit' ? 'var(--cyan-neon)' : '' }}
+                    >
+                      {lang === 'es' ? '🔵 Créditos' : '🔵 Credits'}
+                    </button>
+                    <button
+                      onClick={() => setBillingFilter('paid')}
+                      className={billingFilter === 'paid' ? 'btn-neon-green' : 'btn-glass'}
+                      style={{ padding: '8px 16px', fontSize: '12px', borderColor: billingFilter === 'paid' ? 'var(--green-neon)' : '' }}
+                    >
+                      {lang === 'es' ? '🟢 Cobradas' : '🟢 Collected'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Tabla de Cobranzas */}
+                {filteredBillingOrders.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)', fontSize: '13.5px' }}>
+                    {lang === 'es' ? 'No se encontraron registros de cobros bajo este filtro.' : 'No collections found matching this filter.'}
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', textAlign: 'left' }}>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>PO</th>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{lang === 'es' ? 'Cliente B2B' : 'B2B Client'}</th>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'right' }}>Total FOB</th>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{lang === 'es' ? 'Método' : 'Method'}</th>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{lang === 'es' ? 'Estado de Pago' : 'Payment Status'}</th>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{lang === 'es' ? 'Vencimiento Crédito' : 'Credit Due Date'}</th>
+                          <th style={{ padding: '12px 16px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'center' }}>{t('col_acciones')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredBillingOrders.map(order => {
+                          const isOverdue = order.payment_status === 'Crédito' && isCreditOverdue(order.credit_due_date);
+                          return (
+                            <tr key={order.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: isOverdue ? 'rgba(255,0,0,0.02)' : 'transparent' }}>
+                              <td style={{ padding: '14px 16px' }}>
+                                <button
+                                  onClick={() => {
+                                    setSelectedOrderDetail(order);
+                                    setShowOrderDetailModal(true);
+                                  }}
+                                  style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', fontWeight: '800', cursor: 'pointer', padding: 0, textDecoration: 'underline', fontFamily: 'monospace' }}
+                                >
+                                  {order.po_number || 'PO-????'}
+                                </button>
+                              </td>
+                              <td style={{ padding: '14px 16px' }}>
+                                <div style={{ color: '#fff', fontWeight: '600', fontSize: '12.5px' }}>{order.company_name}</div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{order.client_name}</div>
+                              </td>
+                              <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 'bold', color: 'var(--green-neon)', fontSize: '13px' }}>
+                                ${parseFloat(order.total_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                              <td style={{ padding: '14px 16px', fontSize: '12px', color: '#fff' }}>
+                                {order.payment_method === 'stripe' ? (
+                                  <span style={{ color: 'var(--cyan-neon)', fontWeight: '600' }}>💳 Tarjeta (Stripe)</span>
+                                ) : order.payment_method === 'transfer' ? (
+                                  <span style={{ color: '#fff' }}>🏦 Transferencia</span>
+                                ) : (
+                                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '14px 16px' }}>
+                                <span className={`badge ${
+                                  order.payment_status === 'Pagado' ? 'badge-green' :
+                                  order.payment_status === 'Crédito' ? 'badge-cyan' :
+                                  order.payment_status === 'En Revisión' ? 'badge-orange' :
+                                  'badge-red'
+                                }`} style={{ fontSize: '11px', padding: '4px 8px' }}>
+                                  {order.payment_status === 'Pagado' ? '🟢 Pagado' :
+                                   order.payment_status === 'Crédito' ? '🔵 Crédito' :
+                                   order.payment_status === 'En Revisión' ? '🟠 En Revisión' :
+                                   '🔴 Pendiente'}
+                                </span>
+                              </td>
+                              <td style={{ padding: '14px 16px' }}>
+                                {order.payment_status === 'Crédito' ? (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <input
+                                      type="date"
+                                      value={order.credit_due_date ? order.credit_due_date.substring(0, 10) : ''}
+                                      onChange={(e) => handleUpdateCreditDueDate(order.id, e.target.value)}
+                                      style={{
+                                        background: '#121212',
+                                        border: isOverdue ? '1px solid var(--pink-neon)' : '1px solid var(--border-color)',
+                                        color: isOverdue ? 'var(--pink-neon)' : '#fff',
+                                        padding: '4px 8px',
+                                        borderRadius: '6px',
+                                        fontSize: '12px',
+                                        outline: 'none',
+                                        fontWeight: isOverdue ? '800' : '400'
+                                      }}
+                                    />
+                                    {isOverdue && (
+                                      <span style={{ color: 'var(--pink-neon)', fontSize: '12px', fontWeight: '800', animation: 'pulse 1.5s infinite' }} title="¡Vencido!">
+                                        ⚠️
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>—</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                                <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                                  {/* Mostrar botón para ver comprobante si existe */}
+                                  {order.balance_receipt_url && (
+                                    <a
+                                      href={order.balance_receipt_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="btn-glass"
+                                      style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--cyan-neon)', borderColor: 'var(--cyan-neon)', background: 'rgba(0, 232, 255, 0.05)', display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}
+                                      title={order.payment_method === 'stripe' ? 'Ver Recibo de Stripe' : 'Ver Comprobante de Transferencia'}
+                                    >
+                                      🧾
+                                    </a>
+                                  )}
+
+                                  {/* Acciones de Aprobación de Transferencias */}
+                                  {order.payment_status === 'En Revisión' && (
+                                    <button
+                                      onClick={() => handleApprovePayment(order.id)}
+                                      className="btn-neon"
+                                      style={{ padding: '6px 12px', fontSize: '11.5px', background: 'rgba(0, 232, 80, 0.2)', color: 'var(--green-neon)', borderColor: 'var(--green-neon)', fontWeight: '800' }}
+                                      title="Aprobar Pago"
+                                    >
+                                      ✔️ Aprobar
+                                    </button>
+                                  )}
+
+                                  {/* Si está pagado por Stripe pero no guardó la URL del recibo localmente */}
+                                  {!order.balance_receipt_url && order.payment_method === 'stripe' && (
+                                    <button
+                                      onClick={() => handleViewStripeReceipt(order.id)}
+                                      className="btn-glass"
+                                      style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--cyan-neon)', borderColor: 'var(--cyan-neon)', background: 'rgba(0, 232, 255, 0.05)' }}
+                                      title="Recuperar Recibo Stripe"
+                                    >
+                                      💳
+                                    </button>
+                                  )}
+
+                                  {/* Permite asignar comprobante manual a órdenes Pendientes o Créditos */}
+                                  {(order.payment_status === 'Pendiente' || order.payment_status === 'Crédito') && (
+                                    <>
+                                      {order.payment_status === 'Pendiente' ? (
+                                        <button
+                                          onClick={() => {
+                                            requestConfirm('¿Desea otorgar una línea de crédito a este pedido?', async () => {
+                                              try {
+                                                await ordersApi.updatePayment(order.id, 'Crédito', null);
+                                                alert('🎉 Crédito comercial otorgado con éxito.');
+                                                await loadOrders();
+                                              } catch (err) {
+                                                alert(`Error: ${err.message}`);
+                                              }
+                                            });
+                                          }}
+                                          className="btn-glass-neon"
+                                          style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--cyan-neon)', borderColor: 'var(--cyan-neon)' }}
+                                          title="Otorgar Crédito Comercial"
+                                        >
+                                          🔵 Otorgar Crédito
+                                        </button>
+                                      ) : (
+                                        <button
+                                          onClick={() => {
+                                            requestConfirm('¿Desea quitar el crédito de este pedido y retornarlo a Pendiente?', async () => {
+                                              try {
+                                                await ordersApi.updatePayment(order.id, 'Pendiente', null);
+                                                alert('🎉 Crédito removido con éxito.');
+                                                await loadOrders();
+                                              } catch (err) {
+                                                alert(`Error: ${err.message}`);
+                                              }
+                                            });
+                                          }}
+                                          className="btn-glass"
+                                          style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--pink-neon)', borderColor: 'var(--pink-neon)' }}
+                                          title="Quitar Crédito Comercial"
+                                        >
+                                          🔴 Quitar Crédito
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => handleEditPaymentReceipt(order)}
+                                        className="btn-glass-pink"
+                                        style={{ padding: '6px 10px', fontSize: '11px' }}
+                                        title={order.payment_status === 'Crédito' ? 'Registrar Pago / Liquidar Crédito' : 'Registrar Pago Manual'}
+                                      >
+                                        ➕ Registrar Pago
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ===================================================== */}
         {/* TAB 3: FÁBRICA & PRODUCCIÓN (Solo Admin)              */}
         {/* ===================================================== */}
         {activeTab === 'admin' && isAdmin && !dataLoading && (
           <div>
             <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
               <div>
-                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Control Interno de Fabricación</h1>
+                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>{lang === 'es' ? 'Control Interno de Fabricación' : 'Internal Manufacturing Control'}</h1>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                  Supervisa la cadena de suministro en China: cubicaje de embarques, estados de producción y logs de auditoría.
+                  {lang === 'es'
+                    ? 'Supervisa la cadena de suministro en China: cubicaje de embarques, estados de producción y logs de auditoría.'
+                    : 'Monitor supply chain in China: shipment volume, production states, and audit logs.'}
                 </p>
               </div>
               <button
@@ -3341,7 +4944,7 @@ function App() {
                       factory_name: 'Dongguan Card Supplies Factory',
                       estimated_completion_date: '',
                       tracking_number: '',
-                      status: 'Production',
+                      status: 'Proforma',
                       items: []
                     });
                   }
@@ -3349,7 +4952,7 @@ function App() {
                 className="btn-pink"
                 style={{ padding: '10px 20px', fontSize: '13px' }}
               >
-                {showProdForm ? 'Cerrar Formulario' : '➕ Crear Orden de Producción'}
+                {showProdForm ? (lang === 'es' ? 'Cerrar Formulario' : 'Close Form') : (lang === 'es' ? '➕ Crear Orden de Producción' : '➕ Create Production Order')}
               </button>
             </div>
 
@@ -3362,16 +4965,16 @@ function App() {
                 return (
                   <>
                     <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--pink-neon)' }}>
-                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Inversión Total Lotes</span>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{lang === 'es' ? 'Inversión Total Lotes' : 'Total Batch Investment'}</span>
                       <h2 style={{ fontSize: '28px', fontWeight: '900', color: '#fff', marginTop: '8px' }}>${totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h2>
                     </div>
                     <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--cyan-neon)' }}>
-                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Volumen Acumulado de Carga</span>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{lang === 'es' ? 'Volumen Acumulado de Carga' : 'Accumulated Load Volume'}</span>
                       <h2 style={{ fontSize: '28px', fontWeight: '900', color: 'var(--cyan-neon)', marginTop: '8px' }}>{totalCbm.toFixed(4)} CBM</h2>
                     </div>
                     <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--orange-neon)' }}>
-                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Órdenes en Tránsito / Prod.</span>
-                      <h2 style={{ fontSize: '28px', fontWeight: '900', color: 'var(--orange-neon)', marginTop: '8px' }}>{activeOrders} Activas</h2>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{lang === 'es' ? 'Órdenes en Tránsito / Prod.' : 'Orders in Transit / Prod.'}</span>
+                      <h2 style={{ fontSize: '28px', fontWeight: '900', color: 'var(--orange-neon)', marginTop: '8px' }}>{activeOrders} {lang === 'es' ? 'Activas' : 'Active'}</h2>
                     </div>
                   </>
                 );
@@ -3423,7 +5026,6 @@ function App() {
                         onChange={(e) => setProdForm(prev => ({ ...prev, status: e.target.value }))}
                         style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
                       >
-                        <option value="Draft">Draft (Borrador)</option>
                         <option value="Proforma">Proforma Invoice</option>
                         <option value="Production">Production (En Fabricación)</option>
                       </select>
@@ -3580,203 +5182,438 @@ function App() {
               </div>
             )}
 
-            {/* Listado de Órdenes con Timeline */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              {productionOrders.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
-                  No hay órdenes de producción activas.
-                </div>
-              ) : (
-                productionOrders.map(pOrder => {
-                  const stepNames = ['Draft', 'Proforma', 'Production', 'QC Inspection', 'Port', 'Transit', 'Delivered'];
-                  const currentStepIdx = stepNames.indexOf(pOrder.status);
-                  const isAuditOpen = activeAuditOrderId === pOrder.id;
-
-                  return (
-                    <div key={pOrder.id} className="glass-panel" style={{ padding: '24px', position: 'relative', border: '1px solid rgba(255,255,255,0.06)' }}>
+            {/* Listado de Órdenes en Formato Tabla */}
+            <div className="glass-panel" style={{ padding: '24px', overflowX: 'auto', border: '1px solid rgba(255,255,255,0.06)' }}>
+               {productionOrders.length === 0 ? (
+                 <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
+                   {lang === 'es' ? 'No hay órdenes de producción activas.' : 'No active production orders.'}
+                 </div>
+               ) : (
+                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '800px' }}>
+                   <thead>
+                     <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.08)', color: 'var(--text-secondary)', fontSize: '12px', textTransform: 'uppercase' }}>
+                       <th style={{ padding: '12px 16px' }}>{lang === 'es' ? 'N° Lote (PO)' : 'Batch No. (PO)'}</th>
+                       <th style={{ padding: '12px 16px' }}>{lang === 'es' ? 'Fábrica' : 'Factory'}</th>
+                       <th style={{ padding: '12px 16px' }}>{lang === 'es' ? 'Fecha Registro' : 'Registered Date'}</th>
+                       <th style={{ padding: '12px 16px', textAlign: 'right' }}>{lang === 'es' ? 'Presupuesto FOB' : 'FOB Budget'}</th>
+                       <th style={{ padding: '12px 16px', textAlign: 'right' }}>{lang === 'es' ? 'Cubicaje' : 'Volume'}</th>
+                       <th style={{ padding: '12px 16px' }}>{lang === 'es' ? 'Estado' : 'Status'}</th>
+                       <th style={{ padding: '12px 16px', textAlign: 'center' }}>{t('col_acciones')}</th>
+                     </tr>
+                   </thead>
+                  <tbody>
+                    {productionOrders.map(pOrder => {
+                      const stepNames = ['Proforma', 'Production', 'QC Control', 'Shipped', 'Delivered'];
                       
-                      {/* Encabezado de la Tarjeta */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '14px', marginBottom: '18px' }}>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#fff', margin: 0 }}>
-                              {pOrder.order_number}
-                            </h3>
-                            <span className="badge badge-cyan" style={{ fontSize: '10px' }}>🏭 {pOrder.factory_name}</span>
-                          </div>
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', display: 'block' }}>
-                            Registrado el: <strong>{new Date(pOrder.created_at).toLocaleString('es-ES')}</strong>
+                      return (
+                        <tr key={pOrder.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: '13px', transition: 'background 0.2s' }} className="hover-row">
+                          <td style={{ padding: '16px', fontWeight: 'bold', color: '#fff' }}>
+                            {pOrder.order_number}
+                          </td>
+                          <td style={{ padding: '16px' }}>
+                            <span className="badge badge-cyan" style={{ fontSize: '10.5px' }}>🏭 {pOrder.factory_name}</span>
+                          </td>
+                          <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>
+                            {new Date(pOrder.created_at).toLocaleDateString('es-ES')}
+                          </td>
+                          <td style={{ padding: '16px', textAlign: 'right', fontWeight: 'bold', color: 'var(--green-neon)' }}>
+                            ${parseFloat(pOrder.total_cost_usd || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td style={{ padding: '16px', textAlign: 'right', color: 'var(--cyan-neon)' }}>
+                            {parseFloat(pOrder.total_cbm || 0).toFixed(4)} CBM
+                          </td>
+                          <td style={{ padding: '16px' }}>
+                            <select
+                              value={pOrder.status}
+                              onChange={(e) => handleUpdateProductionStatus(pOrder.id, e.target.value)}
+                              style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600' }}
+                            >
+                              {stepNames.map(st => (
+                                <option key={st} value={st}>{st}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td style={{ padding: '16px', textAlign: 'center' }}>
+                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                              <button
+                                onClick={async () => {
+                                  setSelectedProductionOrder(pOrder);
+                                  setShowProductionDetailModal(true);
+                                  handleLoadProductionAuditLogs(pOrder.id);
+                                }}
+                                className="btn-glass-cyan"
+                                style={{ padding: '6px 10px', fontSize: '12px' }}
+                                title="Ver Detalle"
+                              >
+                                👁️
+                              </button>
+                              <button
+                                onClick={() => handleExportPDF(pOrder)}
+                                className="btn-glass"
+                                style={{ padding: '6px 10px', fontSize: '12px', background: 'rgba(0, 232, 255, 0.1)', border: '1px solid var(--cyan-neon)', color: 'var(--cyan-neon)' }}
+                                title="Exportar Ficha (PDF)"
+                              >
+                                📄
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ===================================================== */}
+        {/* TAB: CAMPAÑAS (Solo Admin del Tenant)                */}
+        {/* ===================================================== */}
+        {activeTab === 'campaigns' && isAdmin && !dataLoading && (
+          <div>
+            <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>{t('preventas_tirajes_activos')}</h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0 }}>
+                {t('administra_tirajes')}
+              </p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', alignItems: 'start' }}>
+              {/* FORMULARIO CREAR/EDITAR CAMPAÑA */}
+              <div className="glass-panel" style={{ padding: '24px' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
+                  {editingCampaign ? t('editar_campana') : t('crear_campana')}
+                </h2>
+                <form onSubmit={handleCreateOrUpdateCampaign} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Nombre de la Campaña</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Print Run Q4 - Dongguan"
+                      value={newCampaign.name}
+                      required
+                      onChange={(e) => setNewCampaign(prev => ({ ...prev, name: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Inicio Reservas</label>
+                      <input
+                        type="datetime-local"
+                        value={newCampaign.start_date_reservations ? newCampaign.start_date_reservations.slice(0, 16) : ''}
+                        required
+                        onChange={(e) => setNewCampaign(prev => ({ ...prev, start_date_reservations: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Cierre Reservas</label>
+                      <input
+                        type="datetime-local"
+                        value={newCampaign.end_date_reservations ? newCampaign.end_date_reservations.slice(0, 16) : ''}
+                        required
+                        onChange={(e) => setNewCampaign(prev => ({ ...prev, end_date_reservations: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Inicio Producción</label>
+                      <input
+                        type="datetime-local"
+                        value={newCampaign.start_date_production ? newCampaign.start_date_production.slice(0, 16) : ''}
+                        onChange={(e) => setNewCampaign(prev => ({ ...prev, start_date_production: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Fin Prod. Estimado</label>
+                      <input
+                        type="datetime-local"
+                        value={newCampaign.estimated_end_date_production ? newCampaign.estimated_end_date_production.slice(0, 16) : ''}
+                        onChange={(e) => setNewCampaign(prev => ({ ...prev, estimated_end_date_production: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>% Adelanto Requerido</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={newCampaign.advance_payment_pct}
+                        required
+                        onChange={(e) => setNewCampaign(prev => ({ ...prev, advance_payment_pct: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Estado</label>
+                      <select
+                        value={newCampaign.status}
+                        required
+                        onChange={(e) => setNewCampaign(prev => ({ ...prev, status: e.target.value }))}
+                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                      >
+                        <option value="open">Open (Reservas Abiertas)</option>
+                        <option value="production">Production (En Fabricación)</option>
+                        <option value="finished">Finished (Tiraje Finalizado)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                    <button type="submit" className="btn-neon" style={{ flex: 1, padding: '10px 16px', borderRadius: '8px' }}>
+                      {editingCampaign ? '💾 Guardar Cambios' : '📅 Crear Campaña'}
+                    </button>
+                    {editingCampaign && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingCampaign(null);
+                          setNewCampaign({ name: '', start_date_reservations: '', end_date_reservations: '', start_date_production: '', estimated_end_date_production: '', advance_payment_pct: 30.00, status: 'open' });
+                        }}
+                        className="btn-glass"
+                        style={{ padding: '10px 16px', borderRadius: '8px' }}
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </div>
+
+              {/* LISTADO DE CAMPAÑAS */}
+              <div className="glass-panel" style={{ padding: '24px' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
+                  Campañas Activas ({campaignsList.length})
+                </h2>
+                {campaignsList.length === 0 ? (
+                  <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No hay campañas configuradas.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {campaignsList.map(camp => (
+                      <div
+                        key={camp.id}
+                        style={{
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          borderRadius: '10px',
+                          padding: '16px',
+                          background: 'rgba(255,255,255,0.02)'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                          <span style={{ fontWeight: '700', fontSize: '15px' }}>{camp.name}</span>
+                          <span
+                            className={`badge ${
+                              camp.status === 'open' ? 'badge-green' :
+                              camp.status === 'production' ? 'badge-orange' : 'badge-blue'
+                            }`}
+                            style={{ textTransform: 'uppercase', fontSize: '10px' }}
+                          >
+                            {camp.status}
                           </span>
                         </div>
-                        
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>Avanzar Estado:</span>
-                          <select
-                            value={pOrder.status}
-                            onChange={(e) => handleUpdateProductionStatus(pOrder.id, e.target.value)}
-                            style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 12px', borderRadius: '6px', fontSize: '12.5px', fontWeight: '600' }}
+
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' }}>
+                          <div>📅 <strong>Reservas:</strong> {new Date(camp.start_date_reservations).toLocaleDateString()} al {new Date(camp.end_date_reservations).toLocaleDateString()}</div>
+                          {camp.start_date_production && (
+                            <div>🏭 <strong>Producción:</strong> {new Date(camp.start_date_production).toLocaleDateString()} {camp.estimated_end_date_production ? `al ${new Date(camp.estimated_end_date_production).toLocaleDateString()}` : ''}</div>
+                          )}
+                          <div>💳 <strong>Adelanto Requerido:</strong> {camp.advance_payment_pct}%</div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                          <button
+                            onClick={() => handleOpenCampaignProductsModal(camp)}
+                            className="btn-glass-cyan"
+                            style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '6px', marginRight: 'auto' }}
                           >
-                            <option value="Draft">Draft</option>
-                            <option value="Proforma">Proforma</option>
-                            <option value="Production">Production</option>
-                            <option value="QC Inspection">QC Inspection</option>
-                            <option value="Port">Port (FOB/CIF)</option>
-                            <option value="Transit">Transit</option>
-                            <option value="Delivered">Delivered (Entregado)</option>
-                          </select>
+                            📦 Asignar SKUs
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingCampaign(camp);
+                              setNewCampaign({
+                                name: camp.name,
+                                start_date_reservations: camp.start_date_reservations,
+                                end_date_reservations: camp.end_date_reservations,
+                                start_date_production: camp.start_date_production || '',
+                                estimated_end_date_production: camp.estimated_end_date_production || '',
+                                advance_payment_pct: camp.advance_payment_pct,
+                                status: camp.status
+                              });
+                            }}
+                            className="btn-glass"
+                            style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '6px' }}
+                          >
+                            ✏️ Editar
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCampaign(camp.id)}
+                            className="btn-glass"
+                            style={{ padding: '6px 12px', fontSize: '12px', borderRadius: '6px', color: 'var(--pink-neon)', borderColor: 'var(--pink-neon)' }}
+                          >
+                            🗑️ Eliminar
+                          </button>
                         </div>
                       </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
-                      {/* Timeline Gráfico de Estados */}
-                      <div style={{ padding: '10px 0 20px', position: 'relative' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', width: '100%' }}>
-                          {/* Línea de fondo del timeline */}
-                          <div style={{ position: 'absolute', top: '15px', left: '4%', right: '4%', height: '3px', background: 'rgba(255,255,255,0.06)', zIndex: 1 }} />
-                          {/* Línea de progreso activa */}
-                          <div style={{ position: 'absolute', top: '15px', left: '4%', width: `${(currentStepIdx / (stepNames.length - 1)) * 92}%`, height: '3px', background: 'var(--cyan-neon)', zIndex: 2, transition: 'all 0.4s ease' }} />
+        {/* ===================================================== */}
+        {/* TAB: PREVENTAS / PRINT RUNS (Clientes B2B)            */}
+        {/* ===================================================== */}
+        {activeTab === 'campaigns' && !isAdmin && !dataLoading && (
+          <div>
+            <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>{t('preventas_activas_cliente')}</h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0 }}>
+                {t('reglas_tiraje_cliente')}
+              </p>
+            </div>
 
-                          {stepNames.map((step, idx) => {
-                            const isActive = idx <= currentStepIdx;
-                            const isCurrent = idx === currentStepIdx;
+            {campaignsList.length === 0 ? (
+              <div className="glass-panel" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                No hay campañas de preventa activas en este momento. Vuelve a consultar más tarde.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+                {campaignsList.map(camp => {
+                  const campProducts = allProducts.filter(p => p.campaign_id === camp.id);
+                  
+                  return (
+                    <div key={camp.id} className="glass-panel" style={{ padding: '28px', border: camp.status === 'open' ? '1px solid var(--cyan-neon)' : '1px solid rgba(255,255,255,0.08)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '20px', marginBottom: '24px' }}>
+                        <div>
+                          <h2 style={{ fontSize: '22px', fontWeight: '800', margin: '0 0 8px 0', color: camp.status === 'open' ? 'var(--cyan-neon)' : '#fff' }}>
+                            {camp.name}
+                          </h2>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                            <div>📅 <strong>Cierre de Reservas:</strong> {new Date(camp.end_date_reservations).toLocaleDateString()}</div>
+                            {camp.start_date_production && (
+                              <div>🏭 <strong>Fabricación:</strong> {new Date(camp.start_date_production).toLocaleDateString()} {camp.estimated_end_date_production ? `al ${new Date(camp.estimated_end_date_production).toLocaleDateString()}` : ''}</div>
+                            )}
+                            <div>💳 <strong>Regla de Pago:</strong> Requiere {parseFloat(camp.advance_payment_pct).toFixed(0)}% de Adelanto</div>
+                          </div>
+                        </div>
+
+                        <span
+                          className={`badge ${
+                            camp.status === 'open' ? 'badge-green' :
+                            camp.status === 'production' ? 'badge-orange' : 'badge-blue'
+                          }`}
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: '800',
+                            padding: '6px 12px',
+                            borderRadius: '12px',
+                            textTransform: 'uppercase',
+                            boxShadow: camp.status === 'open' ? '0 0 10px rgba(0, 232, 255, 0.2)' : 'none'
+                          }}
+                        >
+                          {camp.status === 'open' ? '🟢 Abierta para Reservas' :
+                           camp.status === 'production' ? '🏭 En Producción' : '📦 Tiraje Finalizado'}
+                        </span>
+                      </div>
+
+                      <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px', color: 'var(--text-secondary)' }}>
+                        Productos en este Tiraje ({campProducts.length})
+                      </h3>
+
+                      {campProducts.length === 0 ? (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No hay productos asignados a este tiraje.</p>
+                      ) : (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
+                          {campProducts.map(product => {
+                            const inCartQty = cart[product.id] || 0;
+                            const isReservationsClosed = camp.status !== 'open';
+                            
                             return (
-                              <div key={step} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 3, position: 'relative', width: '12%' }}>
-                                <div style={{
-                                  width: '32px',
-                                  height: '32px',
-                                  borderRadius: '50%',
-                                  background: isCurrent ? 'var(--pink-neon)' : isActive ? 'var(--cyan-neon)' : 'rgba(20, 20, 20, 0.9)',
-                                  border: isActive ? '2px solid transparent' : '2px solid rgba(255,255,255,0.1)',
-                                  boxShadow: isCurrent ? '0 0 10px var(--pink-neon)' : isActive ? '0 0 8px var(--cyan-neon)' : 'none',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  fontSize: '12px',
-                                  color: isActive ? '#000' : 'rgba(255,255,255,0.4)',
-                                  fontWeight: '900',
-                                  transition: 'all 0.3s'
-                                }}>
-                                  {idx + 1}
+                              <div key={product.id} className="glass-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '380px', background: 'rgba(255,255,255,0.01)' }}>
+                                <div>
+                                  <div style={{ width: '100%', aspectRatio: '1/1', background: 'rgba(0,0,0,0.4)', borderRadius: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', marginBottom: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                    {product.image_url ? (
+                                      <img src={product.image_url} alt={product.name} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                                    ) : (
+                                      <span style={{ fontSize: '28px' }}>📦</span>
+                                    )}
+                                  </div>
+
+                                  <div style={{ fontWeight: '700', fontSize: '14px', marginBottom: '4px' }}>{product.name}</div>
+                                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>{product.sku}</div>
+                                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                                    {product.units_per_case} unidades por caja
+                                  </div>
                                 </div>
-                                <span style={{ fontSize: '10px', marginTop: '6px', textAlign: 'center', fontWeight: isCurrent ? '700' : '500', color: isCurrent ? 'var(--pink-neon)' : isActive ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>
-                                  {step}
-                                </span>
+
+                                <div>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '12px' }}>
+                                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Precio / caja:</span>
+                                    <span style={{ fontSize: '16px', fontWeight: '800', color: 'var(--cyan-neon)' }}>
+                                      ${parseFloat(product.price_per_case_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                                    </span>
+                                  </div>
+
+                                  {isReservationsClosed ? (
+                                    <button
+                                      className="btn-glass"
+                                      style={{ width: '100%', padding: '8px 12px', fontSize: '12px', cursor: 'not-allowed', color: 'var(--text-muted)' }}
+                                      disabled
+                                    >
+                                      🔒 Reservas Cerradas
+                                    </button>
+                                  ) : inCartQty > 0 ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
+                                        <button onClick={() => handleRemoveFromCart(product.id)} className="btn-glass" style={{ padding: '4px 10px', fontSize: '11px', fontWeight: '700' }}>-</button>
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          max={product.stock_in_production_cases || 1000}
+                                          value={inCartQty}
+                                          onChange={(e) => handleSetCartQty(product.id, parseInt(e.target.value))}
+                                          style={{ width: '60px', textAlign: 'center', background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '4px', borderRadius: '4px', fontSize: '12px', fontWeight: '700' }}
+                                        />
+                                        <button onClick={() => handleAddToCart(product.id)} className="btn-glass" style={{ padding: '4px 10px', fontSize: '11px', fontWeight: '700' }}>+</button>
+                                      </div>
+                                      <span style={{ fontSize: '10px', color: 'var(--cyan-neon)', fontWeight: '600' }}>
+                                        ({(inCartQty * product.units_per_case).toLocaleString()} uds. en reserva)
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleAddToCart(product.id)}
+                                      className="btn-glass-neon"
+                                      style={{ width: '100%', padding: '8px 12px', fontSize: '12px' }}
+                                    >
+                                      📅 Reservar Preventa
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             );
                           })}
                         </div>
-                      </div>
-
-                      {/* Resumen Financiero y Logístico */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginBottom: '20px', marginTop: '10px' }}>
-                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
-                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Costo Total Lote</div>
-                          <strong style={{ fontSize: '15px', color: '#fff', marginTop: '2px', display: 'block' }}>
-                            ${parseFloat(pOrder.total_cost_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
-                          </strong>
-                        </div>
-                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
-                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Cubicaje de Embarque</div>
-                          <strong style={{ fontSize: '15px', color: 'var(--cyan-neon)', marginTop: '2px', display: 'block' }}>
-                            {parseFloat(pOrder.total_cbm).toFixed(4)} CBM
-                          </strong>
-                        </div>
-                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
-                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Tracking Contenedor</div>
-                          <strong style={{ fontSize: '14px', color: '#fff', marginTop: '2px', display: 'block', textTransform: 'uppercase' }}>
-                            {pOrder.tracking_number || 'N/A'}
-                          </strong>
-                        </div>
-                        <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
-                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Entrega Estimada / Real</div>
-                          <strong style={{ fontSize: '13px', color: '#fff', marginTop: '2px', display: 'block' }}>
-                            {pOrder.status === 'Delivered' 
-                              ? `Entregado: ${new Date(pOrder.actual_completion_date).toLocaleDateString('es-ES')}` 
-                              : pOrder.estimated_completion_date 
-                                ? new Date(pOrder.estimated_completion_date).toLocaleDateString('es-ES') 
-                                : 'Sin estimar'}
-                          </strong>
-                        </div>
-                      </div>
-
-                      {/* Detalle de Productos */}
-                      <div style={{ background: 'rgba(0,0,0,0.1)', padding: '14px 18px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.02)', marginBottom: '16px' }}>
-                        <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', margin: '0 0 10px', letterSpacing: '0.5px' }}>Productos a Producir:</h4>
-                        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          {pOrder.items?.map((item, idx) => (
-                            <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', borderBottom: '1px solid rgba(255,255,255,0.01)', paddingBottom: '4px' }}>
-                              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                <span style={{ color: '#fff' }}>{item.name} <em style={{ fontSize: '11px', color: 'var(--text-secondary)', fontStyle: 'normal' }}>(SKU: {item.sku})</em></span>
-                                {item.production_files_url && (
-                                  <a href={item.production_files_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '11px', color: 'var(--cyan-neon)', textDecoration: 'underline', width: 'fit-content', marginTop: '2px' }}>
-                                    📁 Ver archivos de producción
-                                  </a>
-                                )}
-                              </div>
-                              <span style={{ color: 'var(--cyan-neon)' }}>
-                                <strong>{item.quantity_cases} Cajas master</strong> ({parseFloat(item.item_cbm).toFixed(4)} CBM)
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      {/* Control de Auditoría Expandible y Exportar PDF */}
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                        <button
-                          type="button"
-                          onClick={() => handleExportPDF(pOrder)}
-                          className="btn-glass-neon"
-                          style={{ padding: '6px 14px', fontSize: '11.5px', fontWeight: '700' }}
-                        >
-                          📄 Exportar Ficha (PDF)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (isAuditOpen) {
-                              setActiveAuditOrderId(null);
-                            } else {
-                              handleLoadProductionAuditLogs(pOrder.id);
-                            }
-                          }}
-                          className="btn-glass"
-                          style={{ padding: '6px 14px', fontSize: '11.5px', fontWeight: '600' }}
-                        >
-                          {isAuditOpen ? '📋 Ocultar Bitácora' : '📋 Ver Bitácora de Auditoría'}
-                        </button>
-                      </div>
-
-                      {/* Contenido de Bitácora de Auditoría */}
-                      {isAuditOpen && (
-                        <div className="glass-panel" style={{ marginTop: '16px', padding: '16px', background: 'rgba(0,232,255,0.01)', border: '1px solid rgba(0,232,255,0.15)', borderRadius: '8px' }}>
-                          <h4 style={{ fontSize: '12.5px', color: 'var(--cyan-neon)', margin: '0 0 12px', fontWeight: '700', textTransform: 'uppercase' }}>
-                            📜 Registro de Auditoría de Estados
-                          </h4>
-                          {productionAuditLogs.length === 0 ? (
-                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Cargando logs o sin cambios de estado aún...</div>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto' }}>
-                              {productionAuditLogs.map((log) => (
-                                <div key={log.id} style={{ fontSize: '11.5px', borderBottom: '1px solid rgba(255,255,255,0.02)', paddingBottom: '6px' }}>
-                                  <span style={{ color: 'var(--cyan-neon)' }}>{new Date(log.created_at).toLocaleString('es-ES')}</span>
-                                  <span style={{ color: '#fff' }}> — <strong>{log.user_name}</strong> {log.action === 'CREATE_PRODUCTION_ORDER' ? 'creó la orden' : 'cambió el estado'}</span>
-                                  {log.old_value && (
-                                    <>
-                                      <span> de <strong style={{ color: 'var(--orange-neon)' }}>{log.old_value}</strong></span>
-                                    </>
-                                  )}
-                                  <span> a <strong style={{ color: 'var(--green-neon)' }}>{log.new_value}</strong></span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
                       )}
                     </div>
                   );
-                })
-              )}
-            </div>
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -4066,45 +5903,230 @@ function App() {
             {/* PANEL DE CONFIGURACIÓN DEL NEGOCIO & DATOS BANCARIOS */}
             <div className="glass-panel" style={{ padding: '24px', marginTop: '24px' }}>
               <h2 style={{ fontSize: '20px', fontWeight: '800', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '16px', marginBottom: '20px', color: 'var(--cyan-neon)' }}>
-                ⚙️ Configuración del Negocio & Métodos de Pago
+                ⚙️ {t('configuracion_general')}
               </h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginTop: '-12px', marginBottom: '20px' }}>
+                {t('configura_empresa')}
+              </p>
               <form onSubmit={handleUpdateTenantSettings} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                
-                {/* Sección 1: API Keys */}
-                <div>
-                  <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#fff', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🔑 Integraciones Externas</h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
-                        Token de json.pe (Conector de WhatsApp)
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Escribe tu API Key de json.pe..."
-                        value={tenantSettings.whatsapp_api_key}
-                        onChange={(e) => setTenantSettings(prev => ({ ...prev, whatsapp_api_key: e.target.value }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                        Requerido para el envío automático de notificaciones de estados de pedido y proformas directamente a WhatsApp.
-                      </span>
+                {/* Sección 1: Integraciones Externas */}
+                <div style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '24px' }}>
+                  <h3 style={{ fontSize: '13px', fontWeight: '800', color: '#fff', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🔑 Integraciones Externas</h3>
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    
+                    {/* A. NOTIFICACIONES (WhatsApp & Email) */}
+                    <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px', padding: '20px' }}>
+                      <h4 style={{ fontSize: '12px', fontWeight: '700', color: 'var(--cyan-neon)', marginBottom: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        💬 Notificaciones Automatizadas B2B (WhatsApp & Email)
+                      </h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                            Token de json.pe (Conector de WhatsApp)
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Escribe tu API Key de json.pe..."
+                            value={tenantSettings.whatsapp_api_key}
+                            onChange={(e) => setTenantSettings(prev => ({ ...prev, whatsapp_api_key: e.target.value }))}
+                            style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                          <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                            Requerido para el envío automático de notificaciones de estados de pedido y proformas directamente a WhatsApp.
+                          </span>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                            API Key de Resend (Servicio de Correo)
+                          </label>
+                          <input
+                            type="password"
+                            placeholder="Escribe tu API Key de Resend (re_...)"
+                            value={tenantSettings.resend_api_key}
+                            onChange={(e) => setTenantSettings(prev => ({ ...prev, resend_api_key: e.target.value }))}
+                            style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                          <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                            Clave de autorización de Resend para el envío automático de facturas, packing lists y correos de bienvenida B2B.
+                          </span>
+                        </div>
+                      </div>
                     </div>
 
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
-                        API Key de Resend (Servicio de Correo)
-                      </label>
-                      <input
-                        type="password"
-                        placeholder="Escribe tu API Key de Resend (re_...)"
-                        value={tenantSettings.resend_api_key}
-                        onChange={(e) => setTenantSettings(prev => ({ ...prev, resend_api_key: e.target.value }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                      <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-                        Clave de autorización de Resend para el envío automático de facturas, packing lists y correos de bienvenida B2B.
-                      </span>
+                    {/* B. IMÁGENES & DOCUMENTOS (Cloudinary) */}
+                    <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px', padding: '20px' }}>
+                      <h4 style={{ fontSize: '12px', fontWeight: '700', color: 'var(--pink-neon)', marginBottom: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        ☁️ Almacenamiento en la Nube de Comprobantes & Logos (Cloudinary)
+                      </h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                            Cloudinary Cloud Name
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Escribe tu Cloud Name..."
+                            value={tenantSettings.cloudinary_cloud_name || ''}
+                            onChange={(e) => setTenantSettings(prev => ({ ...prev, cloudinary_cloud_name: e.target.value }))}
+                            style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                          <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                            Identificador único de tu cuenta de Cloudinary.
+                          </span>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                            Cloudinary Unsigned Upload Preset
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Escribe tu Upload Preset..."
+                            value={tenantSettings.cloudinary_upload_preset || ''}
+                            onChange={(e) => setTenantSettings(prev => ({ ...prev, cloudinary_upload_preset: e.target.value }))}
+                            style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                          <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                            Preset de subida no firmado (unsigned) configurado en Cloudinary.
+                          </span>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                            Cloudinary API Key
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Escribe tu Cloudinary API Key..."
+                            value={tenantSettings.cloudinary_api_key || ''}
+                            onChange={(e) => setTenantSettings(prev => ({ ...prev, cloudinary_api_key: e.target.value }))}
+                            style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                            Cloudinary API Secret
+                          </label>
+                          <input
+                            type="password"
+                            placeholder="Escribe tu Cloudinary API Secret..."
+                            value={tenantSettings.cloudinary_api_secret || ''}
+                            onChange={(e) => setTenantSettings(prev => ({ ...prev, cloudinary_api_secret: e.target.value }))}
+                            style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                        </div>
+                      </div>
                     </div>
+
+                    {/* C. PROCESADOR DE PAGOS (Stripe) */}
+                    <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px', padding: '20px' }}>
+                      <h4 style={{ fontSize: '12px', fontWeight: '700', color: 'var(--green-neon)', marginBottom: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        💳 Procesamiento de Pagos con Tarjeta (Stripe)
+                      </h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                            Stripe Publishable Key
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Escribe tu Stripe Publishable Key (pk_...)..."
+                            value={tenantSettings.stripe_publishable_key || ''}
+                            onChange={(e) => setTenantSettings(prev => ({ ...prev, stripe_publishable_key: e.target.value }))}
+                            style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                          <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                            Clave pública de Stripe para inicializar el SDK en el frontend.
+                          </span>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                            Stripe Secret Key
+                          </label>
+                          <input
+                            type="password"
+                            placeholder="Escribe tu Stripe Secret Key (sk_...)..."
+                            value={tenantSettings.stripe_secret_key || ''}
+                            onChange={(e) => setTenantSettings(prev => ({ ...prev, stripe_secret_key: e.target.value }))}
+                            style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+                          />
+                          <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                            Clave secreta privada de Stripe para realizar cobros desde el servidor.
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* D. LOGÍSTICA COMERCIAL */}
+                    <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px', padding: '20px' }}>
+                      <h4 style={{ fontSize: '12px', fontWeight: '700', color: 'var(--orange-neon)', marginBottom: '14px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        🚢 {t('ajustes_logistica')}
+                      </h4>
+                      <div style={{ maxWidth: '400px' }}>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                          {t('incoterm_defecto')}
+                        </label>
+                        <select
+                          value={tenantSettings.default_incoterm || 'FOB China'}
+                          onChange={(e) => setTenantSettings(prev => ({ ...prev, default_incoterm: e.target.value }))}
+                          style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontWeight: '700' }}
+                        >
+                          <option value="FOB China">FOB China</option>
+                          <option value="FOB Peru">FOB Peru</option>
+                          <option value="CIF">CIF (Cost, Insurance & Freight)</option>
+                          <option value="EXW">EXW (Ex Works)</option>
+                          <option value="EXW Peru">EXW Peru</option>
+                        </select>
+                        <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                          {lang === 'es' 
+                            ? 'Incoterm predeterminado que se asignará automáticamente a todos los nuevos pedidos B2B creados por los clientes.'
+                            : 'Default incoterm automatically assigned to all new B2B orders created by clients.'}
+                        </span>
+                      </div>
+
+                      <div style={{ maxWidth: '400px', marginTop: '20px' }}>
+                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600', textTransform: 'uppercase' }}>
+                          {t('politica_descuento')}
+                        </label>
+                        <select
+                          value={tenantSettings.discount_policy || 'tier'}
+                          onChange={(e) => setTenantSettings(prev => ({ ...prev, discount_policy: e.target.value }))}
+                          style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '12px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontWeight: '700', marginBottom: '12px' }}
+                        >
+                          <option value="tier">{t('nivel_cliente')}</option>
+                          <option value="volume">{t('volumen_sku')}</option>
+                        </select>
+
+                        {tenantSettings.discount_policy === 'volume' ? (
+                          <button
+                            type="button"
+                            onClick={() => setShowSkuVolumeRulesModal(true)}
+                            className="btn-glass-cyan"
+                            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                          >
+                            {t('configurar_volumen_sku')}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setShowPricingTiersModal(true)}
+                            className="btn-glass-cyan"
+                            style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                          >
+                            {t('configurar_tiers')}
+                          </button>
+                        )}
+
+                        <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                          Define si el descuento se calcula de acuerdo al Tier del distribuidor, o mediante reglas decrecientes de volumen por cada SKU comprado.
+                        </span>
+                      </div>
+                    </div>
+
                   </div>
                 </div>
 
@@ -4201,9 +6223,11 @@ function App() {
             {/* Header del Dashboard */}
             <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
               <div>
-                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>📈 Control de Mando Comercial</h1>
+                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>{lang === 'es' ? '📈 Control de Mando Comercial' : '📈 Commercial Dashboard'}</h1>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                  Monitorea el rendimiento financiero de tu empresa: ingresos, costos de fábrica, utilidad neta y productos líderes.
+                  {lang === 'es' 
+                    ? 'Monitorea el rendimiento financiero de tu empresa: ingresos, costos de fábrica, utilidad neta y productos líderes.'
+                    : 'Monitor your company\'s financial performance: revenue, factory costs, net profit, and leading products.'}
                 </p>
               </div>
 
@@ -4211,11 +6235,11 @@ function App() {
               <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px' }}>
                 <div className="btn-group" style={{ display: 'flex', background: 'rgba(255,255,255,0.03)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                   {[
-                    { id: '7days', label: '7 Días' },
-                    { id: '30days', label: '30 Días' },
-                    { id: 'thismonth', label: 'Este Mes' },
-                    { id: 'thisyear', label: 'Este Año' },
-                    { id: 'custom', label: 'Personalizado' }
+                    { id: '7days', label: lang === 'es' ? '7 Días' : '7 Days' },
+                    { id: '30days', label: lang === 'es' ? '30 Días' : '30 Days' },
+                    { id: 'thismonth', label: lang === 'es' ? 'Este Mes' : 'This Month' },
+                    { id: 'thisyear', label: lang === 'es' ? 'Este Año' : 'This Year' },
+                    { id: 'custom', label: lang === 'es' ? 'Personalizado' : 'Custom' }
                   ].map(filter => (
                     <button
                       key={filter.id}
@@ -4237,7 +6261,7 @@ function App() {
                       onChange={(e) => setDashboardStartDate(e.target.value)}
                       style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '11px' }}
                     />
-                    <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>a</span>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>{lang === 'es' ? 'a' : 'to'}</span>
                     <input
                       type="date"
                       value={dashboardEndDate}
@@ -4254,38 +6278,54 @@ function App() {
               
               {/* Tarjeta 1: Ventas Totales */}
               <div className="glass-panel" style={{ padding: '20px', position: 'relative', borderLeft: '4px solid var(--cyan-neon)' }}>
-                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>💰 Ventas Netas</span>
+                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  {lang === 'es' ? '💰 Ventas Netas' : '💰 Net Sales'}
+                </span>
                 <strong style={{ display: 'block', fontSize: '24px', margin: '8px 0 2px 0', color: 'var(--cyan-neon)' }}>
                   ${(dashboardData.summary?.total_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </strong>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Ingresos facturados a clientes B2B</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {lang === 'es' ? 'Ingresos facturados a clientes B2B' : 'Revenue billed to B2B clients'}
+                </span>
               </div>
 
               {/* Tarjeta 2: Costo de Ventas */}
               <div className="glass-panel" style={{ padding: '20px', position: 'relative', borderLeft: '4px solid var(--orange-neon)' }}>
-                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>🏭 Costo de Producción</span>
+                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  {lang === 'es' ? '🏭 Costo de Producción' : '🏭 Production Cost'}
+                </span>
                 <strong style={{ display: 'block', fontSize: '24px', margin: '8px 0 2px 0', color: 'var(--orange-neon)' }}>
                   ${(dashboardData.summary?.total_costs || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </strong>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Costo FOB del fabricante de sleeves</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {lang === 'es' ? 'Costo FOB del fabricante de sleeves' : 'FOB cost from sleeve supplier'}
+                </span>
               </div>
 
               {/* Tarjeta 3: Utilidad */}
               <div className="glass-panel" style={{ padding: '20px', position: 'relative', borderLeft: '4px solid var(--green-neon)' }}>
-                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>📈 Utilidad Neta</span>
+                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  {lang === 'es' ? '📈 Utilidad Neta' : '📈 Net Profit'}
+                </span>
                 <strong style={{ display: 'block', fontSize: '24px', margin: '8px 0 2px 0', color: 'var(--green-neon)' }}>
                   ${(dashboardData.summary?.total_profit || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </strong>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Ganancia neta (Ventas - Costos)</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {lang === 'es' ? 'Ganancia neta (Ventas - Costos)' : 'Net income (Sales - Costs)'}
+                </span>
               </div>
 
               {/* Tarjeta 4: Margen */}
               <div className="glass-panel" style={{ padding: '20px', position: 'relative', borderLeft: '4px solid var(--pink-neon)' }}>
-                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>📊 Margen de Ganancia</span>
+                <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  {lang === 'es' ? '📊 Margen de Ganancia' : '📊 Profit Margin'}
+                </span>
                 <strong style={{ display: 'block', fontSize: '24px', margin: '8px 0 2px 0', color: 'var(--pink-neon)' }}>
                   {(dashboardData.summary?.margin_percent || 0).toFixed(1)}%
                 </strong>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Retorno sobre ingresos totales</span>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {lang === 'es' ? 'Retorno sobre ingresos totales' : 'Return on total revenue'}
+                </span>
               </div>
 
             </div>
@@ -4409,7 +6449,11 @@ function App() {
                   </div>
                 )}
               </div>
+            </div>
 
+            {/* Mapa de Ventas por País */}
+            <div style={{ marginBottom: '24px' }}>
+              <SalesMapWidget salesByCountry={dashboardData.sales_by_country} />
             </div>
 
             {/* Tabla / Ranking de Rentabilidad de Productos */}
@@ -4475,9 +6519,11 @@ function App() {
           <div>
             <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
               <div>
-                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>📦 Control Global de Inventario</h1>
+                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>{lang === 'es' ? '📦 Control Global de Inventario' : '📦 Global Inventory Control'}</h1>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                  Supervisa el stock físico para venta B2B, inventario en producción de fábrica y gestiona las bitácoras de movimientos (Kardex).
+                  {lang === 'es'
+                    ? 'Supervisa el stock físico para venta B2B, inventario en producción de fábrica y gestiona las bitácoras de movimientos (Kardex).'
+                    : 'Supervise physical stock for B2B sales, factory production stock, and manage motion logs (Kardex).'}
                 </p>
               </div>
               <div>
@@ -4486,32 +6532,165 @@ function App() {
                   className="btn-glass"
                   style={{ padding: '8px 16px', fontSize: '13px' }}
                 >
-                  🔄 Sincronizar Existencias
+                  {lang === 'es' ? '🔄 Sincronizar Existencias' : '🔄 Sync Stock levels'}
                 </button>
+              </div>
+            </div>
+
+            {/* Indicadores de Valuación de Inventario */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+              <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--orange-neon)', boxShadow: '0 0 10px rgba(255, 165, 0, 0.05)' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase' }}>
+                  {lang === 'es' ? 'Valuación de Costo (Fábrica)' : 'Cost Valuation (Factory)'}
+                </span>
+                <h2 style={{ fontSize: '24px', margin: '8px 0 2px', fontWeight: '800', color: 'var(--orange-neon)' }}>
+                  ${invTotals.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </h2>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {lang === 'es' ? 'Costo base de producción' : 'Base production cost'}
+                </span>
+              </div>
+
+              <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--cyan-neon)', boxShadow: '0 0 10px rgba(0, 232, 255, 0.05)' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase' }}>
+                  {lang === 'es' ? `Valor Tienda (desc: ${pctTienda}%)` : `Retail Value (disc: ${pctTienda}%)`}
+                </span>
+                <h2 style={{ fontSize: '24px', margin: '8px 0 2px', fontWeight: '800', color: 'var(--cyan-neon)' }}>
+                  ${invTotals.tienda.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </h2>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {lang === 'es' ? 'Venta a minoristas / Tiendas' : 'Retail store sales'}
+                </span>
+              </div>
+
+              <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--pink-neon)', boxShadow: '0 0 10px rgba(255, 0, 127, 0.05)' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase' }}>
+                  {lang === 'es' ? `Valor Distribuidor (desc: ${pctDist}%)` : `Distributor Value (disc: ${pctDist}%)`}
+                </span>
+                <h2 style={{ fontSize: '24px', margin: '8px 0 2px', fontWeight: '800', color: 'var(--pink-neon)' }}>
+                  ${invTotals.distributor.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </h2>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {lang === 'es' ? 'Venta a distribuidores B2B' : 'B2B distributor sales'}
+                </span>
+              </div>
+
+              <div className="glass-panel" style={{ padding: '20px', borderLeft: '4px solid var(--green-neon)', boxShadow: '0 0 10px rgba(0, 230, 118, 0.05)' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase' }}>
+                  {lang === 'es' ? `Valor Partner (desc: ${pctPartner}%)` : `Partner Value (disc: ${pctPartner}%)`}
+                </span>
+                <h2 style={{ fontSize: '24px', margin: '8px 0 2px', fontWeight: '800', color: 'var(--green-neon)' }}>
+                  ${invTotals.partner.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </h2>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {lang === 'es' ? 'Venta preferencial a Partners' : 'Preferential partner sales'}
+                </span>
+              </div>
+            </div>
+
+            {/* Panel de Filtros para Inventario */}
+            <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>
+                  {lang === 'es' ? 'Buscar Producto' : 'Search Product'}
+                </label>
+                <input
+                  type="text"
+                  placeholder={lang === 'es' ? 'SKU, Nombre o Fábrica...' : 'SKU, Name or Factory...'}
+                  value={invSearchQuery}
+                  onChange={(e) => setInvSearchQuery(e.target.value)}
+                  style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', width: '220px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>{t('filtro_categoria')}</label>
+                <select
+                  value={invFilterCategory}
+                  onChange={(e) => setInvFilterCategory(e.target.value)}
+                  style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '160px' }}
+                >
+                  <option value="all">{t('todas_categorias')}</option>
+                  {categoriesList.map(cat => (
+                    <option key={cat.id} value={cat.slug}>{cat.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>{t('filtro_inventario')}</label>
+                <select
+                  value={invFilterStockStatus}
+                  onChange={(e) => setInvFilterStockStatus(e.target.value)}
+                  style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '180px' }}
+                >
+                  <option value="all">{t('todos_stocks')}</option>
+                  <option value="in_stock">{lang === 'es' ? '✅ Con Stock Físico' : '✅ In Stock'}</option>
+                  <option value="low_stock">{lang === 'es' ? '⚠️ Stock Bajo (< 50 cajas)' : '⚠️ Low Stock (< 50 cases)'}</option>
+                  <option value="out_of_stock">{lang === 'es' ? '❌ Sin Stock Físico' : '❌ Out of Stock'}</option>
+                  <option value="in_production">{lang === 'es' ? '⚙️ En Producción Activa' : '⚙️ Active Production'}</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>{t('filtro_fabrica')}</label>
+                <select
+                  value={invFilterFactory}
+                  onChange={(e) => setInvFilterFactory(e.target.value)}
+                  style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '180px' }}
+                >
+                  <option value="all">{t('todas_fabricas')}</option>
+                  {(() => {
+                    const factories = allProducts
+                      .map(p => p.factory_name)
+                      .filter(name => name && name.trim() !== '');
+                    const uniqueFactories = Array.from(new Set(factories));
+                    return uniqueFactories.map(fac => (
+                      <option key={fac} value={fac}>{fac}</option>
+                    ));
+                  })()}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'flex-end', marginLeft: 'auto', gap: '8px', alignSelf: 'stretch', paddingTop: '18px' }}>
+                {(invSearchQuery || invFilterCategory !== 'all' || invFilterStockStatus !== 'all' || invFilterFactory !== 'all') && (
+                  <button
+                    onClick={() => {
+                      setInvSearchQuery('');
+                      setInvFilterCategory('all');
+                      setInvFilterStockStatus('all');
+                      setInvFilterFactory('all');
+                    }}
+                    className="btn-glass-pink"
+                    style={{ padding: '8px 16px', fontSize: '12.5px' }}
+                  >
+                    {lang === 'es' ? '🧹 Limpiar Filtros' : '🧹 Clear Filters'}
+                  </button>
+                )}
               </div>
             </div>
 
             {/* Tabla Global de Inventario */}
             <div className="glass-panel" style={{ padding: '24px', overflowX: 'auto' }}>
-              {productList.length === 0 ? (
+              {filteredInventoryList.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                  No hay productos registrados en el catálogo para administrar.
+                  {lang === 'es' ? 'No se encontraron productos que coincidan con los filtros de inventario.' : 'No products found matching inventory filters.'}
                 </div>
               ) : (
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13.5px', textAlign: 'left' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.02)' }}>
-                      <th style={{ padding: '12px 16px', width: '70px' }}>Miniatura</th>
-                      <th style={{ padding: '12px 16px' }}>Producto</th>
+                      <th style={{ padding: '12px 16px', width: '70px' }}>{t('col_miniatura')}</th>
+                      <th style={{ padding: '12px 16px' }}>{lang === 'es' ? 'Producto' : 'Product'}</th>
                       <th style={{ padding: '12px 16px' }}>SKU</th>
-                      <th style={{ padding: '12px 16px' }}>Categoría</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'center' }}>Stock Físico (Ventas)</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'center' }}>Stock en Producción</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'center', width: '220px' }}>Acciones</th>
+                      <th style={{ padding: '12px 16px' }}>{t('col_categoria')}</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'center' }}>{lang === 'es' ? 'Stock Físico (Ventas)' : 'Physical Stock (Sales)'}</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'center' }}>{lang === 'es' ? 'Stock en Producción' : 'Stock in Production'}</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'center', width: '220px' }}>{t('col_acciones')}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {productList.map(product => {
+                    {filteredInventoryList.map(product => {
                       const hasPhysical = (product.stock_physical_cases || 0) > 0;
                       const hasProduction = (product.stock_in_production_cases || 0) > 0;
 
@@ -4525,7 +6704,16 @@ function App() {
                             )}
                           </td>
                           <td style={{ padding: '12px 16px' }}>
-                            <strong style={{ color: '#fff', fontSize: '14.5px' }}>{product.name}</strong>
+                            <a
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                handleTriggerEditProduct(product);
+                              }}
+                              className="product-nav-link"
+                            >
+                              {product.name}
+                            </a>
                             {product.color && <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>Color: {product.color}</span>}
                           </td>
                           <td style={{ padding: '12px 16px', fontFamily: 'monospace' }}>{product.sku}</td>
@@ -4536,11 +6724,22 @@ function App() {
                             <span className={hasPhysical ? 'badge badge-green' : 'badge badge-red'} style={{ fontSize: '12px', fontWeight: '800', padding: '6px 12px' }}>
                               {product.stock_physical_cases || 0} master cases
                             </span>
+                            <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '5px' }}>
+                              {((product.stock_physical_cases || 0) * (product.units_per_case || 1)).toLocaleString('en-US')} uds
+                            </span>
+                            <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-muted)' }}>
+                              ({product.units_per_case || 1} p/caja)
+                            </span>
                           </td>
                           <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                             <span className={hasProduction ? 'badge badge-orange' : 'badge'} style={{ fontSize: '12px', padding: '6px 12px', background: hasProduction ? 'rgba(255,165,0,0.1)' : 'rgba(255,255,255,0.03)', border: hasProduction ? '1px solid orange' : '1px solid rgba(255,255,255,0.08)' }}>
                               {product.stock_in_production_cases || 0} master cases
                             </span>
+                            {hasProduction && (
+                              <span style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginTop: '5px' }}>
+                                {((product.stock_in_production_cases || 0) * (product.units_per_case || 1)).toLocaleString('en-US')} uds
+                              </span>
+                            )}
                           </td>
                           <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                             <button
@@ -4567,9 +6766,11 @@ function App() {
         {activeTab === 'profile' && !dataLoading && (
           <div>
             <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
-              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>Configuración de Perfil</h1>
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>{lang === 'es' ? 'Configuración de Perfil' : 'Profile Settings'}</h1>
               <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                Actualiza tu contraseña de acceso y revisa los detalles comerciales de tu cuenta.
+                {lang === 'es'
+                  ? 'Actualiza tu contraseña de acceso y revisa los detalles comerciales de tu cuenta.'
+                  : 'Update your password and check your commercial account details.'}
               </p>
             </div>
 
@@ -4577,33 +6778,33 @@ function App() {
               {/* Información General */}
               <div className="glass-panel" style={{ padding: '24px' }}>
                 <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '20px', color: 'var(--cyan-neon)' }}>
-                  👤 Información de Cuenta
+                  👤 {lang === 'es' ? 'Información de Cuenta' : 'Account Info'}
                 </h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '14px' }}>
                   <div>
-                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>Nombre Completo</span>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>{lang === 'es' ? 'Nombre Completo' : 'Full Name'}</span>
                     <strong style={{ color: '#fff', fontSize: '16px' }}>{currentUser.name}</strong>
                   </div>
                   <div>
-                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>Correo Electrónico</span>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>{lang === 'es' ? 'Correo Electrónico' : 'Email Address'}</span>
                     <strong style={{ color: '#fff', fontSize: '16px' }}>{currentUser.email}</strong>
                   </div>
                   <div>
-                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>Rol de Acceso</span>
+                    <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>{lang === 'es' ? 'Rol de Acceso' : 'Access Role'}</span>
                     <strong style={{ color: '#fff', fontSize: '16px' }}>
-                      {currentUser.role === 'tenant_admin' ? 'Administrador' : currentUser.role === 'super_admin' ? 'Super Admin' : 'Distribuidor Cliente B2B'}
+                      {currentUser.role === 'tenant_admin' ? (lang === 'es' ? 'Administrador' : 'Administrator') : currentUser.role === 'super_admin' ? 'Super Admin' : (lang === 'es' ? 'Distribuidor Cliente B2B' : 'B2B Client Distributor')}
                     </strong>
                   </div>
                   {!isSuperAdmin && currentUser.tenant_name && (
                     <div>
-                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>Inquilino / Marca</span>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>{lang === 'es' ? 'Inquilino / Marca' : 'Tenant / Brand'}</span>
                       <strong style={{ color: '#fff', fontSize: '16px' }}>{currentUser.tenant_name}</strong>
                     </div>
                   )}
                   {currentUser.role === 'b2b_client' && currentUser.tier_name && (
                     <div>
-                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>Nivel Tarifario B2B</span>
-                      <strong style={{ color: 'var(--pink-neon)', fontSize: '16px' }}>{currentUser.tier_name} ({currentUser.discount_percentage}% desc.)</strong>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase' }}>{lang === 'es' ? 'Nivel Tarifario B2B' : 'B2B Pricing Tier'}</span>
+                      <strong style={{ color: 'var(--pink-neon)', fontSize: '16px' }}>{currentUser.tier_name} ({currentUser.discount_percentage}% {lang === 'es' ? 'desc.' : 'disc.'})</strong>
                     </div>
                   )}
                 </div>
@@ -4612,7 +6813,7 @@ function App() {
               {/* Cambiar Contraseña */}
               <div className="glass-panel" style={{ padding: '24px' }}>
                 <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '20px', color: 'var(--pink-neon)' }}>
-                  🔒 Cambiar Contraseña
+                  🔒 {lang === 'es' ? 'Cambiar Contraseña' : 'Change Password'}
                 </h2>
                 <form onSubmit={async (e) => {
                   e.preventDefault();
@@ -4621,49 +6822,49 @@ function App() {
                   const confirmPassword = e.target.confirmPass.value;
 
                   if (newPassword.length < 6) {
-                    alert('⚠️ La nueva contraseña debe tener al menos 6 caracteres.');
+                    alert(lang === 'es' ? '⚠️ La nueva contraseña debe tener al menos 6 caracteres.' : '⚠️ The new password must be at least 6 characters long.');
                     return;
                   }
                   if (newPassword !== confirmPassword) {
-                    alert('⚠️ Las contraseñas no coinciden.');
+                    alert(lang === 'es' ? '⚠️ Las contraseñas no coinciden.' : '⚠️ Passwords do not match.');
                     return;
                   }
 
                   try {
                     await auth.changePassword(currentPassword, newPassword);
-                    alert('🎉 Contraseña cambiada con éxito.');
+                    alert(lang === 'es' ? '🎉 Contraseña cambiada con éxito.' : '🎉 Password changed successfully.');
                     e.target.reset();
                   } catch (err) {
                     alert(`❌ Error: ${err.message}`);
                   }
                 }} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Contraseña Actual</label>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>{lang === 'es' ? 'Contraseña Actual' : 'Current Password'}</label>
                     <input
                       type="password"
                       name="currentPass"
                       required
-                      placeholder="Ingresa tu contraseña actual"
+                      placeholder={lang === 'es' ? 'Ingresa tu contraseña actual' : 'Enter your current password'}
                       style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
                     />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Nueva Contraseña</label>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>{lang === 'es' ? 'Nueva Contraseña' : 'New Password'}</label>
                     <input
                       type="password"
                       name="newPass"
                       required
-                      placeholder="Mínimo 6 caracteres"
+                      placeholder={lang === 'es' ? 'Mínimo 6 caracteres' : 'Minimum 6 characters'}
                       style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
                     />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Confirmar Nueva Contraseña</label>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>{lang === 'es' ? 'Confirmar Nueva Contraseña' : 'Confirm New Password'}</label>
                     <input
                       type="password"
                       name="confirmPass"
                       required
-                      placeholder="Repite la nueva contraseña"
+                      placeholder={lang === 'es' ? 'Repite la nueva contraseña' : 'Repeat the new password'}
                       style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
                     />
                   </div>
@@ -4672,7 +6873,7 @@ function App() {
                     className="glow-btn glow-btn-cyan"
                     style={{ width: '100%', padding: '12px', borderRadius: '8px', fontWeight: 'bold', marginTop: '10px' }}
                   >
-                    Actualizar Contraseña
+                    {lang === 'es' ? 'Actualizar Contraseña' : 'Update Password'}
                   </button>
                 </form>
               </div>
@@ -4685,38 +6886,18 @@ function App() {
         {/* ===================================================== */}
         {activeTab === 'clients' && isAdmin && !dataLoading && (
           <div>
-            <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
-              <div>
-                <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>
-                  {clientSubTab === 'directorio' ? 'Directorio y CRM de Clientes B2B' : 'Niveles de Precios B2B (Pricing Tiers)'}
-                </h1>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                  {clientSubTab === 'directorio' 
-                    ? 'Administra las cuentas de tus distribuidores activos y realiza el seguimiento a tus leads comerciales.' 
-                    : 'Configura las reglas comerciales dinámicas (descuentos y mínimos de compra) aplicables a tus clientes.'}
-                </p>
-              </div>
-
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <button
-                  onClick={() => setClientSubTab('directorio')}
-                  className={clientSubTab === 'directorio' ? 'btn-pink' : 'btn-glass'}
-                  style={{ padding: '8px 16px', fontSize: '13px' }}
-                >
-                  👥 Directorio
-                </button>
-                <button
-                  onClick={() => setClientSubTab('pricing_tiers')}
-                  className={clientSubTab === 'pricing_tiers' ? 'btn-pink' : 'btn-glass'}
-                  style={{ padding: '8px 16px', fontSize: '13px' }}
-                >
-                  🏷️ Niveles de Precios
-                </button>
-              </div>
+            <div className="glass-panel" style={{ padding: '24px', marginBottom: '24px' }}>
+              <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>
+                {lang === 'es' ? 'Directorio y CRM de Clientes B2B' : 'B2B Client Directory & CRM'}
+              </h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0 }}>
+                {lang === 'es'
+                  ? 'Administra las cuentas de tus distribuidores activos y realiza el seguimiento a tus leads comerciales.'
+                  : 'Manage active wholesale accounts and track commercial leads.'}
+              </p>
             </div>
 
-            {clientSubTab === 'directorio' ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
                   <div style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.15)', padding: '4px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
                     <button
@@ -4724,21 +6905,21 @@ function App() {
                       className={clientFilter === 'all' ? 'btn-pink' : 'btn-glass'}
                       style={{ padding: '6px 12px', fontSize: '11.5px' }}
                     >
-                      Todos ({clientsList.length})
+                      {lang === 'es' ? 'Todos' : 'All'} ({clientsList.length})
                     </button>
                     <button
                       onClick={() => setClientFilter('clients')}
                       className={clientFilter === 'clients' ? 'btn-pink' : 'btn-glass'}
                       style={{ padding: '6px 12px', fontSize: '11.5px' }}
                     >
-                      👥 Clientes Activos ({clientsList.filter(c => c.account_status === 'client').length})
+                      {lang === 'es' ? '👥 Clientes Activos' : '👥 Active Clients'} ({clientsList.filter(c => c.account_status === 'client').length})
                     </button>
                     <button
                       onClick={() => setClientFilter('leads')}
                       className={clientFilter === 'leads' ? 'btn-pink' : 'btn-glass'}
                       style={{ padding: '6px 12px', fontSize: '11.5px' }}
                     >
-                      ⚡ Leads / Prospectos ({clientsList.filter(c => c.account_status !== 'client').length})
+                      {lang === 'es' ? '⚡ Leads / Prospectos' : '⚡ Leads / Prospects'} ({clientsList.filter(c => c.account_status !== 'client').length})
                     </button>
                   </div>
                 </div>
@@ -4765,7 +6946,7 @@ function App() {
                   className="btn-pink"
                   style={{ padding: '10px 20px', fontSize: '12.5px' }}
                 >
-                  {creatingClient ? 'Cancelar Registro' : '➕ Registrar Cliente / Lead'}
+                  {creatingClient ? (lang === 'es' ? 'Cancelar Registro' : 'Cancel Registration') : (lang === 'es' ? '➕ Registrar Cliente / Lead' : '➕ Register Client / Lead')}
                 </button>
               </div>
 
@@ -4862,14 +7043,19 @@ function App() {
                       </div>
                       <div>
                         <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>País de Destino (Aduana) *</label>
-                        <input
-                          type="text"
+                        <select
                           required
-                          placeholder="Ej. Japón, España, México"
                           value={newClientForm.destination_country}
                           onChange={(e) => setNewClientForm(prev => ({ ...prev, destination_country: e.target.value }))}
                           style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                        />
+                        >
+                          <option value="" disabled style={{ background: '#1c1c24' }}>Selecciona un país...</option>
+                          {COUNTRY_OPTIONS.map(c => (
+                            <option key={c.code} value={c.code} style={{ background: '#1c1c24' }}>
+                              {c.name} ({c.code})
+                            </option>
+                          ))}
+                        </select>
                       </div>
                       <div>
                         <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Nivel de Precios B2B (Pricing Tier) *</label>
@@ -4961,7 +7147,7 @@ function App() {
               {/* Listado de distribuidores en tabla */}
               <div className="glass-panel" style={{ padding: '24px', overflowX: 'auto' }}>
                 <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
-                  Directorio y Pipeline CRM de Cuentas B2B
+                  {lang === 'es' ? 'Directorio y Pipeline CRM de Cuentas B2B' : 'B2B Accounts Directory & CRM Pipeline'}
                 </h2>
 
                 {clientsList.filter(client => {
@@ -4970,18 +7156,18 @@ function App() {
                   return true;
                 }).length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                    No hay cuentas que coincidan con el filtro seleccionado.
+                    {lang === 'es' ? 'No hay cuentas que coincidan con el filtro seleccionado.' : 'No accounts match the selected filter.'}
                   </div>
                 ) : (
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
                     <thead>
                       <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.08)' }}>
-                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Empresa / Lead</th>
-                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Destino</th>
-                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Estado CRM</th>
-                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Nivel de Precios B2B / MOV</th>
-                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>Último Contacto & Notas de CRM</th>
-                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600', textAlign: 'center' }}>Acciones</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>{lang === 'es' ? 'Empresa / Lead' : 'Company / Lead'}</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>{lang === 'es' ? 'Destino' : 'Destination'}</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>{lang === 'es' ? 'Estado CRM' : 'CRM Status'}</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>{lang === 'es' ? 'Nivel de Precios B2B / MOV' : 'B2B Pricing Tier / MOV'}</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600' }}>{lang === 'es' ? 'Último Contacto & Notas de CRM' : 'Last Contact & CRM Notes'}</th>
+                        <th style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontWeight: '600', textAlign: 'center' }}>{t('col_acciones')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -5030,7 +7216,7 @@ function App() {
                                 )}
                               </td>
                               <td style={{ padding: '14px 8px' }}>
-                                <span style={{ fontSize: '13px', color: 'var(--cyan-neon)' }}>📍 {client.destination_country}</span>
+                                <span style={{ fontSize: '13px', color: 'var(--cyan-neon)' }}>📍 {getCountryName(client.destination_country)}</span>
                               </td>
                               <td style={{ padding: '14px 8px' }}>
                                 <span className={`badge ${statusBadgeClass}`} style={{ fontSize: '10.5px', whiteSpace: 'nowrap' }}>
@@ -5133,145 +7319,6 @@ function App() {
                 )}
               </div>
             </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px' }}>
-                {/* Crear / Editar Pricing Tier */}
-                <div className="glass-panel" style={{ padding: '24px' }}>
-                  <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '20px', color: 'var(--cyan-neon)' }}>
-                    {editingPricingTier ? '✏️ Editar Nivel de Precios B2B' : '➕ Crear Nuevo Nivel de Precios B2B'}
-                  </h2>
-                  <form onSubmit={handleCreateOrUpdatePricingTier} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Nombre del Nivel *</label>
-                      <input
-                        type="text"
-                        placeholder="Ej. Distribuidor Exclusivo"
-                        required
-                        value={newPricingTier.tier_name}
-                        onChange={(e) => setNewPricingTier(prev => ({ ...prev, tier_name: e.target.value }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Porcentaje de Descuento (%) *</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        placeholder="Ej. 15.00"
-                        required
-                        value={newPricingTier.discount_percentage}
-                        onChange={(e) => setNewPricingTier(prev => ({ ...prev, discount_percentage: parseFloat(e.target.value) || 0 }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Monto Mínimo de Orden (MOV en USD) *</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        placeholder="Ej. 2000.00"
-                        required
-                        value={newPricingTier.min_order_amount}
-                        onChange={(e) => setNewPricingTier(prev => ({ ...prev, min_order_amount: parseFloat(e.target.value) || 0 }))}
-                        style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
-                      <input
-                        type="checkbox"
-                        id="only_master_cases"
-                        checked={newPricingTier.only_master_cases}
-                        onChange={(e) => setNewPricingTier(prev => ({ ...prev, only_master_cases: e.target.checked }))}
-                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                      />
-                      <label htmlFor="only_master_cases" style={{ fontSize: '12.5px', color: '#fff', cursor: 'pointer', fontWeight: '600' }}>
-                        Forzar compras únicamente en Master Cases (cajas enteras)
-                      </label>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                      <button type="submit" className="btn-pink" style={{ flexGrow: 1, padding: '10px 20px', fontSize: '12.5px' }}>
-                        {editingPricingTier ? 'Guardar Cambios' : 'Crear Nivel'}
-                      </button>
-                      {editingPricingTier && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingPricingTier(null);
-                            setNewPricingTier({ tier_name: '', discount_percentage: 0, min_order_amount: 1000, only_master_cases: false });
-                          }}
-                          className="btn-glass"
-                          style={{ padding: '10px 20px', fontSize: '12.5px' }}
-                        >
-                          Cancelar
-                        </button>
-                      )}
-                    </div>
-                  </form>
-                </div>
-
-                {/* Listado de Pricing Tiers */}
-                <div className="glass-panel" style={{ padding: '24px' }}>
-                  <h2 style={{ fontSize: '18px', fontWeight: '800', marginBottom: '16px', color: 'var(--cyan-neon)' }}>
-                    Niveles Configurados ({pricingTiersList.length})
-                  </h2>
-
-                  {pricingTiersList.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                      No has creado ningún nivel de precios personalizado aún.
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      {pricingTiersList.map(tier => (
-                        <div key={tier.id} style={{ border: '1px solid rgba(255,255,255,0.06)', padding: '16px', borderRadius: '12px', background: 'rgba(255,255,255,0.01)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div>
-                            <strong style={{ fontSize: '15px', color: '#fff' }}>{tier.tier_name}</strong>
-                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
-                              <span className="badge badge-green" style={{ fontSize: '10px' }}>
-                                -{parseFloat(tier.discount_percentage)}% Descuento
-                              </span>
-                              <span className="badge badge-cyan" style={{ fontSize: '10px' }}>
-                                MOV: ${parseFloat(tier.min_order_amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                              </span>
-                              {tier.only_master_cases && (
-                                <span className="badge badge-yellow" style={{ fontSize: '10px' }}>
-                                  📦 Solo Master Cases
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            <button
-                              onClick={() => {
-                                setEditingPricingTier(tier);
-                                setNewPricingTier({
-                                  tier_name: tier.tier_name,
-                                  discount_percentage: parseFloat(tier.discount_percentage),
-                                  min_order_amount: parseFloat(tier.min_order_amount),
-                                  only_master_cases: tier.only_master_cases === true
-                                });
-                              }}
-                              className="btn-glass"
-                              style={{ padding: '6px 12px', fontSize: '12px' }}
-                            >
-                              ✏️
-                            </button>
-                            <button
-                              onClick={() => handleDeletePricingTier(tier.id)}
-                              className="btn-glass-pink"
-                              style={{ padding: '6px 12px', fontSize: '12px' }}
-                            >
-                              🗑️
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
         )}
       </main>
@@ -5339,24 +7386,24 @@ function App() {
               <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginBottom: '8px' }}>
                   <span>Subtotal</span>
-                  <span>${cartTotals.subtotal.toFixed(2)} USD</span>
+                  <span>${cartTotals.subtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
                 </div>
                 {cartTotals.discountPercent > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginBottom: '8px', color: 'var(--pink-neon)' }}>
                     <span>Descuento ({cartTotals.discountPercent}%)</span>
-                    <span>-${cartTotals.discountAmount.toFixed(2)} USD</span>
+                    <span>-${cartTotals.discountAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '18px', fontWeight: '800', marginBottom: '16px', borderTop: '1px dotted #333', paddingTop: '12px' }}>
                   <span>Total de la Orden</span>
-                  <span style={{ color: 'var(--cyan-neon)' }}>${cartTotals.finalTotal.toFixed(2)} USD</span>
+                  <span style={{ color: 'var(--cyan-neon)' }}>${cartTotals.finalTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
                 </div>
 
                 {cartTotals.finalTotal < MOA_LIMIT ? (
                   <div className="glass-panel" style={{ padding: '12px', borderLeft: '4px solid var(--orange-neon)', marginBottom: '16px', background: 'rgba(255, 92, 0, 0.05)' }}>
                     <span style={{ fontSize: '12px', color: 'var(--orange-neon)', fontWeight: '700' }}>MOA no alcanzado</span>
                     <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                      Mínimo: <strong>${MOA_LIMIT.toFixed(2)} USD</strong>. Faltan ${(MOA_LIMIT - cartTotals.finalTotal).toFixed(2)} USD.
+                      Mínimo: <strong>${MOA_LIMIT.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</strong>. Faltan ${(MOA_LIMIT - cartTotals.finalTotal).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD.
                     </p>
                   </div>
                 ) : (
@@ -5367,18 +7414,6 @@ function App() {
 
                 {cartTotals.finalTotal >= MOA_LIMIT && (
                   <form onSubmit={handleCheckoutSubmit}>
-                    <div style={{ marginBottom: '14px' }}>
-                      <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>Incoterm de Exportación (FOB/CIF):</label>
-                      <select
-                        name="incoterm"
-                        defaultValue="FOB China"
-                        style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '6px', width: '100%', fontSize: '12px' }}
-                      >
-                        <option value="FOB China">FOB China (Free On Board - Puerto Origen)</option>
-                        <option value="CIF Puerto">CIF Puerto (Cost, Insurance & Freight - Puerto Destino)</option>
-                        <option value="EXW Planta">EXW Planta (Ex Works - Salida de Fábrica)</option>
-                      </select>
-                    </div>
 
                     <button
                       id="checkout-submit"
@@ -5643,6 +7678,448 @@ function App() {
                   Cargar Selección a la Orden
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================== */}
+      {/* MODAL: CONFIGURACIÓN DE PRICING TIERS                 */}
+      {/* ===================================================== */}
+      {showPricingTiersModal && (
+        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', zIndex: '200', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '950px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: '28px', position: 'relative', border: '1px solid var(--cyan-neon)' }}>
+            <button onClick={() => { setShowPricingTiersModal(false); setEditingPricingTier(null); setNewPricingTier({ tier_name: '', discount_percentage: 0, min_order_amount: 1000, only_master_cases: false }); }} style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}>×</button>
+
+            <div style={{ borderBottom: '2px solid #333', paddingBottom: '12px', marginBottom: '20px' }}>
+              <h2 style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: '18px', color: 'var(--cyan-neon)', margin: '0 0 4px 0' }}>
+                🏷️ Configuración de Pricing Tiers (Niveles de Cliente)
+              </h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
+                Crea y edita los niveles comerciales aplicables a tus distribuidores B2B.
+              </p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px', flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
+              {/* Formulario */}
+              <div className="glass-panel" style={{ padding: '20px', background: 'rgba(255,255,255,0.01)', height: 'fit-content' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '16px', color: '#fff' }}>
+                  {editingPricingTier ? '✏️ Editar Nivel' : '➕ Crear Nuevo Nivel'}
+                </h3>
+                <form onSubmit={handleCreateOrUpdatePricingTier} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Nombre del Nivel *</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Partner VIP"
+                      required
+                      value={newPricingTier.tier_name}
+                      onChange={(e) => setNewPricingTier(prev => ({ ...prev, tier_name: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Porcentaje de Descuento (%) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Ej. 15.00"
+                      required
+                      value={newPricingTier.discount_percentage}
+                      onChange={(e) => setNewPricingTier(prev => ({ ...prev, discount_percentage: parseFloat(e.target.value) || 0 }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Monto Mínimo de Orden (MOV USD) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Ej. 5000.00"
+                      required
+                      value={newPricingTier.min_order_amount}
+                      onChange={(e) => setNewPricingTier(prev => ({ ...prev, min_order_amount: parseFloat(e.target.value) || 0 }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
+                    <input
+                      type="checkbox"
+                      id="modal_only_master_cases"
+                      checked={newPricingTier.only_master_cases}
+                      onChange={(e) => setNewPricingTier(prev => ({ ...prev, only_master_cases: e.target.checked }))}
+                      style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                    />
+                    <label htmlFor="modal_only_master_cases" style={{ fontSize: '12px', color: '#fff', cursor: 'pointer', fontWeight: '600' }}>
+                      Forzar compra en Master Cases
+                    </label>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                    <button type="submit" className="btn-pink" style={{ flexGrow: 1, padding: '8px 16px', fontSize: '12px' }}>
+                      {editingPricingTier ? 'Guardar' : 'Crear'}
+                    </button>
+                    {editingPricingTier && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingPricingTier(null);
+                          setNewPricingTier({ tier_name: '', discount_percentage: 0, min_order_amount: 1000, only_master_cases: false });
+                        }}
+                        className="btn-glass"
+                        style={{ padding: '8px 16px', fontSize: '12px' }}
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </div>
+
+              {/* Listado */}
+              <div style={{ flex: 1 }}>
+                <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '16px', color: 'var(--text-secondary)' }}>
+                  Niveles Configurados ({pricingTiersList.length})
+                </h3>
+
+                {pricingTiersList.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '8px' }}>
+                    No has creado ningún nivel de precios aún.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '50vh', overflowY: 'auto', paddingRight: '4px' }}>
+                    {pricingTiersList.map(tier => (
+                      <div key={tier.id} style={{ border: '1px solid rgba(255,255,255,0.06)', padding: '14px', borderRadius: '8px', background: 'rgba(255,255,255,0.01)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <strong style={{ fontSize: '14px', color: '#fff' }}>{tier.tier_name}</strong>
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
+                            <span className="badge badge-green" style={{ fontSize: '9px' }}>
+                              -{parseFloat(tier.discount_percentage)}% Desc.
+                            </span>
+                            <span className="badge badge-cyan" style={{ fontSize: '9px' }}>
+                              MOV: ${parseFloat(tier.min_order_amount).toLocaleString('en-US')}
+                            </span>
+                            {tier.only_master_cases && (
+                              <span className="badge badge-yellow" style={{ fontSize: '9px' }}>
+                                📦 Master Cases
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            onClick={() => {
+                              setEditingPricingTier(tier);
+                              setNewPricingTier({
+                                tier_name: tier.tier_name,
+                                discount_percentage: parseFloat(tier.discount_percentage),
+                                min_order_amount: parseFloat(tier.min_order_amount),
+                                only_master_cases: tier.only_master_cases === true
+                              });
+                            }}
+                            className="btn-glass"
+                            style={{ padding: '4px 8px', fontSize: '11px' }}
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => handleDeletePricingTier(tier.id)}
+                            className="btn-glass-pink"
+                            style={{ padding: '4px 8px', fontSize: '11px' }}
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #333', paddingTop: '16px', marginTop: '20px' }}>
+              <button
+                onClick={() => { setShowPricingTiersModal(false); setEditingPricingTier(null); setNewPricingTier({ tier_name: '', discount_percentage: 0, min_order_amount: 1000, only_master_cases: false }); }}
+                className="btn-glass"
+                style={{ padding: '10px 20px', borderRadius: '8px' }}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================== */}
+      {/* MODAL: CONFIGURACIÓN DE REGLAS DE VOLUMEN SKU          */}
+      {/* ===================================================== */}
+      {showSkuVolumeRulesModal && (
+        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', zIndex: '200', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '900px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: '28px', position: 'relative', border: '1px solid var(--cyan-neon)' }}>
+            <button onClick={() => { setShowSkuVolumeRulesModal(false); setEditingSkuVolumeRule(null); setNewSkuVolumeRule({ min_units: '', discount_pct: '' }); }} style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}>×</button>
+
+            <div style={{ borderBottom: '2px solid #333', paddingBottom: '12px', marginBottom: '20px' }}>
+              <h2 style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: '18px', color: 'var(--cyan-neon)', margin: '0 0 4px 0' }}>
+                📉 Configuración de Descuentos por Volumen por SKU
+              </h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
+                Crea reglas de descuento basadas en las unidades totales compradas por cada producto de manera individual.
+              </p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px', flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
+              {/* Formulario */}
+              <div className="glass-panel" style={{ padding: '20px', background: 'rgba(255,255,255,0.01)', height: 'fit-content' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '16px', color: '#fff' }}>
+                  {editingSkuVolumeRule ? '✏️ Editar Escala' : '➕ Crear Nueva Escala'}
+                </h3>
+                <form onSubmit={handleCreateOrUpdateSkuVolumeRule} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Cantidad Mínima (Unidades Físicas) *</label>
+                    <input
+                      type="number"
+                      placeholder="Ej. 100"
+                      required
+                      value={newSkuVolumeRule.min_units}
+                      onChange={(e) => setNewSkuVolumeRule(prev => ({ ...prev, min_units: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600' }}>Porcentaje de Descuento (%) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Ej. 5.00"
+                      required
+                      value={newSkuVolumeRule.discount_pct}
+                      onChange={(e) => setNewSkuVolumeRule(prev => ({ ...prev, discount_pct: e.target.value }))}
+                      style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '8px', width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                    <button type="submit" className="btn-pink" style={{ flexGrow: 1, padding: '8px 16px', fontSize: '12px' }}>
+                      {editingSkuVolumeRule ? 'Guardar' : 'Crear'}
+                    </button>
+                    {editingSkuVolumeRule && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingSkuVolumeRule(null);
+                          setNewSkuVolumeRule({ min_units: '', discount_pct: '' });
+                        }}
+                        className="btn-glass"
+                        style={{ padding: '8px 16px', fontSize: '12px' }}
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </div>
+
+              {/* Listado */}
+              <div style={{ flex: 1 }}>
+                <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '16px', color: 'var(--text-secondary)' }}>
+                  Reglas de Volumen Configuradas ({skuVolumeRulesList.length})
+                </h3>
+
+                {skuVolumeRulesList.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: '8px' }}>
+                    No has configurado ninguna escala por volumen unitario aún.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '50vh', overflowY: 'auto', paddingRight: '4px' }}>
+                    {skuVolumeRulesList.map(rule => (
+                      <div key={rule.id} style={{ border: '1px solid rgba(255,255,255,0.06)', padding: '14px', borderRadius: '8px', background: 'rgba(255,255,255,0.01)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <strong style={{ fontSize: '14px', color: '#fff' }}>A partir de {rule.min_units} unidades</strong>
+                          <div style={{ marginTop: '4px' }}>
+                            <span className="badge badge-green" style={{ fontSize: '10px' }}>
+                              -{parseFloat(rule.discount_pct)}% Descuento
+                            </span>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            onClick={() => {
+                              setEditingSkuVolumeRule(rule);
+                              setNewSkuVolumeRule({
+                                min_units: rule.min_units,
+                                discount_pct: parseFloat(rule.discount_pct)
+                              });
+                            }}
+                            className="btn-glass"
+                            style={{ padding: '4px 8px', fontSize: '11px' }}
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSkuVolumeRule(rule.id)}
+                            className="btn-glass-pink"
+                            style={{ padding: '4px 8px', fontSize: '11px' }}
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #333', paddingTop: '16px', marginTop: '20px' }}>
+              <button
+                onClick={() => { setShowSkuVolumeRulesModal(false); setEditingSkuVolumeRule(null); setNewSkuVolumeRule({ min_units: '', discount_pct: '' }); }}
+                className="btn-glass"
+                style={{ padding: '10px 20px', borderRadius: '8px' }}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================== */}
+      {/* MODAL: ASIGNACIÓN MASIVA DE PRODUCTOS A CAMPAÑA        */}
+      {/* ===================================================== */}
+      {showCampaignProductsModal && selectedCampaignForProducts && (
+        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', zIndex: '200', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '850px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: '28px', position: 'relative', border: '1px solid var(--cyan-neon)' }}>
+            <button onClick={() => setShowCampaignProductsModal(false)} style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}>×</button>
+
+            <div style={{ borderBottom: '2px solid #333', paddingBottom: '12px', marginBottom: '20px' }}>
+              <h2 style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: '18px', color: 'var(--cyan-neon)', margin: '0 0 4px 0' }}>
+                📦 Asignación Masiva de SKUs
+              </h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
+                Selecciona los productos que pertenecen al tiraje <strong>"{selectedCampaignForProducts.name}"</strong> y asigna la cuota de pre-venta en cajas.
+              </p>
+            </div>
+
+            {/* BUSCADOR */}
+            <div style={{ marginBottom: '16px' }}>
+              <input
+                type="text"
+                placeholder="Buscar producto por nombre o SKU..."
+                value={campaignProductsFilter}
+                onChange={(e) => setCampaignProductsFilter(e.target.value)}
+                style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 14px', borderRadius: '8px', width: '100%', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            {/* TABLA DE PRODUCTOS CON SCROLL */}
+            <div style={{ flex: 1, overflowY: 'auto', marginBottom: '20px', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ background: 'rgba(0,232,255,0.05)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                    <th style={{ padding: '12px', width: '40px', textAlign: 'center' }}>Ref</th>
+                    <th style={{ padding: '12px' }}>Producto</th>
+                    <th style={{ padding: '12px' }}>Categoría</th>
+                    <th style={{ padding: '12px', width: '180px' }}>Cantidad Asignada (Cajas)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allProducts
+                    .filter(p => {
+                      if (!campaignProductsFilter) return true;
+                      const term = campaignProductsFilter.toLowerCase();
+                      return p.name.toLowerCase().includes(term) || p.sku.toLowerCase().includes(term);
+                    })
+                    .map(p => {
+                      const selection = campaignProductSelections[p.id] || { selected: false, qty_cases: 0 };
+                      
+                      return (
+                        <tr
+                          key={p.id}
+                          style={{
+                            borderBottom: '1px solid rgba(255,255,255,0.04)',
+                            background: selection.selected ? 'rgba(0, 232, 255, 0.02)' : 'transparent',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          <td style={{ padding: '12px', textAlign: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={selection.selected}
+                              onChange={(e) => {
+                                const isChecked = e.target.checked;
+                                setCampaignProductSelections(prev => ({
+                                  ...prev,
+                                  [p.id]: {
+                                    selected: isChecked,
+                                    qty_cases: isChecked ? (prev[p.id]?.qty_cases || p.stock_in_production_cases || 100) : 0
+                                  }
+                                }));
+                              }}
+                              style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                            />
+                          </td>
+                          <td style={{ padding: '12px' }}>
+                            <div style={{ fontWeight: '600' }}>{p.name}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{p.sku}</div>
+                          </td>
+                          <td style={{ padding: '12px' }}>
+                            <span className="badge badge-blue" style={{ fontSize: '10px' }}>{p.category}</span>
+                          </td>
+                          <td style={{ padding: '12px' }}>
+                            <input
+                              type="number"
+                              min="0"
+                              value={selection.qty_cases}
+                              disabled={!selection.selected}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 0;
+                                setCampaignProductSelections(prev => ({
+                                  ...prev,
+                                  [p.id]: {
+                                    ...prev[p.id],
+                                    qty_cases: val
+                                  }
+                                }));
+                              }}
+                              style={{
+                                width: '100px',
+                                background: selection.selected ? '#121212' : 'rgba(255,255,255,0.02)',
+                                border: selection.selected ? '1px solid var(--cyan-neon)' : '1px solid rgba(255,255,255,0.05)',
+                                color: selection.selected ? '#fff' : 'var(--text-muted)',
+                                padding: '6px 10px',
+                                borderRadius: '6px',
+                                textAlign: 'center',
+                                transition: 'all 0.2s'
+                              }}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* ACCIONES FOOTER */}
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid #333', paddingTop: '16px' }}>
+              <button
+                onClick={() => setShowCampaignProductsModal(false)}
+                className="btn-glass"
+                style={{ padding: '10px 20px', borderRadius: '8px' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveCampaignProducts}
+                className="btn-neon"
+                style={{ padding: '10px 24px', borderRadius: '8px' }}
+              >
+                💾 Guardar Asociación
+              </button>
             </div>
           </div>
         </div>
@@ -5924,7 +8401,7 @@ function App() {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#fff', margin: 0 }}>💳 Pago con Tarjeta (Stripe Sandbox)</h3>
+                    <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#fff', margin: 0 }}>💳 Pago con Tarjeta (Stripe Checkout)</h3>
                     <button onClick={() => setSelectedPaymentMethod('')} style={{ background: 'transparent', border: 'none', color: 'var(--cyan-neon)', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>
                       Cambiar método
                     </button>
@@ -5936,7 +8413,7 @@ function App() {
                       <div>
                         <h4 style={{ color: 'var(--green-neon)', fontSize: '16px', fontWeight: '800', margin: '0 0 4px' }}>¡Pago Completado con Éxito!</h4>
                         <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: 0 }}>
-                          La integración con Stripe procesó el cobro de forma exitosa y el estado de tu pedido se actualizó a <strong>Paid (Pagado)</strong> en tu panel de compras.
+                          La pasarela de Stripe procesó el cobro de forma exitosa y el estado de tu pedido se actualizó a <strong>Paid (Pagado)</strong> en tu panel de compras.
                         </p>
                       </div>
                       <button
@@ -5953,38 +8430,39 @@ function App() {
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                      <div>
-                        <label style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600', textTransform: 'uppercase' }}>Nombre en la Tarjeta</label>
-                        <input type="text" placeholder="Ej: John Doe" style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '6px', width: '100%', boxSizing: 'border-box', fontSize: '13px' }} />
-                      </div>
-                      <div>
-                        <label style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600', textTransform: 'uppercase' }}>Número de Tarjeta</label>
-                        <div style={{ position: 'relative' }}>
-                          <input type="text" placeholder="💳 4242 4242 4242 4242" style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '6px', width: '100%', boxSizing: 'border-box', fontSize: '13px', fontFamily: 'monospace' }} />
+                      <div style={{ padding: '20px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '8px' }}>
+                        <span style={{ fontSize: '32px', display: 'block', marginBottom: '8px', textAlign: 'center' }}>🔒</span>
+                        <p style={{ fontSize: '13px', color: '#fff', fontWeight: '600', margin: '0 0 8px 0', textAlign: 'center' }}>Pasarela de Pago Segura</p>
+                        
+                        {/* Advertencia y Desglose de Recargo */}
+                        <div style={{ padding: '10px 12px', background: 'rgba(255, 0, 127, 0.08)', borderLeft: '4px solid var(--pink-neon)', borderRadius: '4px', marginBottom: '14px', fontSize: '11.5px', color: '#fff', lineHeight: '1.5' }}>
+                          ⚠️ Se aplicará un recargo por transacción electrónica del 3.5% + $0.30 USD sobre el total de tu orden.
                         </div>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600', textTransform: 'uppercase' }}>Vencimiento</label>
-                          <input type="text" placeholder="MM/AA" style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '6px', width: '100%', boxSizing: 'border-box', fontSize: '13px', textAlign: 'center' }} />
-                        </div>
-                        <div>
-                          <label style={{ display: 'block', fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: '600', textTransform: 'uppercase' }}>CVC / CVV</label>
-                          <input type="text" placeholder="123" style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '10px 12px', borderRadius: '6px', width: '100%', boxSizing: 'border-box', fontSize: '13px', textAlign: 'center' }} />
-                        </div>
-                      </div>
 
-                      <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.1)', padding: '12px', borderRadius: '6px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                        🔒 Conexión segura encriptada mediante pasarela de Stripe. Al presionar pagar, se simulará la pasarela con éxito.
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12.5px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '10px', marginBottom: '10px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>Monto FOB Pedido:</span>
+                            <span style={{ fontWeight: '600', color: '#fff' }}>${parseFloat(createdOrder.total_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>Comisión de Pasarela (3.5% + $0.30):</span>
+                            <span style={{ fontWeight: '600', color: 'var(--pink-neon)' }}>${((parseFloat(createdOrder.total_usd) * 0.035) + 0.30).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: '800' }}>
+                          <span style={{ color: 'var(--green-neon)' }}>Total a Pagar en Stripe:</span>
+                          <span style={{ color: 'var(--green-neon)' }}>${((parseFloat(createdOrder.total_usd) * 1.035) + 0.30).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
+                        </div>
                       </div>
 
                       <button
-                        onClick={handleSimulateStripePayment}
+                        onClick={handleRealStripePayment}
                         disabled={simulatingStripePayment}
                         className="btn-neon"
-                        style={{ width: '100%', padding: '12px', fontWeight: '800', fontSize: '13.5px' }}
+                        style={{ width: '100%', padding: '14px', fontWeight: '800', fontSize: '13.5px' }}
                       >
-                        {simulatingStripePayment ? '⏳ Procesando cobro Stripe...' : `Pagar $${parseFloat(createdOrder.total_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD`}
+                        {simulatingStripePayment ? '⏳ Redirigiendo a Stripe...' : `Pagar con Tarjeta (Total: $${((parseFloat(createdOrder.total_usd) * 1.035) + 0.30).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD)`}
                       </button>
                     </div>
                   )}
@@ -6031,12 +8509,9 @@ function App() {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span className={`badge ${
-                    selectedOrderDetail.status === 'Draft' ? 'badge-pink' :
-                    selectedOrderDetail.status === 'Proforma' ? 'badge-cyan' :
-                    selectedOrderDetail.status === 'Production' ? 'badge-orange' :
-                    selectedOrderDetail.status === 'QC Inspection' ? 'badge-orange' :
-                    selectedOrderDetail.status === 'Port' ? 'badge-cyan' :
-                    selectedOrderDetail.status === 'Transit' ? 'badge-orange' :
+                    selectedOrderDetail.status === 'En Revisión' ? 'badge-pink' :
+                    selectedOrderDetail.status === 'En Preparación' ? 'badge-cyan' :
+                    selectedOrderDetail.status === 'Enviado' ? 'badge-orange' :
                     'badge-green'
                   }`} style={{ fontSize: '12px', padding: '6px 12px', height: 'fit-content' }}>
                     {selectedOrderDetail.status}
@@ -6057,13 +8532,10 @@ function App() {
                       }}
                       style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600' }}
                     >
-                      <option value="Draft">Draft (Borrador)</option>
-                      <option value="Proforma">Proforma Invoice</option>
-                      <option value="Production">Production (Fabricación)</option>
-                      <option value="QC Inspection">QC Inspection (Calidad)</option>
-                      <option value="Port">Port (FOB/CIF)</option>
-                      <option value="Transit">Transit (En Tránsito)</option>
-                      <option value="Delivered">Delivered (Entregado)</option>
+                      <option value="En Revisión">En Revisión</option>
+                      <option value="En Preparación">En Preparación</option>
+                      <option value="Enviado">Enviado</option>
+                      <option value="Entregado">Entregado</option>
                     </select>
                   )}
                 </div>
@@ -6203,6 +8675,295 @@ function App() {
           </div>
         </div>
       )}
+      {/* ===================================================== */}
+      {/* MODAL: DETALLE DE ORDEN DE FABRICACIÓN (ADMIN POPUP)   */}
+      {/* ===================================================== */}
+      {showProdOrderDetailModal && selectedProdOrder && (
+        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', zIndex: '200', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: '28px', position: 'relative', border: '1px solid var(--pink-neon)' }}>
+            <button onClick={() => { setShowProdOrderDetailModal(false); setSelectedProdOrder(null); }} style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: '#fff', fontSize: '24px', cursor: 'pointer' }}>×</button>
+            
+            <div style={{ borderBottom: '2px solid #333', paddingBottom: '12px', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+                <div>
+                  <h2 style={{ textTransform: 'uppercase', letterSpacing: '1px', fontSize: '18px', color: 'var(--pink-neon)', margin: '0 0 4px 0' }}>
+                    🏭 {selectedProdOrder.order_number} — Detalle de Fabricación
+                  </h2>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                    Registrado el: {new Date(selectedProdOrder.created_at).toLocaleString('es-ES')}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span className={`badge ${
+                    selectedProdOrder.status === 'Proforma' ? 'badge-pink' :
+                    selectedProdOrder.status === 'Production' ? 'badge-orange' :
+                    selectedProdOrder.status === 'QC Control' ? 'badge-cyan' :
+                    selectedProdOrder.status === 'Shipped' ? 'badge-orange' :
+                    'badge-green'
+                  }`} style={{ fontSize: '12px', padding: '6px 12px', height: 'fit-content' }}>
+                    {selectedProdOrder.status}
+                  </span>
+
+                  <select
+                    value={selectedProdOrder.status}
+                    onChange={async (e) => {
+                      try {
+                        await handleUpdateProductionStatus(selectedProdOrder.id, e.target.value);
+                        setSelectedProdOrder(prev => ({ ...prev, status: e.target.value }));
+                      } catch(err) {
+                        alert(`❌ Error al cambiar estado: ${err.message}`);
+                      }
+                    }}
+                    style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600' }}
+                  >
+                    <option value="Proforma">Proforma</option>
+                    <option value="Production">Production (Fabricación)</option>
+                    <option value="QC Control">QC Control</option>
+                    <option value="Shipped">Shipped (Enviado)</option>
+                    <option value="Delivered">Delivered (Entregado)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ flexGrow: 1, overflowY: 'auto', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              
+              {/* Timeline Gráfico de Estados */}
+              {(() => {
+                const stepNames = ['Proforma', 'Production', 'QC Control', 'Shipped', 'Delivered'];
+                const currentStepIdx = stepNames.indexOf(selectedProdOrder.status);
+                return (
+                  <div style={{ padding: '10px 0 20px', position: 'relative' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', width: '100%' }}>
+                      <div style={{ position: 'absolute', top: '15px', left: '6%', right: '6%', height: '3px', background: 'rgba(255,255,255,0.06)', zIndex: 1 }} />
+                      <div style={{ position: 'absolute', top: '15px', left: '6%', width: `${(currentStepIdx / (stepNames.length - 1)) * 88}%`, height: '3px', background: 'var(--cyan-neon)', zIndex: 2, transition: 'all 0.4s ease' }} />
+
+                      {stepNames.map((step, idx) => {
+                        const isActive = idx <= currentStepIdx;
+                        const isCurrent = idx === currentStepIdx;
+                        return (
+                          <div key={step} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 3, position: 'relative', width: '22%' }}>
+                            <div style={{
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '50%',
+                              background: isCurrent ? 'var(--pink-neon)' : isActive ? 'var(--cyan-neon)' : 'rgba(20, 20, 20, 0.9)',
+                              border: isActive ? '2px solid transparent' : '2px solid rgba(255,255,255,0.1)',
+                              boxShadow: isCurrent ? '0 0 10px var(--pink-neon)' : isActive ? '0 0 8px var(--cyan-neon)' : 'none',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '12px',
+                              color: isActive ? '#000' : 'rgba(255,255,255,0.4)',
+                              fontWeight: '900',
+                              transition: 'all 0.3s'
+                            }}>
+                              {idx + 1}
+                            </div>
+                            <span style={{ fontSize: '10px', marginTop: '6px', textAlign: 'center', fontWeight: isCurrent ? '700' : '500', color: isCurrent ? 'var(--pink-neon)' : isActive ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>
+                              {step}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Fábrica Origen</div>
+                  <strong style={{ fontSize: '14px', color: '#fff', marginTop: '2px', display: 'block' }}>{selectedProdOrder.factory_name}</strong>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Almacén de Llegada</div>
+                  <strong style={{ fontSize: '14px', color: 'var(--cyan-neon)', marginTop: '2px', display: 'block' }}>
+                    {warehouses.find(w => w.id === selectedProdOrder.warehouse_id)?.name || 'Sin asignar'}
+                  </strong>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Costo Total Lote</div>
+                  <strong style={{ fontSize: '14px', color: 'var(--green-neon)', marginTop: '2px', display: 'block' }}>
+                    ${parseFloat(selectedProdOrder.total_cost_usd).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                  </strong>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Volumen de Carga</div>
+                  <strong style={{ fontSize: '14px', color: 'var(--cyan-neon)', marginTop: '2px', display: 'block' }}>{parseFloat(selectedProdOrder.total_cbm).toFixed(4)} CBM</strong>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Código / Tracking Contenedor</div>
+                  <strong style={{ fontSize: '13px', color: '#fff', marginTop: '2px', display: 'block', textTransform: 'uppercase' }}>
+                    {selectedProdOrder.tracking_number || 'N/A'}
+                  </strong>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Entrega Estimada / Real</div>
+                  <strong style={{ fontSize: '13px', color: '#fff', marginTop: '2px', display: 'block' }}>
+                    {selectedProdOrder.status === 'Delivered' 
+                      ? `Entregado: ${selectedProdOrder.actual_completion_date ? new Date(selectedProdOrder.actual_completion_date).toLocaleDateString('es-ES') : 'N/A'}` 
+                      : selectedProdOrder.estimated_completion_date 
+                        ? new Date(selectedProdOrder.estimated_completion_date).toLocaleDateString('es-ES') 
+                        : 'Sin estimar'}
+                  </strong>
+                </div>
+              </div>
+
+              <div>
+                <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Productos a Producir:</h4>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.01)' }}>
+                        <th style={{ padding: '8px', textAlign: 'left' }}>SKU</th>
+                        <th style={{ padding: '8px', textAlign: 'left' }}>Producto</th>
+                        <th style={{ padding: '8px', textAlign: 'right' }}>Cajas Master</th>
+                        <th style={{ padding: '8px', textAlign: 'right' }}>CBM Unitario</th>
+                        <th style={{ padding: '8px', textAlign: 'right' }}>Total CBM</th>
+                        <th style={{ padding: '8px', textAlign: 'right' }}>Costo Caja</th>
+                        <th style={{ padding: '8px', textAlign: 'right' }}>Total Costo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedProdOrder.items?.map((item, idx) => (
+                        <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                          <td style={{ padding: '8px', fontFamily: 'monospace', color: 'var(--cyan-neon)' }}>{item.sku}</td>
+                          <td style={{ padding: '8px', color: '#fff' }}>{item.name}</td>
+                          <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>{item.quantity_cases}</td>
+                          <td style={{ padding: '8px', textAlign: 'right' }}>{parseFloat(item.item_cbm / item.quantity_cases).toFixed(4)}</td>
+                          <td style={{ padding: '8px', textAlign: 'right', color: 'var(--cyan-neon)' }}>{parseFloat(item.item_cbm).toFixed(4)} CBM</td>
+                          <td style={{ padding: '8px', textAlign: 'right' }}>${parseFloat(item.cost_per_case_usd).toFixed(2)}</td>
+                          <td style={{ padding: '8px', textAlign: 'right', fontWeight: '600', color: 'var(--green-neon)' }}>
+                            ${parseFloat(item.total_item_cost_usd).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Bitácora de Auditoría */}
+              <div className="glass-panel" style={{ padding: '16px', background: 'rgba(0,232,255,0.01)', border: '1px solid rgba(0,232,255,0.15)', borderRadius: '8px' }}>
+                <h4 style={{ fontSize: '12.5px', color: 'var(--cyan-neon)', margin: '0 0 12px', fontWeight: '700', textTransform: 'uppercase' }}>
+                  📜 Registro de Auditoría de Estados de Fabricación
+                </h4>
+                {productionAuditLogs.length === 0 ? (
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Cargando logs o sin cambios de estado aún...</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto' }}>
+                    {productionAuditLogs.map((log) => (
+                      <div key={log.id} style={{ fontSize: '11.5px', borderBottom: '1px solid rgba(255,255,255,0.02)', paddingBottom: '6px' }}>
+                        <span style={{ color: 'var(--cyan-neon)' }}>{new Date(log.created_at).toLocaleString('es-ES')}</span>
+                        <span style={{ color: '#fff' }}> — <strong>{log.user_name}</strong> {log.action === 'CREATE_PRODUCTION_ORDER' ? 'creó la orden' : 'cambió el estado'}</span>
+                        {log.old_value && (
+                          <>
+                            <span> de <strong style={{ color: 'var(--orange-neon)' }}>{log.old_value}</strong></span>
+                          </>
+                        )}
+                        <span> a <strong style={{ color: 'var(--green-neon)' }}>{log.new_value}</strong></span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '16px' }}>
+              <button
+                type="button"
+                onClick={() => handleExportPDF(selectedProdOrder)}
+                className="btn-glass-neon"
+                style={{ padding: '10px 20px', fontSize: '12.5px' }}
+              >
+                📄 Exportar Ficha (PDF)
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowProdOrderDetailModal(false); setSelectedProdOrder(null); }}
+                className="btn-glass"
+                style={{ padding: '10px 24px' }}
+              >
+                Cerrar Panel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ===================================================== */}
+      {/* MODAL DE CONFIRMACIÓN CUSTOM                          */}
+      {/* ===================================================== */}
+      {confirmModal.isOpen && (
+        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', zIndex: '99999', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+          <div className="glass-panel glow-pink" style={{ width: '100%', maxWidth: '420px', padding: '24px', position: 'relative', border: '1px solid var(--pink-neon)', background: 'var(--bg-dark)' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: '800', marginBottom: '14px', color: 'var(--pink-neon)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              ⚠️ Confirmar Acción
+            </h3>
+            
+            <p style={{ color: '#fff', fontSize: '13.5px', lineHeight: '1.5', marginBottom: '24px' }}>
+              {confirmModal.message}
+            </p>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                className="btn-glass"
+                style={{ padding: '8px 16px', borderRadius: '6px', fontSize: '12.5px' }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmModal.onConfirm}
+                className="btn-pink"
+                style={{ padding: '8px 20px', borderRadius: '6px', fontSize: '12.5px' }}
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================== */}
+      {/* TOAST NOTIFICATIONS CONTAINER                         */}
+      {/* ===================================================== */}
+      <div style={{ position: 'fixed', top: '24px', right: '24px', zIndex: '99999', display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '360px', width: '100%', pointerEvents: 'none' }}>
+        {toasts.map(toast => {
+          const isError = toast.type === 'error';
+          const isWarning = toast.type === 'warning';
+          
+          return (
+            <div
+              key={toast.id}
+              className="glass-panel"
+              style={{
+                pointerEvents: 'auto',
+                padding: '14px 18px',
+                borderRadius: '8px',
+                border: isError ? '1px solid var(--pink-neon)' : isWarning ? '1px solid var(--orange-neon)' : '1px solid var(--cyan-neon)',
+                background: 'rgba(10, 12, 18, 0.95)',
+                boxShadow: isError ? '0 4px 15px rgba(255, 9, 187, 0.2)' : isWarning ? '0 4px 15px rgba(255, 92, 0, 0.2)' : '0 4px 15px rgba(0, 232, 255, 0.2)',
+                color: '#fff',
+                fontSize: '13px',
+                fontWeight: '600',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                animation: 'slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards'
+              }}
+            >
+              <span>{toast.message}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

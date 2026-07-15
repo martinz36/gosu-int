@@ -244,7 +244,9 @@ router.get('/current/settings', requireAuth, requireTenantAdmin, async (req, res
   try {
     const result = await pool.query(
       `SELECT id, name, slug, whatsapp_api_key, resend_api_key, 
-              bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url 
+              cloudinary_cloud_name, cloudinary_upload_preset, cloudinary_api_key, cloudinary_api_secret,
+              stripe_secret_key, stripe_publishable_key,
+              bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url, default_incoterm, discount_policy 
        FROM tenants WHERE id = $1 AND deleted_at IS NULL`,
       [tenant_id]
     );
@@ -269,11 +271,19 @@ router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res
   const { 
     whatsapp_api_key, 
     resend_api_key,
+    cloudinary_cloud_name,
+    cloudinary_upload_preset,
+    cloudinary_api_key,
+    cloudinary_api_secret,
+    stripe_secret_key,
+    stripe_publishable_key,
     bank_name,
     bank_account_name,
     bank_account_number,
     bank_routing_number,
-    logo_url
+    logo_url,
+    default_incoterm,
+    discount_policy
   } = req.body;
 
   try {
@@ -281,23 +291,41 @@ router.put('/current/settings', requireAuth, requireTenantAdmin, async (req, res
       `UPDATE tenants
        SET whatsapp_api_key = $1, 
            resend_api_key = $2, 
-           bank_name = $3, 
-           bank_account_name = $4, 
-           bank_account_number = $5, 
-           bank_routing_number = $6, 
-           logo_url = $7,
+           cloudinary_cloud_name = $3,
+           cloudinary_upload_preset = $4,
+           cloudinary_api_key = $5,
+           cloudinary_api_secret = $6,
+           stripe_secret_key = $7,
+           stripe_publishable_key = $8,
+           bank_name = $9, 
+           bank_account_name = $10, 
+           bank_account_number = $11, 
+           bank_routing_number = $12, 
+           logo_url = $13,
+           default_incoterm = $14,
+           discount_policy = $15,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $8 AND deleted_at IS NULL
+       WHERE id = $16 AND deleted_at IS NULL
        RETURNING id, name, slug, whatsapp_api_key, resend_api_key, 
-                 bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url`,
+                 cloudinary_cloud_name, cloudinary_upload_preset, cloudinary_api_key, cloudinary_api_secret,
+                 stripe_secret_key, stripe_publishable_key,
+                 bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url, default_incoterm, discount_policy`,
       [
         whatsapp_api_key !== undefined && whatsapp_api_key !== null ? whatsapp_api_key.trim() : null,
         resend_api_key !== undefined && resend_api_key !== null ? resend_api_key.trim() : null,
+        cloudinary_cloud_name !== undefined && cloudinary_cloud_name !== null ? cloudinary_cloud_name.trim() : null,
+        cloudinary_upload_preset !== undefined && cloudinary_upload_preset !== null ? cloudinary_upload_preset.trim() : null,
+        cloudinary_api_key !== undefined && cloudinary_api_key !== null ? cloudinary_api_key.trim() : null,
+        cloudinary_api_secret !== undefined && cloudinary_api_secret !== null ? cloudinary_api_secret.trim() : null,
+        stripe_secret_key !== undefined && stripe_secret_key !== null ? stripe_secret_key.trim() : null,
+        stripe_publishable_key !== undefined && stripe_publishable_key !== null ? stripe_publishable_key.trim() : null,
         bank_name !== undefined && bank_name !== null ? bank_name.trim() : null,
         bank_account_name !== undefined && bank_account_name !== null ? bank_account_name.trim() : null,
         bank_account_number !== undefined && bank_account_number !== null ? bank_account_number.trim() : null,
         bank_routing_number !== undefined && bank_routing_number !== null ? bank_routing_number.trim() : null,
         logo_url !== undefined && logo_url !== null ? logo_url.trim() : null,
+        default_incoterm !== undefined && default_incoterm !== null ? default_incoterm.trim() : 'FOB China',
+        discount_policy !== undefined && discount_policy !== null ? discount_policy.trim() : 'tier',
         tenant_id
       ]
     );
@@ -353,10 +381,12 @@ router.get('/current/dashboard', requireAuth, requireTenantAdmin, async (req, re
       p.sku as product_sku,
       p.category as product_category,
       COALESCE(p.factory_cost_per_case_usd, 0) as factory_cost_per_case_usd,
-      COALESCE(p.units_per_case, 1) as units_per_case
+      COALESCE(p.units_per_case, 1) as units_per_case,
+      COALESCE(bcp.destination_country, 'UNK') as destination_country
     FROM sales_orders so
     JOIN sales_order_items soi ON soi.sales_order_id = so.id
     JOIN products p ON p.id = soi.product_id
+    LEFT JOIN b2b_client_profiles bcp ON bcp.user_id = so.client_id
     WHERE so.tenant_id = $1
   `;
   const params = [tenant_id];
@@ -382,6 +412,8 @@ router.get('/current/dashboard', requireAuth, requireTenantAdmin, async (req, re
     const salesByDayMap = {};
     const salesByCategoryMap = {};
     const productsMap = {};
+
+    const salesByCountryMap = {};
 
     rows.forEach(r => {
       const qty = parseInt(r.qty_cases) || 0;
@@ -417,6 +449,16 @@ router.get('/current/dashboard', requireAuth, requireTenantAdmin, async (req, re
       productsMap[sku].sales += itemRevenue;
       productsMap[sku].cost += itemCost;
       productsMap[sku].profit += (itemRevenue - itemCost);
+
+      // Agrupar por país de destino (ISO-3)
+      const country = (r.destination_country || 'UNK').toUpperCase().trim();
+      if (country && country !== 'UNK') {
+        if (!salesByCountryMap[country]) {
+          salesByCountryMap[country] = { iso3: country, sales: 0, cases: 0 };
+        }
+        salesByCountryMap[country].sales += itemRevenue;
+        salesByCountryMap[country].cases += qty;
+      }
     });
 
     const totalProfit = totalSales - totalCosts;
@@ -427,6 +469,8 @@ router.get('/current/dashboard', requireAuth, requireTenantAdmin, async (req, re
     const top_products = Object.values(productsMap)
       .sort((a, b) => b.sales - a.sales)
       .slice(0, 5);
+    // sales_by_country: { ISO3: { iso3, sales, cases } }
+    const sales_by_country = salesByCountryMap;
 
     res.json({
       summary: {
@@ -437,7 +481,8 @@ router.get('/current/dashboard', requireAuth, requireTenantAdmin, async (req, re
       },
       sales_by_day,
       sales_by_category,
-      top_products
+      top_products,
+      sales_by_country
     });
   } catch (err) {
     console.error('Error al generar reporte de dashboard:', err);
@@ -454,7 +499,7 @@ router.get('/current/bank-details', requireAuth, async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT name, bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url 
+      `SELECT name, bank_name, bank_account_name, bank_account_number, bank_routing_number, logo_url, discount_policy 
        FROM tenants 
        WHERE id = $1 AND deleted_at IS NULL`,
       [tenant_id]
@@ -468,6 +513,76 @@ router.get('/current/bank-details', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Error al obtener datos bancarios del tenant:', err);
     res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ============================================================
+// WAREHOUSES MANAGEMENT (Solo Tenant Admin)
+// ============================================================
+
+// GET /api/tenants/current/warehouses
+router.get('/current/warehouses', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  try {
+    const result = await pool.query(
+      'SELECT id, name, code, address, contact_info, is_virtual FROM warehouses WHERE tenant_id = $1 ORDER BY is_virtual ASC, code ASC',
+      [tenant_id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error al obtener almacenes:', err);
+    res.status(500).json({ error: 'Error al cargar los almacenes.' });
+  }
+});
+
+// POST /api/tenants/current/warehouses (Crear nuevo almacén físico)
+router.post('/current/warehouses', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { name, code, address, contact_info } = req.body;
+
+  if (!name || !code) {
+    return res.status(400).json({ error: 'El nombre y código de almacén son obligatorios.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO warehouses (tenant_id, name, code, address, contact_info, is_virtual)
+       VALUES ($1, $2, $3, $4, $5, FALSE)
+       RETURNING *`,
+      [tenant_id, name, code.toUpperCase().trim(), address, contact_info]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Error al crear almacén:', err);
+    res.status(500).json({ error: 'Error al registrar el almacén (verifique que el código no esté duplicado).' });
+  }
+});
+
+// PUT /api/tenants/current/warehouses/:id
+router.put('/current/warehouses/:id', requireAuth, requireTenantAdmin, async (req, res) => {
+  const { tenant_id } = req.user;
+  const { id } = req.params;
+  const { name, address, contact_info } = req.body;
+
+  if (!name) {
+    return res.status(400).json({ error: 'El nombre del almacén es obligatorio.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE warehouses 
+       SET name = $1, address = $2, contact_info = $3, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $4 AND tenant_id = $5
+       RETURNING *`,
+      [name, address, contact_info, id, tenant_id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Almacén no encontrado.' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error al actualizar almacén:', err);
+    res.status(500).json({ error: 'Error al actualizar el almacén.' });
   }
 });
 

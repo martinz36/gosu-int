@@ -121,3 +121,64 @@ body {
 input, select, textarea {
   font-family: var(--font-family);
 }
+
+/* Badges de Estado Premium & Neon */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  backdrop-filter: blur(4px);
+}
+
+.badge-green {
+  background: rgba(34, 239, 0, 0.1);
+  border: 1px solid var(--green-neon);
+  color: var(--green-neon);
+  box-shadow: 0 0 10px rgba(34, 239, 0, 0.15);
+}
+
+.badge-cyan {
+  background: rgba(0, 232, 255, 0.1);
+  border: 1px solid var(--cyan-neon);
+  color: var(--cyan-neon);
+  box-shadow: 0 0 10px rgba(0, 232, 255, 0.15);
+}
+
+.badge-orange {
+  background: rgba(255, 92, 0, 0.1);
+  border: 1px solid var(--orange-neon);
+  color: var(--orange-neon);
+  box-shadow: 0 0 10px rgba(255, 92, 0, 0.15);
+}
+
+.badge-pink {
+  background: rgba(255, 9, 187, 0.1);
+  border: 1px solid var(--pink-neon);
+  color: var(--pink-neon);
+  box-shadow: 0 0 10px rgba(255, 9, 187, 0.15);
+}
+
+.badge-red {
+  background: rgba(255, 0, 0, 0.1);
+  border: 1px solid #ff0000;
+  color: #ff0000;
+  box-shadow: 0 0 10px rgba(255, 0, 0, 0.15);
+}
+
+/* Animaciones para Toasts */
+@keyframes slideIn {
+  0% {
+    transform: translateX(120%) scale(0.9);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(0) scale(1);
+    opacity: 1;
+  }
+}

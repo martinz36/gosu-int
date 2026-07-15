@@ -13,6 +13,7 @@ import usersRoutes from './routes/users.js';
 import auditRoutes from './routes/audit.js';
 import configRoutes from './routes/config.js';
 import pricingTiersRoutes from './routes/pricingTiers.js';
+import campaignsRoutes from './routes/campaigns.js';
 
 // Cargar variables de entorno según el entorno
 // En producción (Railway), las variables se inyectan directamente
@@ -45,6 +46,72 @@ const runAutoMigrations = async () => {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
     `);
     console.log('✅ Columna must_change_password verificada/agregada.');
+
+    // 3.5. Agregar columnas de Cloudinary a la tabla tenants si no existen
+    await client.query(`
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS cloudinary_cloud_name VARCHAR(255);
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS cloudinary_upload_preset VARCHAR(255);
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS cloudinary_api_key VARCHAR(255);
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS cloudinary_api_secret VARCHAR(255);
+    `);
+    console.log('✅ Columnas de Cloudinary verificadas/agregadas a la tabla tenants.');
+
+    // 3.6. Agregar columnas de Stripe a la tabla tenants si no existen
+    await client.query(`
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_secret_key VARCHAR(512);
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_publishable_key VARCHAR(512);
+    `);
+    console.log('✅ Columnas de Stripe verificadas/agregadas a la tabla tenants.');
+
+    // 4. Migrar estados antiguos de órdenes de producción a los nuevos estados
+    await client.query(`
+      UPDATE production_orders SET status = 'Proforma' WHERE status IN ('Quotation', 'Draft');
+    `);
+    await client.query(`
+      UPDATE production_orders SET status = 'QC Control' WHERE status = 'QC Inspection';
+    `);
+    await client.query(`
+      UPDATE production_orders SET status = 'Shipped' WHERE status IN ('Port', 'Transit');
+    `);
+    console.log('✅ Migraciones de estados de órdenes de producción completadas.');
+
+    // 5. Migrar estados antiguos de pago de sales_orders
+    await client.query(`
+      UPDATE sales_orders SET payment_status = 'Pendiente' WHERE payment_status = 'pending';
+    `);
+    await client.query(`
+      UPDATE sales_orders SET payment_status = 'Pagado' WHERE payment_status = 'paid';
+    `);
+    await client.query(`
+      UPDATE sales_orders SET payment_status = 'Pendiente' WHERE payment_status IS NULL OR payment_status = '';
+    `);
+    console.log('✅ Migraciones de estado de pago de ventas completadas.');
+
+    // 6. Agregar columnas stripe_session_id y credit_due_date a sales_orders
+    await client.query(`
+      ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS stripe_session_id VARCHAR(512);
+      ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS credit_due_date DATE;
+    `);
+    console.log('✅ Columnas stripe_session_id y credit_due_date agregadas a sales_orders.');
+
+    // 7. Agregar columna default_incoterm a tenants
+    await client.query(`
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS default_incoterm VARCHAR(100) DEFAULT 'FOB China';
+    `);
+    console.log('✅ Columna default_incoterm agregada a tenants.');
+
+    // 8. Unificar y migrar estados logísticos de sales_orders a los nuevos 4 estados simplificados
+    await client.query(`
+      UPDATE sales_orders 
+      SET status = CASE 
+        WHEN status IN ('Draft', 'Proforma', 'Port', 'QC Inspection', 'QC Control') THEN 'En Revisión'
+        WHEN status IN ('Production', 'Inventory') THEN 'En Preparación'
+        WHEN status IN ('Transit', 'Shipped') THEN 'Enviado'
+        WHEN status IN ('Delivered') THEN 'Entregado'
+        ELSE 'En Revisión'
+      END;
+    `);
+    console.log('✅ Migración de estados logísticos simplificados en sales_orders completada.');
 
     client.release();
     console.log('🎉 Migraciones automáticas completadas.');
@@ -93,7 +160,7 @@ app.use((req, res, next) => {
 // ============================================================
 // Body Parser
 // ============================================================
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 // ============================================================
 // Rutas
@@ -108,6 +175,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/pricing-tiers', pricingTiersRoutes);
+app.use('/api/campaigns', campaignsRoutes);
 
 // Estado de la API y conexión a BD
 app.get('/api/status', async (req, res) => {
