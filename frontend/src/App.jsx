@@ -135,6 +135,12 @@ function App() {
   const [showPricingTiersModal, setShowPricingTiersModal] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, message: '', onConfirm: null });
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  
+  const handleNavClick = (tabName) => {
+    setActiveTab(tabName);
+    setMobileSidebarOpen(false);
+  };
 
   const isSleevesCategory = (categorySlug) => {
     if (!categorySlug) return false;
@@ -2453,8 +2459,13 @@ function App() {
       )}
 
       <div className="layout-wrapper" style={{ marginTop: (isImpersonating || isTenantImpersonating) ? '43px' : 0 }}>
+        {/* Overlay para cerrar sidebar móvil al hacer click fuera */}
+        {mobileSidebarOpen && (
+          <div className="mobile-sidebar-overlay" onClick={() => setMobileSidebarOpen(false)} />
+        )}
+
         {/* Sidebar Lateral */}
-        <aside className="premium-sidebar">
+        <aside className={`premium-sidebar ${mobileSidebarOpen ? 'open' : ''}`}>
           <div style={{ marginBottom: '20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
             {activeLogoUrl ? (
               <img 
@@ -2472,64 +2483,75 @@ function App() {
             )}
           </div>
 
-          <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px', flexGrow: 1 }}>
+          <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexGrow: 1 }}>
             {isSuperAdmin ? (
               <>
-                <span className={`nav-link-btn ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => setActiveTab('saas-tenants')}>
+                <div className="sidebar-section-title">Plataforma SaaS</div>
+                <span className={`nav-link-btn ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => handleNavClick('saas-tenants')}>
                   🏢 Inquilinos (Tenants)
                 </span>
-                <span className={`nav-link-btn ${activeTab === 'saas-users' ? 'active' : ''}`} onClick={() => setActiveTab('saas-users')}>
+                <span className={`nav-link-btn ${activeTab === 'saas-users' ? 'active' : ''}`} onClick={() => handleNavClick('saas-users')}>
                   👥 Usuarios Globales
                 </span>
-                <span className={`nav-link-btn ${activeTab === 'saas-billing' ? 'active' : ''}`} onClick={() => setActiveTab('saas-billing')}>
+                <span className={`nav-link-btn ${activeTab === 'saas-billing' ? 'active' : ''}`} onClick={() => handleNavClick('saas-billing')}>
                   💳 Planes & Billing
                 </span>
-                <span className={`nav-link-btn ${activeTab === 'saas-audit' ? 'active' : ''}`} onClick={() => setActiveTab('saas-audit')}>
+                <span className={`nav-link-btn ${activeTab === 'saas-audit' ? 'active' : ''}`} onClick={() => handleNavClick('saas-audit')}>
                   📋 Auditoría & Logs
                 </span>
               </>
             ) : (
               <>
-                {isAdmin && (
-                  <span className={`nav-link-btn ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
-                    📈 DashBoard
-                  </span>
-                )}
-                <span className={`nav-link-btn ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>
-                  📂 {isAdmin ? 'Productos' : 'Catálogo B2B'}
-                </span>
-                {!isAdmin && (
+                {isAdmin ? (
                   <>
-                    <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
-                      📜 Mis Pedidos & Bóveda
+                    <div className="sidebar-section-title">General</div>
+                    <span className={`nav-link-btn ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => handleNavClick('dashboard')}>
+                      📊 Control de Mando
                     </span>
-                    <span className={`nav-link-btn ${activeTab === 'campaigns' ? 'active' : ''}`} onClick={() => setActiveTab('campaigns')}>
-                      📅 Preventas / Print Runs
+
+                    <div className="sidebar-section-title">Operaciones</div>
+                    <span className={`nav-link-btn ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => handleNavClick('catalog')}>
+                      🛍️ Catálogo de Productos
                     </span>
-                  </>
-                )}
-                {isAdmin && (
-                  <>
-                    <span className={`nav-link-btn ${activeTab === 'inventory' ? 'active' : ''}`} onClick={() => setActiveTab('inventory')}>
+                    <span className={`nav-link-btn ${activeTab === 'inventory' ? 'active' : ''}`} onClick={() => handleNavClick('inventory')}>
                       📦 Inventario & Stock
                     </span>
-                    <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
-                      📊 Registro de Ventas
-                    </span>
-                    <span className={`nav-link-btn ${activeTab === 'billing' ? 'active' : ''}`} onClick={() => setActiveTab('billing')}>
-                      💳 Cobranzas B2B
-                    </span>
-                    <span className={`nav-link-btn ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
+                    <span className={`nav-link-btn ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => handleNavClick('admin')}>
                       🏭 Fábrica & Producción
                     </span>
-                    <span className={`nav-link-btn ${activeTab === 'campaigns' ? 'active' : ''}`} onClick={() => setActiveTab('campaigns')}>
+                    <span className={`nav-link-btn ${activeTab === 'campaigns' ? 'active' : ''}`} onClick={() => handleNavClick('campaigns')}>
                       📅 Preventas / Print Runs
                     </span>
-                    <span className={`nav-link-btn ${activeTab === 'clients' ? 'active' : ''}`} onClick={() => setActiveTab('clients')}>
-                      👥 Clientes & Leads
+
+                    <div className="sidebar-section-title">Comercial</div>
+                    <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => handleNavClick('orders')}>
+                      📜 Historial de Ventas
                     </span>
-                    <span className={`nav-link-btn ${activeTab === 'config' ? 'active' : ''}`} onClick={() => setActiveTab('config')}>
-                      ⚙️ Configuración
+                    <span className={`nav-link-btn ${activeTab === 'billing' ? 'active' : ''}`} onClick={() => handleNavClick('billing')}>
+                      💵 Cobranzas B2B
+                    </span>
+                    <span className={`nav-link-btn ${activeTab === 'clients' ? 'active' : ''}`} onClick={() => handleNavClick('clients')}>
+                      👥 Directorio de Clientes
+                    </span>
+
+                    <div className="sidebar-section-title">Configuración</div>
+                    <span className={`nav-link-btn ${activeTab === 'config' ? 'active' : ''}`} onClick={() => handleNavClick('config')}>
+                      ⚙️ Ajustes de Empresa
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <div className="sidebar-section-title">Compras</div>
+                    <span className={`nav-link-btn ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => handleNavClick('catalog')}>
+                      🛍️ Catálogo B2B
+                    </span>
+                    <span className={`nav-link-btn ${activeTab === 'campaigns' ? 'active' : ''}`} onClick={() => handleNavClick('campaigns')}>
+                      📅 Preventas / Print Runs
+                    </span>
+
+                    <div className="sidebar-section-title">Mi Cuenta</div>
+                    <span className={`nav-link-btn ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => handleNavClick('orders')}>
+                      📜 Mis Pedidos & Bóveda
                     </span>
                   </>
                 )}
@@ -2545,7 +2567,7 @@ function App() {
                 {isSuperAdmin ? 'SUPER ADMIN' : isAdmin ? 'ADMIN' : currentUser.client_category?.replace('_', ' ')}
               </span>
             </div>
-            <button onClick={() => setActiveTab('profile')} className="btn-glass-cyan" style={{ width: '100%', padding: '8px', fontSize: '12px', marginBottom: '-4px' }}>
+            <button onClick={() => handleNavClick('profile')} className="btn-glass-cyan" style={{ width: '100%', padding: '8px', fontSize: '12px', marginBottom: '-4px' }}>
               ⚙️ Mi Perfil
             </button>
             <button onClick={handleLogout} className="btn-glass-pink" style={{ width: '100%', padding: '8px', fontSize: '12px' }}>
@@ -2558,16 +2580,34 @@ function App() {
         <div className="main-layout">
           {/* Header Bar */}
           <header className="premium-header">
+            {/* Botón hamburguesa móvil */}
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#fff',
+                fontSize: '24px',
+                cursor: 'pointer',
+                padding: '4px',
+                marginRight: '12px'
+              }}
+              className="mobile-hamburger-btn"
+            >
+              ☰
+            </button>
+
             {/* Logo en versión mobile */}
-            <div className="mobile-only-logo" style={{ display: 'none' }}>
+            <div className="mobile-logo-wrapper">
               {activeLogoUrl ? (
-                <img src={activeLogoUrl} alt="Logo" style={{ maxHeight: '35px', objectFit: 'contain' }} />
+                <img src={activeLogoUrl} alt="Logo" style={{ maxHeight: '35px', maxWidth: '140px', objectFit: 'contain', borderRadius: '4px' }} />
               ) : (
-                <span className="logo-text" style={{ fontSize: '16px', fontWeight: '900' }}>
+                <span className="logo-text" style={{ fontSize: '16px', fontWeight: '900', color: 'var(--cyan-neon)' }}>
                   {isSuperAdmin ? 'GOSU SAAS' : currentUser.tenant_name?.toUpperCase() || 'GOSU B2B'}
                 </span>
               )}
             </div>
+            
             <div className="premium-header-content">
               {!isSuperAdmin && (
                 <button className="btn-glass-neon" onClick={() => setShowCart(true)}>
@@ -2576,34 +2616,6 @@ function App() {
               )}
             </div>
           </header>
-
-          {/* Mobile Floating Nav */}
-          <div className="floating-mobile-nav">
-            {isSuperAdmin ? (
-              <>
-                <span className={`mobile-nav-item ${activeTab === 'saas-tenants' ? 'active' : ''}`} onClick={() => setActiveTab('saas-tenants')}>🏢 Tenants</span>
-                <span className={`mobile-nav-item ${activeTab === 'saas-users' ? 'active' : ''}`} onClick={() => setActiveTab('saas-users')}>👥 Users</span>
-                <span className={`mobile-nav-item ${activeTab === 'saas-billing' ? 'active' : ''}`} onClick={() => setActiveTab('saas-billing')}>💳 Billing</span>
-                <span className={`mobile-nav-item ${activeTab === 'saas-audit' ? 'active' : ''}`} onClick={() => setActiveTab('saas-audit')}>📋 Logs</span>
-              </>
-            ) : (
-              <>
-                <span className={`mobile-nav-item ${activeTab === 'catalog' ? 'active' : ''}`} onClick={() => setActiveTab('catalog')}>📂 Catálogo</span>
-                {!isAdmin && (
-                  <span className={`mobile-nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>📜 Pedidos</span>
-                )}
-                {isAdmin && (
-                  <>
-                    <span className={`mobile-nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>📈 Dash</span>
-                    <span className={`mobile-nav-item ${activeTab === 'inventory' ? 'active' : ''}`} onClick={() => setActiveTab('inventory')}>📦 Stock</span>
-                    <span className={`mobile-nav-item ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>📊 Ventas</span>
-                    <span className={`mobile-nav-item ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>🏭 Fábrica</span>
-                    <span className={`mobile-nav-item ${activeTab === 'config' ? 'active' : ''}`} onClick={() => setActiveTab('config')}>⚙️ Config</span>
-                  </>
-                )}
-              </>
-            )}
-          </div>
 
           <main className="main-content" style={{ flexGrow: 1, padding: '24px', boxSizing: 'border-box' }}>
             {/* Loading global */}
