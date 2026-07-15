@@ -82,6 +82,18 @@ router.post('/', requireAuth, requireTenantAdmin, async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // Asegurar que la categoría existe en la tabla categories
+    const cleanCat = category.trim();
+    const catSlug = cleanCat.toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-_]/g, '');
+
+    await client.query(`
+      INSERT INTO categories (tenant_id, name, slug)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (tenant_id, slug) DO NOTHING
+    `, [tenant_id, cleanCat, catSlug]);
+
     // 1. Insertar el producto en products
     const productResult = await client.query(
       `INSERT INTO products (
@@ -153,6 +165,20 @@ router.put('/:id', requireAuth, requireTenantAdmin, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // Asegurar que la categoría existe en la tabla categories
+    if (category) {
+      const cleanCat = category.trim();
+      const catSlug = cleanCat.toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^a-z0-9-_]/g, '');
+
+      await client.query(`
+        INSERT INTO categories (tenant_id, name, slug)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (tenant_id, slug) DO NOTHING
+      `, [tenant_id, cleanCat, catSlug]);
+    }
 
     // 1. Actualizar el producto en products
     const productResult = await client.query(
@@ -229,6 +255,21 @@ router.post('/bulk', requireAuth, requireTenantAdmin, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // Asegurar que las nuevas categorías existan en la tabla categories
+    const uniqueCategories = [...new Set(products.map(p => p.category).filter(Boolean))];
+    for (const cat of uniqueCategories) {
+      const cleanCat = cat.trim();
+      const slug = cleanCat.toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^a-z0-9-_]/g, '');
+      
+      await client.query(`
+        INSERT INTO categories (tenant_id, name, slug)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (tenant_id, slug) DO NOTHING
+      `, [tenant_id, cleanCat, slug]);
+    }
 
     let insertedCount = 0;
     let updatedCount = 0;
