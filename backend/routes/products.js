@@ -41,7 +41,18 @@ router.get('/', requireAuth, async (req, res) => {
 
   if (category && category !== 'all') {
     params.push(category);
-    query += ` AND p.category = $${params.length}`;
+    query += ` AND (
+      LOWER(p.category) = LOWER($${params.length})
+      OR EXISTS (
+        SELECT 1 FROM categories c
+        WHERE c.tenant_id = p.tenant_id
+          AND c.slug = $${params.length}
+          AND (
+            LOWER(c.name) = LOWER(p.category)
+            OR c.slug = LOWER(REPLACE(REPLACE(p.category, ' ', '-'), '_', '-'))
+          )
+      )
+    )`;
   }
 
   if (search) {
