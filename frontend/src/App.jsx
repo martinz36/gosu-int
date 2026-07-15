@@ -133,6 +133,8 @@ function App() {
   const [editingSkuVolumeRule, setEditingSkuVolumeRule] = useState(null);
   const [showSkuVolumeRulesModal, setShowSkuVolumeRulesModal] = useState(false);
   const [showPricingTiersModal, setShowPricingTiersModal] = useState(false);
+  const [toasts, setToasts] = useState([]);
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, message: '', onConfirm: null });
 
   const isSleevesCategory = (categorySlug) => {
     if (!categorySlug) return false;
@@ -563,6 +565,38 @@ function App() {
     }
   }, [currentUser, isSuperAdmin, isAdmin, dashboardFilter, dashboardStartDate, dashboardEndDate]);
 
+  // -------------------------------------------------------
+  // Sistema de Notificaciones Toasts y Confirmaciones Custom
+  // -------------------------------------------------------
+  const showToast = (message, type = 'success', duration = 4000) => {
+    const id = Date.now() + Math.random().toString(36).substr(2, 9);
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, duration);
+  };
+
+  const alert = (message) => {
+    let t = 'success';
+    if (message.includes('❌') || message.toLowerCase().includes('error')) {
+      t = 'error';
+    } else if (message.includes('⚠️') || message.includes('warn') || message.includes('atención')) {
+      t = 'warning';
+    }
+    showToast(message, t);
+  };
+
+  const requestConfirm = (message, onConfirm) => {
+    setConfirmModal({
+      isOpen: true,
+      message,
+      onConfirm: () => {
+        onConfirm();
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+      }
+    });
+  };
+
   // Carga inicial cuando el usuario se autentifica
   useEffect(() => {
     if (!currentUser) return;
@@ -960,15 +994,16 @@ function App() {
   };
 
   const handleDeleteCampaign = async (id) => {
-    if (!window.confirm('⚠️ ¿Estás seguro de que deseas eliminar esta campaña?')) return;
-    try {
-      await campaignsApi.delete(id);
-      alert('🗑️ Campaña eliminada.');
-      await loadCampaigns();
-    } catch (err) {
-      console.error('Error al eliminar campaña:', err);
-      alert('❌ Error al eliminar campaña: ' + (err.error || err.message || err));
-    }
+    requestConfirm('⚠️ ¿Estás seguro de que deseas eliminar esta campaña?', async () => {
+      try {
+        await campaignsApi.delete(id);
+        alert('🗑️ Campaña eliminada.');
+        await loadCampaigns();
+      } catch (err) {
+        console.error('Error al eliminar campaña:', err);
+        alert('❌ Error al eliminar campaña: ' + (err.error || err.message || err));
+      }
+    });
   };
 
   const handleOpenCampaignProductsModal = (campaign) => {
@@ -1045,15 +1080,16 @@ function App() {
   };
 
   const handleDeleteSkuVolumeRule = async (id) => {
-    if (!window.confirm('⚠️ ¿Estás seguro de que deseas eliminar esta regla?')) return;
-    try {
-      await configApi.skuVolumeRules.delete(id);
-      alert('🗑️ Regla de volumen eliminada.');
-      await loadSkuVolumeRules();
-    } catch (err) {
-      console.error('Error al eliminar regla de volumen SKU:', err);
-      alert('❌ Error al eliminar regla: ' + (err.error || err.message || err));
-    }
+    requestConfirm('⚠️ ¿Estás seguro de que deseas eliminar esta regla?', async () => {
+      try {
+        await configApi.skuVolumeRules.delete(id);
+        alert('🗑️ Regla de volumen eliminada.');
+        await loadSkuVolumeRules();
+      } catch (err) {
+        console.error('Error al eliminar regla de volumen SKU:', err);
+        alert('❌ Error al eliminar regla: ' + (err.error || err.message || err));
+      }
+    });
   };
 
   // ============================================================
@@ -1734,14 +1770,15 @@ function App() {
   };
 
   const handleApprovePayment = async (orderId) => {
-    if (!window.confirm('¿Está seguro de que desea aprobar el comprobante y marcar esta orden como Pagada?')) return;
-    try {
-      await ordersApi.approvePayment(orderId);
-      alert('🎉 Pago aprobado con éxito.');
-      await loadOrders();
-    } catch (err) {
-      alert(`❌ Error al aprobar pago: ${err.message}`);
-    }
+    requestConfirm('¿Está seguro de que desea aprobar el comprobante y marcar esta orden como Pagada?', async () => {
+      try {
+        await ordersApi.approvePayment(orderId);
+        alert('🎉 Pago aprobado con éxito.');
+        await loadOrders();
+      } catch (err) {
+        alert(`❌ Error al aprobar pago: ${err.message}`);
+      }
+    });
   };
 
   const handleUpdateCreditDueDate = async (orderId, dateValue) => {
@@ -4728,8 +4765,8 @@ function App() {
                                     <>
                                       {order.payment_status === 'Pendiente' ? (
                                         <button
-                                          onClick={async () => {
-                                            if (window.confirm('¿Desea otorgar una línea de crédito a este pedido?')) {
+                                          onClick={() => {
+                                            requestConfirm('¿Desea otorgar una línea de crédito a este pedido?', async () => {
                                               try {
                                                 await ordersApi.updatePayment(order.id, 'Crédito', null);
                                                 alert('🎉 Crédito comercial otorgado con éxito.');
@@ -4737,7 +4774,7 @@ function App() {
                                               } catch (err) {
                                                 alert(`Error: ${err.message}`);
                                               }
-                                            }
+                                            });
                                           }}
                                           className="btn-glass-neon"
                                           style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--cyan-neon)', borderColor: 'var(--cyan-neon)' }}
@@ -4747,8 +4784,8 @@ function App() {
                                         </button>
                                       ) : (
                                         <button
-                                          onClick={async () => {
-                                            if (window.confirm('¿Desea quitar el crédito de este pedido y retornarlo a Pendiente?')) {
+                                          onClick={() => {
+                                            requestConfirm('¿Desea quitar el crédito de este pedido y retornarlo a Pendiente?', async () => {
                                               try {
                                                 await ordersApi.updatePayment(order.id, 'Pendiente', null);
                                                 alert('🎉 Crédito removido con éxito.');
@@ -4756,7 +4793,7 @@ function App() {
                                               } catch (err) {
                                                 alert(`Error: ${err.message}`);
                                               }
-                                            }
+                                            });
                                           }}
                                           className="btn-glass"
                                           style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--pink-neon)', borderColor: 'var(--pink-neon)' }}
@@ -8713,6 +8750,75 @@ function App() {
           </div>
         </div>
       )}
+      {/* ===================================================== */}
+      {/* MODAL DE CONFIRMACIÓN CUSTOM                          */}
+      {/* ===================================================== */}
+      {confirmModal.isOpen && (
+        <div style={{ position: 'fixed', inset: '0', background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', zIndex: '99999', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '16px' }}>
+          <div className="glass-panel glow-pink" style={{ width: '100%', maxWidth: '420px', padding: '24px', position: 'relative', border: '1px solid var(--pink-neon)', background: 'var(--bg-dark)' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: '800', marginBottom: '14px', color: 'var(--pink-neon)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              ⚠️ Confirmar Acción
+            </h3>
+            
+            <p style={{ color: '#fff', fontSize: '13.5px', lineHeight: '1.5', marginBottom: '24px' }}>
+              {confirmModal.message}
+            </p>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                className="btn-glass"
+                style={{ padding: '8px 16px', borderRadius: '6px', fontSize: '12.5px' }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmModal.onConfirm}
+                className="btn-pink"
+                style={{ padding: '8px 20px', borderRadius: '6px', fontSize: '12.5px' }}
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================== */}
+      {/* TOAST NOTIFICATIONS CONTAINER                         */}
+      {/* ===================================================== */}
+      <div style={{ position: 'fixed', top: '24px', right: '24px', zIndex: '99999', display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '360px', width: '100%', pointerEvents: 'none' }}>
+        {toasts.map(toast => {
+          const isError = toast.type === 'error';
+          const isWarning = toast.type === 'warning';
+          
+          return (
+            <div
+              key={toast.id}
+              className="glass-panel"
+              style={{
+                pointerEvents: 'auto',
+                padding: '14px 18px',
+                borderRadius: '8px',
+                border: isError ? '1px solid var(--pink-neon)' : isWarning ? '1px solid var(--orange-neon)' : '1px solid var(--cyan-neon)',
+                background: 'rgba(10, 12, 18, 0.95)',
+                boxShadow: isError ? '0 4px 15px rgba(255, 9, 187, 0.2)' : isWarning ? '0 4px 15px rgba(255, 92, 0, 0.2)' : '0 4px 15px rgba(0, 232, 255, 0.2)',
+                color: '#fff',
+                fontSize: '13px',
+                fontWeight: '600',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                animation: 'slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards'
+              }}
+            >
+              <span>{toast.message}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

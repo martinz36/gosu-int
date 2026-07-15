@@ -170,3 +170,15 @@ input, select, textarea {
   color: #ff0000;
   box-shadow: 0 0 10px rgba(255, 0, 0, 0.15);
 }
+
+/* Animaciones para Toasts */
+@keyframes slideIn {
+  0% {
+    transform: translateX(120%) scale(0.9);
+    opacity: 0;
+  }
+  100% {
+    transform: translateX(0) scale(1);
+    opacity: 1;
+  }
+}
