@@ -112,8 +112,7 @@ async function seed() {
     `, [tenantId]);
     const warehouseId = warehouseResult.rows[0].id;
 
-    // 11. Crear Productos
-    // G00001
+    // 11. Crear Productos (esquema developer completo)
     const p1 = await client.query(`
       INSERT INTO products (tenant_id, sku, name, category, commercial_description, price_per_case_usd, units_per_case, finished_measurements, color, factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, case_weight_kg, case_length_cm, case_width_cm, case_height_cm)
       VALUES ($1, 'G00001', 'DECK BOX NEON PINK - 100+ CARDS', 'DECK BOX', 'Premium deck box with neon acrylic structure.', 35.00, 24, '75x90x100mm', 'Neon Pink', 'Dongguan Card Supplies', 'DB-NP-24', 10.00, 'PMS 806C', 8.50, 45.0, 30.0, 35.0)
@@ -121,7 +120,6 @@ async function seed() {
     `, [tenantId]);
     const p1Id = p1.rows[0].id;
 
-    // G00002
     const p2 = await client.query(`
       INSERT INTO products (tenant_id, sku, name, category, commercial_description, price_per_case_usd, units_per_case, finished_measurements, color, factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, case_weight_kg, case_length_cm, case_width_cm, case_height_cm)
       VALUES ($1, 'G00002', 'DECK BOX DEEP BLUE - 100+ CARDS', 'DECK BOX', 'Premium deck box with royal blue deep structure.', 35.00, 24, '75x90x100mm', 'Deep Blue', 'Dongguan Card Supplies', 'DB-DB-24', 10.00, 'PMS 293C', 8.50, 45.0, 30.0, 35.0)
@@ -129,7 +127,6 @@ async function seed() {
     `, [tenantId]);
     const p2Id = p2.rows[0].id;
 
-    // G00003
     const p3 = await client.query(`
       INSERT INTO products (tenant_id, sku, name, category, commercial_description, price_per_case_usd, units_per_case, finished_measurements, color, factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, case_weight_kg, case_length_cm, case_width_cm, case_height_cm)
       VALUES ($1, 'G00003', 'SLEEVES MATTE BLACK - 100 PACK', 'SLEEVES', 'Standard tournament matte black card sleeves.', 8.00, 120, '66x91mm', 'Matte Black', 'Zhejiang Plastic Works', 'SL-MB-120', 2.00, 'PMS Black 6C', 12.00, 50.0, 25.0, 30.0)
@@ -137,7 +134,6 @@ async function seed() {
     `, [tenantId]);
     const p3Id = p3.rows[0].id;
 
-    // G00004 (Sleeves Matte Cyan - para preventa)
     const p4 = await client.query(`
       INSERT INTO products (tenant_id, sku, name, category, commercial_description, price_per_case_usd, units_per_case, finished_measurements, color, factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, case_weight_kg, case_length_cm, case_width_cm, case_height_cm)
       VALUES ($1, 'G00004', 'SLEEVES MATTE CYAN - 100 PACK', 'SLEEVES', 'Neon series matte cyan sleeves. Soft touch.', 8.00, 120, '66x91mm', 'Matte Cyan', 'Zhejiang Plastic Works', 'SL-MC-120', 2.00, 'PMS 801C', 12.00, 50.0, 25.0, 30.0)
@@ -145,7 +141,6 @@ async function seed() {
     `, [tenantId]);
     const p4Id = p4.rows[0].id;
 
-    // G00005 (Playmat Gosu Neon Wave - para preventa)
     const p5 = await client.query(`
       INSERT INTO products (tenant_id, sku, name, category, commercial_description, price_per_case_usd, units_per_case, finished_measurements, color, factory_name, factory_sku, factory_cost_per_case_usd, pantone_codes, case_weight_kg, case_length_cm, case_width_cm, case_height_cm)
       VALUES ($1, 'G00005', 'PLAYMAT GOSU NEON WAVE', 'PLAYMAT', 'Stitched edge premium rubber playmat.', 45.00, 12, '610x350x2mm', 'Neon Wave', 'Fujian Rubber Co', 'PM-NW-12', 15.00, 'PMS 802C', 6.00, 65.0, 15.0, 15.0)
@@ -195,7 +190,7 @@ async function seed() {
     const o1Id = o1Result.rows[0].id;
 
     await client.query(`
-      INSERT INTO sales_order_items (tenant_id, sales_order_id, product_id, qty_cases, price_case_usd, discount_pct, total_item_usd)
+      INSERT INTO sales_order_items (tenant_id, sales_order_id, product_id, qty_cases, price_per_case_usd, discount_pct, total_item_usd)
       VALUES
         ($1, $2, $3, 10, 35.00, 5.00, 332.50),
         ($1, $2, $4, 15, 8.00, 5.00, 114.00)
@@ -212,7 +207,7 @@ async function seed() {
     const o2Id = o2Result.rows[0].id;
 
     await client.query(`
-      INSERT INTO sales_order_items (tenant_id, sales_order_id, product_id, qty_cases, price_case_usd, discount_pct, total_item_usd)
+      INSERT INTO sales_order_items (tenant_id, sales_order_id, product_id, qty_cases, price_per_case_usd, discount_pct, total_item_usd)
       VALUES ($1, $2, $3, 30, 8.00, 5.00, 228.00)
     `, [tenantId, o2Id, p4Id]);
 
@@ -228,7 +223,7 @@ async function seed() {
     const prodId = prodResult.rows[0].id;
 
     await client.query(`
-      INSERT INTO production_order_items (tenant_id, production_order_id, product_id, quantity_cases, cost_per_case_usd, total_item_cost_usd, item_cbm)
+      INSERT INTO production_order_items (tenant_id, production_order_id, product_id, qty_cases, cost_per_case_usd, total_item_cost_usd, item_cbm)
       VALUES ($1, $2, $3, 250, 2.00, 500.00, 9.37500)
     `, [tenantId, prodId, p4Id]);
 
