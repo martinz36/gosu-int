@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { auth } from '../services/api';
+import { auth, API_URL } from '../services/api';
 
 export default function LoginPage({ onLogin }) {
   const [email, setEmail] = useState('admin@gosu.gg');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [seedLoading, setSeedLoading] = useState(false);
+  const [seedMessage, setSeedMessage] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -35,6 +37,25 @@ export default function LoginPage({ onLogin }) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSeedDemo = async () => {
+    setSeedLoading(true);
+    setSeedMessage(null);
+    try {
+      const response = await fetch(`${API_URL}/api/tenants/seed-demo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ secret: 'gosu_demo_seed_secret_123' })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Error al sembrar.');
+      setSeedMessage({ type: 'success', text: '🎉 Base de datos de demostración sembrada con éxito en Neon. Credenciales de la demo activadas!' });
+    } catch (err) {
+      setSeedMessage({ type: 'error', text: `❌ Error: ${err.message}` });
+    } finally {
+      setSeedLoading(false);
     }
   };
 
@@ -87,6 +108,21 @@ export default function LoginPage({ onLogin }) {
               textAlign: 'center',
             }}>
               {error}
+            </div>
+          )}
+
+          {seedMessage && (
+            <div style={{
+              background: seedMessage.type === 'success' ? 'rgba(0, 230, 118, 0.1)' : 'rgba(255, 60, 60, 0.1)',
+              border: seedMessage.type === 'success' ? '1px solid rgba(0, 230, 118, 0.4)' : '1px solid rgba(255, 60, 60, 0.4)',
+              color: seedMessage.type === 'success' ? '#00e676' : '#ff6b6b',
+              padding: '12px',
+              borderRadius: '8px',
+              fontSize: '13px',
+              marginBottom: '16px',
+              textAlign: 'center',
+            }}>
+              {seedMessage.text}
             </div>
           )}
 
@@ -248,6 +284,34 @@ export default function LoginPage({ onLogin }) {
                 }}
               >
                 🛍️ Cliente B2B (Card Shop)
+              </button>
+              <button
+                type="button"
+                onClick={handleSeedDemo}
+                style={{
+                  padding: '10px 14px',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  borderRadius: '6px',
+                  background: 'rgba(0, 232, 255, 0.1)',
+                  border: '1px solid rgba(0, 232, 255, 0.3)',
+                  color: 'var(--cyan-neon)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  marginTop: '12px',
+                  boxShadow: '0 0 8px rgba(0, 232, 255, 0.2)'
+                }}
+                disabled={seedLoading}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'rgba(0, 232, 255, 0.2)';
+                  e.target.style.borderColor = 'rgba(0, 232, 255, 0.5)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'rgba(0, 232, 255, 0.1)';
+                  e.target.style.borderColor = 'rgba(0, 232, 255, 0.3)';
+                }}
+              >
+                {seedLoading ? '⏳ Sembrando demo en Neon...' : '🌱 Inicializar/Restaurar Demo B2B'}
               </button>
             </div>
           </div>
