@@ -85,7 +85,40 @@ export const TRANSLATIONS = {
     
     // Alertas y Confirmaciones
     confirmar_accion: '⚠️ Confirmar Acción',
-    confirmar: 'Confirmar'
+    confirmar: 'Confirmar',
+
+    // Catálogo de Productos / Gestión de Productos
+    gestion_productos: '⚙️ Gestión de Productos',
+    crea_edita_productos: 'Crea, edita, actualiza y monitorea los parámetros técnicos y costos confidenciales de tus productos.',
+    registrar_producto: '➕ Registrar Producto',
+    placeholder_buscar: 'Buscar por SKU, Nombre...',
+    limpiar_filtros: 'Limpiar Filtros',
+    resultados_productos: 'Resultados: {count} productos',
+    filtro_categoria: 'Categoría',
+    todas_categorias: 'Todas las Categorías',
+    filtro_inventario: 'Estado del Inventario',
+    todos_stocks: 'Todos los Stocks',
+    filtro_fabrica: 'Fábrica Origen',
+    todas_fabricas: 'Todas las Fábricas',
+
+    // Columnas Tabla
+    col_miniatura: 'Miniatura',
+    col_producto_sku: 'Producto / SKU',
+    col_categoria: 'Categoría',
+    col_detalles: 'Detalles Técnicos',
+    col_fabrica_sku: 'Fábrica & SKU',
+    col_costo_fabrica: 'Costo Fábrica (USD)',
+    col_precio_b2b: 'Precio B2B (Caja)',
+    col_inventario: 'Inventario Físico / Prod',
+    col_acciones: 'Acciones',
+
+    // Celdas / Valores
+    celda_caja: 'caja',
+    celda_unidad: 'unidad',
+    celda_en_produccion: 'en producción',
+    celda_cajas: 'cajas',
+    celda_editar: 'Editar',
+    celda_eliminar: 'Eliminar'
   },
   en: {
     // Sidebar
@@ -173,6 +206,39 @@ export const TRANSLATIONS = {
 
     // Alertas y Confirmaciones
     confirmar_accion: '⚠️ Confirm Action',
-    confirmar: 'Confirm'
+    confirmar: 'Confirm',
+
+    // Catálogo de Productos / Gestión de Productos
+    gestion_productos: '⚙️ Product Management',
+    crea_edita_productos: 'Create, edit, update, and monitor technical parameters and confidential costs of your products.',
+    registrar_producto: '➕ Register Product',
+    placeholder_buscar: 'Search by SKU, Name...',
+    limpiar_filtros: 'Clear Filters',
+    resultados_productos: 'Results: {count} products',
+    filtro_categoria: 'Category',
+    todas_categorias: 'All Categories',
+    filtro_inventario: 'Inventory Status',
+    todos_stocks: 'All Stocks',
+    filtro_fabrica: 'Factory Origin',
+    todas_fabricas: 'All Factories',
+
+    // Columnas Tabla
+    col_miniatura: 'Thumbnail',
+    col_producto_sku: 'Product / SKU',
+    col_categoria: 'Category',
+    col_detalles: 'Technical Details',
+    col_fabrica_sku: 'Factory & SKU',
+    col_costo_fabrica: 'Factory Cost (USD)',
+    col_precio_b2b: 'B2B Price (Case)',
+    col_inventario: 'Physical / Prod Inventory',
+    col_acciones: 'Actions',
+
+    // Celdas / Valores
+    celda_caja: 'case',
+    celda_unidad: 'unit',
+    celda_en_produccion: 'in production',
+    celda_cajas: 'cases',
+    celda_editar: 'Edit',
+    celda_eliminar: 'Delete'
   }
 };

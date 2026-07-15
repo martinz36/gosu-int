@@ -3216,12 +3216,14 @@ function App() {
             <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '16px', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <h1 style={{ fontSize: '28px', margin: '0 0 4px', fontWeight: '800' }}>
-                  {isAdmin ? '⚙️ Gestión de Productos' : '📂 Catálogo Mayorista'}
+                  {isAdmin ? t('gestion_productos') : (lang === 'es' ? '📂 Catálogo Mayorista' : '📂 Wholesale Catalog')}
                 </h1>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
                   {isAdmin
-                    ? 'Crea, edita, actualiza y monitorea los parámetros técnicos y costos confidenciales de tus productos.'
-                    : 'Precios especiales para distribuidores despachados directamente de fábrica.'}
+                    ? t('crea_edita_productos')
+                    : (lang === 'es'
+                        ? 'Precios especiales para distribuidores despachados directamente de fábrica.'
+                        : 'Wholesale prices for distributors shipped directly from factory.')}
                 </p>
               </div>
               <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -3231,7 +3233,7 @@ function App() {
                     className="btn-pink"
                     style={{ padding: '8px 16px', fontSize: '13px' }}
                   >
-                    {creatingProduct ? 'Cerrar Formulario' : '➕ Registrar Producto'}
+                    {creatingProduct ? (lang === 'es' ? 'Cerrar Formulario' : 'Close Form') : t('registrar_producto')}
                   </button>
                 )}
                 {!isAdmin && (
@@ -3240,20 +3242,20 @@ function App() {
                       onClick={() => setCatalogViewMode('grid')}
                       style={{ background: catalogViewMode === 'grid' ? 'var(--cyan-neon)' : 'transparent', color: catalogViewMode === 'grid' ? '#000' : '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
                     >
-                      🔲 Vista Rejilla
+                      {lang === 'es' ? '🔲 Vista Rejilla' : '🔲 Grid View'}
                     </button>
                     <button
                       onClick={() => setCatalogViewMode('list')}
                       style={{ background: catalogViewMode === 'list' ? 'var(--cyan-neon)' : 'transparent', color: catalogViewMode === 'list' ? '#000' : '#fff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
                     >
-                      ≡ Vista Lista
+                      {lang === 'es' ? '≡ Vista Lista' : '≡ List View'}
                     </button>
                   </div>
                 )}
                 <input
                   type="text"
                   id="product-search"
-                  placeholder="Buscar por SKU, Nombre..."
+                  placeholder={t('placeholder_buscar')}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 16px', borderRadius: '8px', width: '200px' }}
@@ -3266,11 +3268,25 @@ function App() {
                 <span style={{ fontSize: '24px' }}>🏷️</span>
                 <div>
                   <h3 style={{ margin: '0 0 2px', fontSize: '15px', color: 'var(--cyan-neon)', fontWeight: '800' }}>
-                    Tu Nivel de Precios Comercial: {currentUser.tier_name || 'Precio Base Comercial'}
+                    {lang === 'es' ? 'Tu Nivel de Precios Comercial' : 'Your Commercial Pricing Tier'}: {currentUser.tier_name || (lang === 'es' ? 'Precio Base Comercial' : 'Base Commercial Price')}
                   </h3>
                   <p style={{ margin: '0', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    Beneficios activos: <strong>-{currentUser.discount_percentage || 0}% de descuento</strong> en todo el catálogo y un Monto Mínimo de Orden (MOV) de <strong>${parseFloat(currentUser.min_order_amount || 1000).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</strong>.
-                    {currentUser.only_master_cases && <span style={{ color: 'var(--orange-neon)', marginLeft: '6px', fontWeight: '600' }}>📦 Compras restringidas únicamente a Master Cases (cajas enteras).</span>}
+                    {lang === 'es' ? (
+                      <>
+                        Beneficios activos: <strong>-{currentUser.discount_percentage || 0}% de descuento</strong> en todo el catálogo y un Monto Mínimo de Orden (MOV) de <strong>${parseFloat(currentUser.min_order_amount || 1000).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</strong>.
+                      </>
+                    ) : (
+                      <>
+                        Active benefits: <strong>-{currentUser.discount_percentage || 0}% discount</strong> storewide and a Minimum Order Value (MOV) of <strong>${parseFloat(currentUser.min_order_amount || 1000).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</strong>.
+                      </>
+                    )}
+                    {currentUser.only_master_cases && (
+                      <span style={{ color: 'var(--orange-neon)', marginLeft: '6px', fontWeight: '600' }}>
+                        {lang === 'es' 
+                          ? '📦 Compras restringidas únicamente a Master Cases (cajas enteras).' 
+                          : '📦 Purchases restricted strictly to Master Cases (full cartons).'}
+                      </span>
+                    )}
                   </p>
                 </div>
               </div>
@@ -3628,13 +3644,13 @@ function App() {
                 {/* Panel de Filtros Avanzados para Admin */}
                 <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>Categoría</label>
+                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>{t('filtro_categoria')}</label>
                     <select
                       value={adminFilterCategory}
                       onChange={(e) => setAdminFilterCategory(e.target.value)}
                       style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '160px' }}
                     >
-                      <option value="all">Todas las Categorías</option>
+                      <option value="all">{t('todas_categorias')}</option>
                       {categoriesList.map(cat => (
                         <option key={cat.id} value={cat.slug}>{cat.name}</option>
                       ))}
@@ -3642,27 +3658,27 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>Estado del Inventario</label>
+                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>{t('filtro_inventario')}</label>
                     <select
                       value={adminFilterStockStatus}
                       onChange={(e) => setAdminFilterStockStatus(e.target.value)}
                       style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '180px' }}
                     >
-                      <option value="all">Todos los Stocks</option>
-                      <option value="out_of_stock">⚠️ Sin Stock Físico</option>
-                      <option value="low_stock">⚠️ Stock Bajo (&lt;10 cajas)</option>
-                      <option value="in_production">⚙️ En Producción activa</option>
+                      <option value="all">{t('todos_stocks')}</option>
+                      <option value="out_of_stock">{lang === 'es' ? '⚠️ Sin Stock Físico' : '⚠️ Out of Physical Stock'}</option>
+                      <option value="low_stock">{lang === 'es' ? '⚠️ Stock Bajo (<10 cajas)' : '⚠️ Low Stock (<10 cases)'}</option>
+                      <option value="in_production">{lang === 'es' ? '⚙️ En Producción activa' : '⚙️ Active Production'}</option>
                     </select>
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>Fábrica Origen</label>
+                    <label style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '600' }}>{t('filtro_fabrica')}</label>
                     <select
                       value={adminFilterFactory}
                       onChange={(e) => setAdminFilterFactory(e.target.value)}
                       style={{ background: '#121212', border: '1px solid var(--border-color)', color: '#fff', padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', minWidth: '180px' }}
                     >
-                      <option value="all">Todas las Fábricas</option>
+                      <option value="all">{t('todas_fabricas')}</option>
                       {(() => {
                         const factories = allProducts
                           .map(p => p.factory_name)
@@ -3682,7 +3698,7 @@ function App() {
                         className="btn-glass-pink"
                         style={{ padding: '8px 16px', fontSize: '12px', borderRadius: '8px', height: '36px', display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(255, 9, 187, 0.15)', border: '1px solid var(--pink-neon)', color: 'var(--pink-neon)', fontWeight: 'bold' }}
                       >
-                        🗑️ Eliminar Seleccionados ({selectedProductIds.length})
+                        🗑️ {lang === 'es' ? 'Eliminar Seleccionados' : 'Delete Selected'} ({selectedProductIds.length})
                       </button>
                     )}
                     <button
@@ -3696,10 +3712,10 @@ function App() {
                       className="btn-glass"
                       style={{ padding: '8px 16px', fontSize: '12px', borderRadius: '8px', height: '36px' }}
                     >
-                      Limpiar Filtros
+                      {t('limpiar_filtros')}
                     </button>
                     <span style={{ fontSize: '12px', color: 'var(--text-muted)', alignSelf: 'center', marginLeft: '8px' }}>
-                      Resultados: <strong>{productList.length}</strong> productos
+                      {t('resultados_productos').replace('{count}', productList.length)}
                     </span>
                   </div>
                 </div>
@@ -3707,7 +3723,7 @@ function App() {
                 {/* Tabla de Gestión Avanzada para Admin */}
                 {productList.length === 0 ? (
                   <div className="glass-panel" style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
-                    No se encontraron productos con los filtros aplicados.
+                    {lang === 'es' ? 'No se encontraron productos con los filtros aplicados.' : 'No products found matching filters.'}
                   </div>
                 ) : (
                   <div className="glass-panel" style={{ overflowX: 'auto', padding: '0', border: '1px solid rgba(255,255,255,0.06)' }}>
@@ -3728,15 +3744,15 @@ function App() {
                               style={{ cursor: 'pointer' }}
                             />
                           </th>
-                          <th style={{ padding: '12px' }}>Miniatura</th>
-                          <th style={{ padding: '12px' }}>Producto / SKU</th>
-                          <th style={{ padding: '12px' }}>Categoría</th>
-                          <th style={{ padding: '12px' }}>Detalles Técnicos</th>
-                          <th style={{ padding: '12px' }}>Fábrica & SKU</th>
-                          <th style={{ padding: '12px' }}>Costo Fábrica (USD)</th>
-                          <th style={{ padding: '12px' }}>Precio B2B (Caja)</th>
-                          <th style={{ padding: '12px' }}>Inventario Físico / Prod</th>
-                          <th style={{ padding: '12px', textAlign: 'center' }}>Acciones</th>
+                          <th style={{ padding: '12px' }}>{t('col_miniatura')}</th>
+                          <th style={{ padding: '12px' }}>{t('col_producto_sku')}</th>
+                          <th style={{ padding: '12px' }}>{t('col_categoria')}</th>
+                          <th style={{ padding: '12px' }}>{t('col_detalles')}</th>
+                          <th style={{ padding: '12px' }}>{t('col_fabrica_sku')}</th>
+                          <th style={{ padding: '12px' }}>{t('col_costo_fabrica')}</th>
+                          <th style={{ padding: '12px' }}>{t('col_precio_b2b')}</th>
+                          <th style={{ padding: '12px' }}>{t('col_inventario')}</th>
+                          <th style={{ padding: '12px', textAlign: 'center' }}>{t('col_acciones')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -3778,7 +3794,7 @@ function App() {
                               <td style={{ padding: '10px 12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                                 {product.finished_measurements && <div>📏 {product.finished_measurements}</div>}
                                 {product.color && <div>🎨 {product.color}</div>}
-                                <div>📦 {product.units_per_case} uds / caja</div>
+                                <div>📦 {product.units_per_case} {lang === 'es' ? 'uds / caja' : 'units / case'}</div>
                               </td>
                               <td style={{ padding: '10px 12px' }}>
                                 <div style={{ fontWeight: '600', color: '#fff' }}>{product.factory_name || 'N/A'}</div>
@@ -3786,10 +3802,10 @@ function App() {
                               </td>
                               <td style={{ padding: '10px 12px' }}>
                                 <div style={{ fontWeight: '700', color: 'var(--pink-neon)' }}>
-                                  ${calculatedCostPerCase.toFixed(2)} / caja
+                                  ${calculatedCostPerCase.toFixed(2)} / {t('celda_caja')}
                                 </div>
                                 <div style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
-                                  ${costPerUnit.toFixed(4)} / unidad
+                                  ${costPerUnit.toFixed(4)} / {t('celda_unidad')}
                                 </div>
                               </td>
                               <td style={{ padding: '10px 12px', fontWeight: '700', color: 'var(--green-neon)', fontSize: '14px' }}>
@@ -3797,11 +3813,11 @@ function App() {
                               </td>
                               <td style={{ padding: '10px 12px' }}>
                                 <div style={{ fontWeight: '700', color: product.stock_physical_cases === 0 ? 'var(--pink-neon)' : product.stock_physical_cases < 10 ? 'var(--orange-neon)' : 'var(--green-neon)' }}>
-                                  {product.stock_physical_cases === 0 ? '⚠️ Agotado' : `${product.stock_physical_cases} cajas`}
+                                  {product.stock_physical_cases === 0 ? (lang === 'es' ? '⚠️ Agotado' : '⚠️ Out of Stock') : `${product.stock_physical_cases} ${product.stock_physical_cases === 1 ? t('caja') : t('cajas')}`}
                                 </div>
                                 {product.stock_in_production_cases > 0 && (
                                   <div style={{ fontSize: '11px', color: 'var(--cyan-neon)', marginTop: '2px' }}>
-                                    ⚙️ {product.stock_in_production_cases} en producción
+                                    ⚙️ {product.stock_in_production_cases} {t('celda_en_produccion')}
                                   </div>
                                 )}
                               </td>
@@ -3838,9 +3854,9 @@ function App() {
                                     }}
                                     className="btn-glass-neon"
                                     style={{ padding: '6px 12px', fontSize: '12px' }}
-                                    title="Editar parámetros del producto"
+                                    title={lang === 'es' ? 'Editar parámetros del producto' : 'Edit product parameters'}
                                   >
-                                    ✏️ Editar
+                                    ✏️ {t('celda_editar')}
                                   </button>
                                   <button
                                     onClick={() => handleDeleteProduct(product.id)}
