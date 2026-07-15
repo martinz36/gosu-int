@@ -597,6 +597,17 @@ router.post('/seed-demo', async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // 0. Asegurar esquema de la base de datos de producción (Bancos, Campañas)
+    await client.query('ALTER TABLE tenants ADD COLUMN IF NOT EXISTS bank_name VARCHAR(255)');
+    await client.query('ALTER TABLE tenants ADD COLUMN IF NOT EXISTS bank_account_name VARCHAR(255)');
+    await client.query('ALTER TABLE tenants ADD COLUMN IF NOT EXISTS bank_account_number VARCHAR(255)');
+    await client.query('ALTER TABLE tenants ADD COLUMN IF NOT EXISTS bank_routing_number VARCHAR(255)');
+    await client.query('ALTER TABLE tenants ADD COLUMN IF NOT EXISTS logo_url VARCHAR(512)');
+    await client.query("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS default_incoterm VARCHAR(50) DEFAULT 'FOB China'");
+    await client.query("ALTER TABLE tenants ADD COLUMN IF NOT EXISTS discount_policy VARCHAR(20) DEFAULT 'tier'");
+    await client.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS campaign_id UUID');
+    await client.query('ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS campaign_id UUID');
+
     // 1. Limpieza de datos anteriores si existen
     const existingTenant = await client.query("SELECT id FROM tenants WHERE slug = 'gosu-demo'");
     if (existingTenant.rows.length > 0) {
