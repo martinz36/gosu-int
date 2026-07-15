@@ -597,7 +597,15 @@ router.post('/seed-demo', async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // 0. Asegurar esquema de la base de datos de producción (Bancos, Campañas)
+    // 0. Asegurar esquema de la base de datos de producción (Bancos, Campañas, y compatibilidad de plan_id)
+    await client.query(`
+      DO $$ 
+      BEGIN 
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenants' AND column_name='plan_id') THEN
+          ALTER TABLE tenants ALTER COLUMN plan_id DROP NOT NULL;
+        END IF;
+      END $$;
+    `);
     await client.query('ALTER TABLE tenants ADD COLUMN IF NOT EXISTS bank_name VARCHAR(255)');
     await client.query('ALTER TABLE tenants ADD COLUMN IF NOT EXISTS bank_account_name VARCHAR(255)');
     await client.query('ALTER TABLE tenants ADD COLUMN IF NOT EXISTS bank_account_number VARCHAR(255)');
