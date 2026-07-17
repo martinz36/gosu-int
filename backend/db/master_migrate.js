@@ -186,12 +186,21 @@ async function masterMigrate() {
     await client.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS campaign_id UUID`);
     // Columna case_cbm como columna regular (la función GENERATED puede no estar disponible en producción)
     await client.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS case_cbm NUMERIC(10,5)`);
-    // Sincronizar case_cbm para filas existentes si tiene los datos de dimensiones
-    await client.query(`
-      UPDATE products 
-      SET case_cbm = (case_length_cm * case_width_cm * case_height_cm) / 1000000.0
-      WHERE case_length_cm IS NOT NULL AND case_width_cm IS NOT NULL AND case_height_cm IS NOT NULL AND case_cbm IS NULL
+    
+    // Sincronizar case_cbm para filas existentes si tiene los datos de dimensiones y NO es una columna generada
+    const isGeneratedQuery = await client.query(`
+      SELECT is_generated 
+      FROM information_schema.columns 
+      WHERE table_name = 'products' AND column_name = 'case_cbm'
     `);
+    const isGenerated = isGeneratedQuery.rows[0]?.is_generated === 'ALWAYS';
+    if (!isGenerated) {
+      await client.query(`
+        UPDATE products 
+        SET case_cbm = (case_length_cm * case_width_cm * case_height_cm) / 1000000.0
+        WHERE case_length_cm IS NOT NULL AND case_width_cm IS NOT NULL AND case_height_cm IS NOT NULL AND case_cbm IS NULL
+      `);
+    }
     console.log('✅ [7] Todas las columnas del esquema developer agregadas a products.');
 
     // ============================================================
